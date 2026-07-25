@@ -17,9 +17,10 @@ Nexora 2.0 introduces a complete architectural evolution with **event-first desi
 |---------|------------|------------|
 | **API Structure** | `/api/v2/*` | `/api/*` (cleaner, no versioning) |
 | **Event Architecture** | Graph-first | **Event-first** with `nexora-eventlog` |
-| **Storage Backend** | RocksDB only | RocksDB + **S3/MinIO** + Lakekeeper REST catalog |
+| **Storage Backend** | RocksDB only | RocksDB + **Apache Iceberg** on S3/MinIO |
+| **Query Engine** | Custom | Custom Cypher + **DataFusion** for event queries |
 | **Dashboard** | Basic | Enhanced with **SQL Query page** and fixed compatibility |
-| **Distributed Writes** | Single-node | **Multi-node** S3 concurrent writes |
+| **Distributed Writes** | Single-node | **Multi-node** S3 concurrent writes with Iceberg's optimistic concurrency |
 | **Test Coverage** | Basic | **1590+ tests** with chaos testing |
 
 ---
@@ -29,7 +30,7 @@ Nexora 2.0 introduces a complete architectural evolution with **event-first desi
 ### Prerequisites
 - Rust 1.88+
 - Optional: MinIO/S3 for distributed storage
-- Optional: Lakekeeper for REST catalog
+- Optional: PostgreSQL for shared catalog (advanced)
 
 ### Installation
 
@@ -45,10 +46,10 @@ cargo build --release
 ### Launch Server
 
 ```bash
-# Single-node mode (default)
+# Single-node mode (default, local RocksDB + event log)
 ./target/release/nexora --host 127.0.0.1 --port 8080 --allow-unauthenticated
 
-# With distributed storage (S3/MinIO)
+# With distributed storage (S3/MinIO + Iceberg)
 ./target/release/nexora \
   --event-store-type s3 \
   --s3-endpoint http://localhost:9000 \
@@ -90,11 +91,11 @@ Open **http://127.0.0.1:8080/dashboard** in your browser for:
 Nexora 2.0 treats **events as the source of truth**, with the graph as a derived projection:
 
 ```
-Raw Events (Event Log Store)
+Raw Events (Apache Iceberg Event Log)
     ↓
 Materialized Graph (RocksDB)
     ↓
-Query Engine (Cypher/SQL)
+Query Engine (Cypher/SQL via DataFusion)
 ```
 
 ### Storage Layers
@@ -103,16 +104,26 @@ Query Engine (Cypher/SQL)
 ┌─────────────────────────────────────┐
 │   Application Layer (HTTP API)      │
 ├─────────────────────────────────────┤
-│   Query Engine (Cypher + SQL)       │
+│   Query Engine                       │
+│   ├── Cypher (custom parser)        │
+│   └── SQL → Cypher translator       │
 ├─────────────────────────────────────┤
-│   Graph Storage (RocksDB)           │
+│   Graph Projection (RocksDB)        │
 ├─────────────────────────────────────┤
 │   Event Log Store (nexora-eventlog) │
-│   ├── Local FS                       │
-│   ├── S3 / MinIO (distributed)      │
-│   └── Lakekeeper REST Catalog       │
+│   ├── Apache Iceberg Tables         │
+│   ├── Local FS / S3 / MinIO         │
+│   └── SQLite Catalog (metadata)     │
 └─────────────────────────────────────┘
 ```
+
+### Event-First Benefits
+
+1. **Immutable Event Log** - All mutations are append-only events
+2. **Time Travel** - Query graph state at any historical point
+3. **Distributed Writes** - Multiple nodes can write concurrently to S3
+4. **Replay & Recovery** - Rebuild graph from event log
+5. **DataFusion Integration** - SQL queries over event tables
 
 ---
 
@@ -125,11 +136,17 @@ nexora2/
 │   ├── nexora-cypher/        # Cypher parser & executor
 │   ├── nexora-sql/           # SQL → Cypher translator
 │   ├── nexora-eventlog/      # Event-first storage (NEW)
+│   │                          # - Apache Iceberg integration
+│   │                          # - DataFusion query engine
+│   │                          # - SQLite catalog
 │   ├── nexora-storage/       # S3/MinIO integration (NEW)
 │   ├── nexora-pgwire/        # PostgreSQL wire protocol
 │   ├── nexora-app/           # HTTP API server
 │   └── nexora-bench/         # Performance benchmarks
 ├── docs/                     # Documentation
+│   ├── architecture/         # Design documents
+│   ├── production-planning/  # Roadmap & production readiness
+│   └── testing/              # Test reports
 ├── scripts/                  # Deployment & test scripts
 └── ui/                       # Web dashboard (React)
 ```
@@ -147,7 +164,7 @@ cargo test --workspace
 # Run event log tests
 cargo test -p nexora-eventlog
 
-# Run distributed write tests
+# Run distributed write tests (requires MinIO)
 cargo test -p nexora-eventlog concurrent_s3_writes
 
 # Run chaos tests
@@ -156,10 +173,10 @@ cargo test chaos
 
 ### Test Data
 
-Example test data included in `/tmp/`:
-- `load_air_cargo.sh` - Loads air cargo terminal sample data
-- `test_air_cargo_simple.sql` - SQL test queries
-- `test_air_cargo_cypher.sql` - Cypher test queries
+Example test data for air cargo terminal:
+- `/tmp/load_air_cargo.sh` - Loads sample data
+- `/tmp/test_air_cargo_simple.sql` - SQL test queries
+- `/tmp/test_air_cargo_cypher.sql` - Cypher test queries
 
 ---
 
@@ -167,6 +184,7 @@ Example test data included in `/tmp/`:
 
 - [Architecture Overview](docs/architecture/)
 - [Event Store Design](docs/architecture/DISTRIBUTED_EVENT_WRITE_DESIGN.md)
+- [Event Log Completion Summary](docs/EVENTLOG-COMPLETION-SUMMARY.md)
 - [Deployment Guide](docs/EVENT_STORE_DEPLOYMENT_QUICK_START.md)
 - [API Documentation](http://127.0.0.1:8080/api/docs) (when server is running)
 
@@ -176,7 +194,23 @@ Example test data included in `/tmp/`:
 
 See [ROADMAP_TO_PRODUCTION_LEADING_2026-07-18.md](docs/production-planning/ROADMAP_TO_PRODUCTION_LEADING_2026-07-18.md) for detailed production readiness roadmap.
 
-**Current Status**: Single-node production-ready. Multi-node experimental.
+**Current Status**: 
+- ✅ Single-node production-ready
+- 🧪 Multi-node experimental (distributed event writes functional, needs validation)
+
+---
+
+## 🔧 Technology Stack
+
+- **Language**: Rust 1.88+
+- **Graph Storage**: RocksDB
+- **Event Log**: Apache Iceberg (Parquet files)
+- **Query Engines**: 
+  - Custom Cypher parser & executor
+  - DataFusion for SQL/event queries
+- **Object Storage**: S3, MinIO, or local filesystem
+- **Catalog**: SQLite (for Iceberg metadata)
+- **Wire Protocols**: HTTP REST, PostgreSQL wire protocol
 
 ---
 
@@ -202,3 +236,16 @@ Contributions welcome! Please:
 - **Issues**: https://github.com/frank-dkvan/nexora2/issues
 - **Discussions**: https://github.com/frank-dkvan/nexora2/discussions
 
+---
+
+## 📖 About Event-First Architecture
+
+Nexora 2.0's event-first design is inspired by:
+- **Apache Iceberg** - Table format with ACID guarantees
+- **Event Sourcing** - Immutable event log as source of truth
+- **RisingWave** - Barrier-based checkpointing (architecture reference only)
+
+The graph is a **materialized view** over the event log, enabling:
+- Point-in-time queries
+- Event replay for debugging
+- Distributed consistency via Iceberg's optimistic concurrency

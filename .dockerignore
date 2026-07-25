@@ -1,0 +1,34 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+ui/node_modules/
+ui/dist/
+
+# Data
+nexora-data/
+data/
+*.db
+*.log
+
+# Environment
+.env
+.env.local
+
+# Docker
+docker-data/
+
+# Cargo lock is needed for binaries, not libraries
+# Keep Cargo.lock for this project

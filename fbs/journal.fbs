@@ -1,0 +1,53 @@
+include "base.fbs";
+
+namespace com.nexora.persistence;
+
+// See [[com.nexora.graph.NodeEvent]]
+union NodeEventUnion {
+  AddEdge,
+  RemoveEdge,
+  AddProperty,
+  RemoveProperty
+}
+
+// See [[com.nexora.graph.EdgeAdded]]
+table AddEdge {
+  edge_type: string (required);
+  direction: EdgeDirection;
+  other_id: [byte] (required); // raw bytes of a `NexoraId`
+}
+
+// See [[com.nexora.graph.EdgeRemoved]]
+table RemoveEdge {
+  edge_type: string (required);
+  direction: EdgeDirection;
+  other_id: [byte] (required); // raw bytes of a `NexoraId`
+}
+
+// See [[com.nexora.graph.PropertySet]]
+table AddProperty {
+  key: string (required);
+  value: [byte] (required); // MessagePack-serialized `NexoraValue`
+}
+
+// See [[com.nexora.graph.PropertyRemoved]]
+table RemoveProperty {
+  key: string (required);
+  value: [byte] (required); // MessagePack-serialized `NexoraValue`
+}
+
+// Also see [[com.nexora.graph.NodeEvent.WithTime]]
+// Unlike `NodeEventUnion`, this can be used as a root type
+table NodeEventWithTime {
+  qid: [byte] (required);     // NexoraId raw bytes - FIX: was missing, caused WAL replay data loss
+  event_time: long;
+  event: NodeEventUnion (required);
+}
+root_type NodeEventWithTime;
+
+// Also see [[com.nexora.graph.NodeEvent]]
+// Unlike `NodeEventUnion`, this can be used as a root type
+table NodeEvent {
+  event: NodeEventUnion (required);
+}
+root_type NodeEvent;

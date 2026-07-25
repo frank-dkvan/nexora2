@@ -1,0 +1,25 @@
+[package]
+name = "nexora-udf"
+version.workspace = true
+edition.workspace = true
+description = "UDF framework — WASM/Python/JS user-defined functions for streaming graph"
+
+[features]
+default = []
+wasm = ["dep:wasmtime"]
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tempfile = "3"
+nix = { version = "0.29", features = ["resource"] }
+libc = "0.2"
+wasmtime = { version = "27", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+wat = "1"

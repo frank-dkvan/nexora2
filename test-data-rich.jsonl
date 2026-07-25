@@ -1,0 +1,32 @@
+{"id":"forklift-001","name":"Forklift Alpha","type":"Forklift","status":"active","speed":45,"battery":88,"location":"Warehouse A","zone":"zone-001","weight_capacity":2000}
+{"id":"forklift-002","name":"Forklift Beta","type":"Forklift","status":"active","speed":120,"battery":72,"location":"Warehouse B","zone":"zone-002","weight_capacity":2500}
+{"id":"forklift-003","name":"Forklift Gamma","type":"Forklift","status":"inactive","speed":0,"battery":15,"location":"Maintenance Bay","zone":"zone-003","weight_capacity":2000}
+{"id":"forklift-004","name":"Forklift Delta","type":"Forklift","status":"active","speed":95,"battery":64,"location":"Warehouse A","zone":"zone-001","weight_capacity":3000}
+{"id":"forklift-005","name":"Forklift Epsilon","type":"Forklift","status":"active","speed":135,"battery":91,"location":"Warehouse C","zone":"zone-004","weight_capacity":2500}
+{"id":"forklift-006","name":"Forklift Zeta","type":"Forklift","status":"charging","speed":0,"battery":42,"location":"Charging Station","zone":"zone-005","weight_capacity":2000}
+{"id":"forklift-007","name":"Forklift Eta","type":"Forklift","status":"active","speed":110,"battery":78,"location":"Warehouse B","zone":"zone-002","weight_capacity":3500}
+{"id":"forklift-008","name":"Forklift Theta","type":"Forklift","status":"inactive","speed":0,"battery":8,"location":"Maintenance Bay","zone":"zone-003","weight_capacity":2000}
+{"id":"operator-001","name":"Alice Johnson","type":"Person","role":"operator","shift":"morning","certified":true,"years_experience":7}
+{"id":"operator-002","name":"Bob Smith","type":"Person","role":"operator","shift":"afternoon","certified":true,"years_experience":3}
+{"id":"operator-003","name":"Carol White","type":"Person","role":"operator","shift":"morning","certified":false,"years_experience":1}
+{"id":"operator-004","name":"David Lee","type":"Person","role":"operator","shift":"night","certified":true,"years_experience":12}
+{"id":"operator-005","name":"Eve Martinez","type":"Person","role":"supervisor","shift":"morning","certified":true,"years_experience":15}
+{"id":"operator-006","name":"Frank Chen","type":"Person","role":"operator","shift":"afternoon","certified":true,"years_experience":5}
+{"id":"zone-001","name":"Loading Dock A","type":"Zone","capacity":50,"current_load":32,"temperature":18.5,"hazmat":false}
+{"id":"zone-002","name":"Storage Area B","type":"Zone","capacity":100,"current_load":87,"temperature":16.0,"hazmat":false}
+{"id":"zone-003","name":"Maintenance Bay","type":"Zone","capacity":20,"current_load":3,"temperature":22.0,"hazmat":false}
+{"id":"zone-004","name":"Cold Storage C","type":"Zone","capacity":80,"current_load":45,"temperature":-4.0,"hazmat":false}
+{"id":"zone-005","name":"Hazmat Zone D","type":"Zone","capacity":30,"current_load":12,"temperature":20.0,"hazmat":true}
+{"id":"sensor-001","name":"Temp Sensor A","type":"Sensor","sensor_type":"temperature","reading":22.5,"unit":"celsius","zone":"zone-001","online":true}
+{"id":"sensor-002","name":"Vibration Sensor A","type":"Sensor","sensor_type":"vibration","reading":0.8,"unit":"g","zone":"zone-001","online":true}
+{"id":"sensor-003","name":"Temp Sensor C","type":"Sensor","sensor_type":"temperature","reading":-3.8,"unit":"celsius","zone":"zone-004","online":true}
+{"id":"sensor-004","name":"Humidity Sensor B","type":"Sensor","sensor_type":"humidity","reading":65.0,"unit":"percent","zone":"zone-002","online":true}
+{"id":"sensor-005","name":"Gas Sensor D","type":"Sensor","sensor_type":"gas","reading":12.3,"unit":"ppm","zone":"zone-005","online":false}
+{"id":"package-001","name":"Package A","type":"Package","weight":25,"status":"in-transit","priority":"high","destination":"zone-002"}
+{"id":"package-002","name":"Package B","type":"Package","weight":120,"status":"stored","priority":"medium","destination":"zone-002"}
+{"id":"package-003","name":"Package C","type":"Package","weight":8,"status":"delivered","priority":"low","destination":"zone-001"}
+{"id":"package-004","name":"Package D","type":"Package","weight":340,"status":"in-transit","priority":"high","destination":"zone-004"}
+{"id":"package-005","name":"Package E","type":"Package","weight":55,"status":"stored","priority":"medium","destination":"zone-005"}
+{"id":"package-006","name":"Package F","type":"Package","weight":18,"status":"in-transit","priority":"high","destination":"zone-001"}
+{"id":"package-007","name":"Package G","type":"Package","weight":210,"status":"stored","priority":"low","destination":"zone-002"}
+{"id":"package-008","name":"Package H","type":"Package","weight":72,"status":"delivered","priority":"medium","destination":"zone-004"}

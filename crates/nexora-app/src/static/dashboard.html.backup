@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexora-RS Dashboard</title>
+<!-- CodeMirror for Cypher syntax highlighting -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/dracula.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/edit/closebrackets.min.js"></script>
+<!-- D3.js for graph visualization -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+:root{
+  --bg:#0f172a;--bg2:#1e293b;--bg3:#334155;--border:#475569;
+  --primary:#38bdf8;--green:#4ade80;--red:#f87171;--yellow:#fbbf24;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --radius:10px;--font:-apple-system,BlinkMacSystemFont,Roboto,sans-serif;--mono:monospace;
+  --sidebar-w:200px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+
+/* === Sidebar === */
+#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;transition:margin-left .25s ease}
+#sidebar .logo{padding:0 16px 12px;border-bottom:1px solid var(--border)}
+#sidebar .logo h1{font-size:15px;color:var(--primary)}
+#sidebar .logo .ver{font-size:9px;color:var(--text3)}
+#sidebar nav{margin-top:8px;flex:1}
+#sidebar nav a{display:flex;align-items:center;gap:8px;padding:8px 16px;color:var(--text2);text-decoration:none;font-size:12px;cursor:pointer;border-left:3px solid transparent;transition:background .15s}
+#sidebar nav a:hover,#sidebar nav a.active{background:var(--bg3);color:var(--text)}
+#sidebar nav a.active{color:var(--primary);border-left-color:var(--primary)}
+#sidebar .status{padding:12px 16px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)}
+
+/* === Mobile sidebar toggle === */
+#sidebarToggle{display:none;position:fixed;top:8px;left:8px;z-index:100;width:36px;height:36px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:18px;align-items:center;justify-content:center}
+#overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
+
+/* === Main === */
+#main{flex:1;overflow-y:auto}
+.page{display:none;padding:20px}.page.active{display:block}
+.header{background:var(--bg2);padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.header h2{font-size:14px;font-weight:600}
+
+/* === Cards & Grid === */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.card{background:var(--bg2);border-radius:var(--radius);padding:14px;border:1px solid var(--border);transition:border-color .2s}
+.card:hover{border-color:var(--primary)}
+.card h3{font-size:10px;color:var(--text2);text-transform:uppercase;margin-bottom:4px}
+.card .val{font-size:26px;font-weight:700;color:var(--primary)}
+.card.green .val{color:var(--green)}
+.card .skeleton{display:inline-block;width:60px;height:26px;background:linear-gradient(90deg,var(--bg3) 25%,var(--border) 50%,var(--bg3) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;vertical-align:middle}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* === Panels === */
+.panel{background:var(--bg2);border-radius:var(--radius);padding:14px;border:1px solid var(--border)}
+.row,.flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.flex-1{flex:1}.mb1{margin-bottom:8px}.mt1{margin-top:8px}
+
+/* === Forms === */
+input,textarea,select{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;transition:border-color .15s}
+input:focus,textarea:focus,select:focus{border-color:var(--primary)}
+button{padding:6px 14px;background:var(--primary);color:var(--bg);border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:12px;transition:opacity .15s}
+button:hover{opacity:.85}
+button:disabled{opacity:.4;cursor:default}
+button.ghost{background:transparent;color:var(--text2);border:1px solid var(--border)}
+button.ghost:hover{background:var(--bg3)}
+button.danger{background:var(--red);color:#fff}
+
+/* === Tables === */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)}
+th{color:var(--text2);font-size:10px;text-transform:uppercase}
+
+/* === Error boundary === */
+#errorBoundary{display:none;position:fixed;bottom:16px;right:16px;max-width:400px;background:var(--bg2);border:1px solid var(--red);border-radius:var(--radius);padding:16px;z-index:200;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+#errorBoundary.show{display:block}
+#errorBoundary .err-title{color:var(--red);font-size:13px;font-weight:600;margin-bottom:8px}
+#errorBoundary .err-msg{font-size:11px;color:var(--text2);font-family:var(--mono);max-height:100px;overflow:auto}
+#errorBoundary .err-close{position:absolute;top:8px;right:12px;cursor:pointer;color:var(--text3);font-size:14px}
+
+/* === Toast === */
+#toast{position:fixed;top:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.toast-item{padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.3);animation:slideIn .3s ease}
+.toast-item.success{background:var(--green);color:var(--bg)}
+.toast-item.error{background:var(--red);color:#fff}
+.toast-item.info{background:var(--primary);color:var(--bg)}
+
+/* === CodeMirror === */
+.CodeMirror{height:auto!important;min-height:80px;border-radius:6px;font-size:13px!important;font-family:var(--mono)!important}
+.cm-s-dracula.CodeMirror{background:var(--bg)!important;border:1px solid var(--border)}
+
+/* === D3 Graph Viz === */
+#graphViz{width:100%;height:400px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);overflow:hidden}
+#graphViz svg{width:100%;height:100%}
+.graph-node{cursor:pointer;transition:opacity .2s}
+.graph-node:hover{opacity:.8}
+.graph-link{stroke:var(--border);stroke-opacity:.6}
+.graph-label{fill:var(--text2);font-size:9px;pointer-events:none;text-anchor:middle}
+#vizControls{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.viz-stat{font-size:10px;color:var(--text2);padding:2px 8px;background:var(--bg);border-radius:4px;border:1px solid var(--border)}
+
+/* === Query Stats === */
+.query-stats{display:flex;gap:12px;margin-top:8px;font-size:11px;color:var(--text2)}
+.query-stats .stat{padding:2px 8px;background:var(--bg);border-radius:4px;border:1px solid var(--border)}
+.query-stats .stat.fast{color:var(--green)}
+.query-stats .stat.slow{color:var(--red)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* === WS status indicator === */
+.ws-indicator{display:inline-flex;align-items:center;gap:4px;font-size:10px}
+.ws-dot{width:6px;height:6px;border-radius:50%;background:var(--text3)}
+.ws-dot.connected{background:var(--green)}
+.ws-dot.connecting{background:var(--yellow);animation:pulse 1s infinite}
+.ws-dot.disconnected{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* === Responsive === */
+@media(max-width:768px){
+  #sidebarToggle{display:flex}
+  #sidebar{margin-left:calc(-1 * var(--sidebar-w));position:fixed;top:0;bottom:0;z-index:95}
+  #sidebar.open{margin-left:0}
+  #overlay.show{display:block}
+  #main{padding-top:0}
+  .header{padding-left:52px}
+  .grid{grid-template-columns:1fr 1fr}
+  .card .val{font-size:20px}
+  .flex{flex-direction:column;align-items:stretch}
+  input,textarea,select{width:100%}
+}
+@media(max-width:480px){
+  .grid{grid-template-columns:1fr}
+  .header h2{font-size:12px}
+  .panel{padding:10px}
+}
+</style>
+</head>
+<body>
+
+<!-- Mobile sidebar toggle -->
+<button id="sidebarToggle" onclick="toggleSidebar()">&#9776;</button>
+<div id="overlay" onclick="toggleSidebar()"></div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <div class="logo"><h1>Nexora-RS</h1><div class="ver">v0.4.0</div></div>
+  <nav>
+    <a class="active" data-page="dashboard" onclick="showPage('dashboard')">Dashboard</a>
+    <a data-page="graph" onclick="showPage('graph')">Graph Browser</a>
+    <a data-page="cypher" onclick="showPage('cypher')">Cypher Query</a>
+    <a data-page="sq" onclick="showPage('sq')">Standing Queries</a>
+    <a data-page="ingest" onclick="showPage('ingest')">Data Ingest</a>
+  </nav>
+  <div class="status">
+    <div><span id="sdot" class="ws-dot disconnected"></span> <span id="stxt">Offline</span></div>
+    <div style="margin-top:4px"><span class="ws-indicator"><span id="wsDot" class="ws-dot disconnected"></span><span id="wsTxt">WS: Off</span></span></div>
+  </div>
+</div>
+
+<!-- Main -->
+<div id="main">
+
+  <!-- Dashboard Page -->
+  <div class="page active" id="page-dashboard">
+    <div class="header"><h2>Dashboard</h2><span id="uptime" style="font-size:11px;color:var(--text2)"></span></div>
+    <div class="grid" style="padding:16px">
+      <div class="card"><h3>Active Nodes</h3><div class="val" id="mNodes"><span class="skeleton"></span></div></div>
+      <div class="card green"><h3>Standing Queries</h3><div class="val" id="mSQ"><span class="skeleton"></span></div></div>
+      <div class="card"><h3>Shards</h3><div class="val" id="mShards"><span class="skeleton"></span></div></div>
+      <div class="card"><h3>Mode</h3><div class="val" id="mMode" style="font-size:16px"><span class="skeleton"></span></div></div>
+      <div class="card green"><h3>Status</h3><div class="val" id="mHealth" style="font-size:16px"><span class="skeleton"></span></div></div>
+    </div>
+    <div class="panel" style="margin:16px">
+      <strong>Quick Start</strong>
+      <div class="flex mt1" style="gap:8px;flex-wrap:wrap">
+        <button onclick="loadSample('social-network')" class="ghost" style="font-size:10px">Load Social Network</button>
+        <button onclick="loadSample('tech-stack')" class="ghost" style="font-size:10px">Load Tech Stack</button>
+        <button onclick="loadSample('iot-sensors')" class="ghost" style="font-size:10px">Load IoT Sensors</button>
+        <button onclick="loadPresetRecipe('high-temp-alert')" class="ghost" style="font-size:10px">Recipe: High Temp Alert</button>
+        <button onclick="loadPresetRecipe('critical-status-watch')" class="ghost" style="font-size:10px">Recipe: Critical Watch</button>
+      </div>
+      <pre style="font-size:10px;margin-top:8px;color:var(--text2)">curl -X PUT http://localhost:8080/api/v2/graph/node/$(echo -n n1|xxd -p)/property/name -H "Content-Type: application/json" -d '{"value":"test"}'
+curl -X POST http://localhost:8080/api/v2/standing-query -H "Content-Type: application/json" -d '{"name":"alert","pattern":{"type":"PropertyFilter","key":"speed","condition":{"type":"GreaterThan","value":100}}}'
+curl -X POST http://localhost:8080/query/cypher -H "Content-Type: application/json" -d '{"query":"CREATE (n:Test{value:42})"}'</pre>
+    </div>
+  </div>
+
+  <!-- Graph Browser Page -->
+  <div class="page" id="page-graph">
+    <div class="header"><h2>Graph Browser</h2>
+      <div class="flex"><input type="text" id="gQid" placeholder="Node ID" style="width:180px"><button onclick="loadNode()">Search</button></div>
+    </div>
+    <div id="vizControls">
+      <button onclick="vizReset()" class="ghost" style="font-size:10px">Reset View</button>
+      <button onclick="vizLoadAll()" class="ghost" style="font-size:10px">Load All Nodes</button>
+      <span class="viz-stat" id="vizNodeCount">0 nodes</span>
+      <span class="viz-stat" id="vizEdgeCount">0 edges</span>
+    </div>
+    <div id="graphViz" style="margin:0 16px">
+      <svg id="vizSvg"></svg>
+    </div>
+    <div class="flex" style="gap:16px;padding:16px">
+      <div class="panel flex-1"><h3 class="mb1">Properties <span id="gLabel" style="font-size:11px;color:var(--text2)"></span></h3><div id="gProps"><em style="color:var(--text3)">Search for a node or load all</em></div></div>
+      <div class="panel flex-1"><h3 class="mb1">Edges</h3><div id="gEdges"><em style="color:var(--text3)">Edge info here</em></div></div>
+    </div>
+    <div class="panel" style="margin:0 16px"><h3 class="mb1">Set Property</h3>
+      <div class="flex"><input type="text" id="gKey" placeholder="key" style="width:120px"><input type="text" id="gVal" placeholder="value" style="width:150px"><button onclick="quickSet()">Set</button></div>
+    </div>
+  </div>
+
+  <!-- Cypher Page -->
+  <div class="page" id="page-cypher">
+    <div class="header"><h2>Cypher Query</h2></div>
+    <div class="panel" style="margin:16px">
+      <div class="flex mb1">
+        <button onclick="setCy(0)" class="ghost" style="font-size:10px">MATCH all</button>
+        <button onclick="setCy(1)" class="ghost" style="font-size:10px">MATCH+WHERE</button>
+        <button onclick="setCy(2)" class="ghost" style="font-size:10px">CREATE</button>
+        <button onclick="setCy(3)" class="ghost" style="font-size:10px">LOAD SAMPLE</button>
+      </div>
+      <div id="cypherEditor"></div>
+      <div class="flex mt1"><button onclick="runCypher()">Execute</button><button onclick="explainCypher()" class="ghost">Explain</button><span id="cypherStatus" style="font-size:11px;color:var(--text3)"></span></div>
+    </div>
+    <div class="panel" style="margin:16px">
+      <div id="cypherResult"><em style="color:var(--text3)">Run a query</em></div>
+      <div id="queryStats" class="query-stats" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Standing Queries Page -->
+  <div class="page" id="page-sq">
+    <div class="header"><h2>Standing Queries</h2><button onclick="rSQ()">Refresh</button></div>
+    <div class="panel" style="margin:16px">
+      <h3 class="mb1">Register New SQ</h3>
+      <div class="flex">
+        <input type="text" id="sqName" placeholder="name" style="width:120px">
+        <input type="text" id="sqKey" placeholder="key" style="width:100px" value="speed">
+        <select id="sqCond"><option>GreaterThan</option><option>LessThan</option><option>Equals</option><option>Contains</option></select>
+        <input type="text" id="sqThresh" placeholder="threshold" style="width:80px">
+        <button onclick="regSQ()">Register</button>
+      </div>
+      <div id="sqMsg" style="margin-top:8px;font-size:11px"></div>
+    </div>
+    <div class="panel" style="margin:16px"><div id="sqList"><em style="color:var(--text3)">Loading...</em></div></div>
+  </div>
+
+  <!-- Ingest Page -->
+  <div class="page" id="page-ingest">
+    <div class="header"><h2>Data Ingest</h2></div>
+    <div class="panel" style="margin:16px">
+      <h3 class="mb1">Ingest JSONL File</h3>
+      <div class="flex">
+        <input type="text" id="ingestPath" placeholder="/path/to/data.jsonl" style="flex:1">
+        <input type="text" id="ingestIdField" placeholder="id_field" value="id" style="width:80px">
+        <button onclick="startIng()">Start</button>
+      </div>
+      <div id="ingestMsg" style="margin-top:8px;font-size:11px"></div>
+    </div>
+    <div class="panel" style="margin:16px">
+      <h3 class="mb1">Quick CRUD</h3>
+      <div class="flex">
+        <input type="text" id="crudQid" placeholder="node id" style="width:100px">
+        <input type="text" id="crudKey" placeholder="key" style="width:80px">
+        <input type="text" id="crudVal" placeholder="value" style="width:100px">
+        <button onclick="crudS()">Set</button>
+        <button onclick="crudG()" class="ghost">Get</button>
+      </div>
+      <pre id="crudResult" style="margin-top:8px;font-size:11px;color:var(--text2);white-space:pre-wrap"></pre>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- Error boundary -->
+<div id="errorBoundary">
+  <span class="err-close" onclick="dismissError()">&times;</span>
+  <div class="err-title">&#9888; An Error Occurred</div>
+  <div class="err-msg" id="errMsg"></div>
+</div>
+
+<!-- Toast container -->
+<div id="toast"></div>
+
+<script>
+/* ================================================================
+ * Nexora-RS Dashboard — Enhanced Frontend
+ * Features: Responsive | Error Boundary | Skeleton | WS Reconnect
+ * ================================================================ */
+
+var API = '';
+var st = Date.now();
+var gQid = '';
+var ws = null;
+var wsRetryDelay = 1000;  // Start at 1s, exponential backoff
+var wsMaxRetry = 30000;   // Cap at 30s
+var wsRetryTimer = null;
+
+/* ---- Global Error Boundary ---- */
+window.onerror = function(msg, url, line, col, err) {
+  showError(err && err.message ? err.message : msg);
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  showError(e.reason && e.reason.message ? e.reason.message : 'Unhandled promise rejection');
+});
+
+function showError(msg) {
+  var eb = document.getElementById('errorBoundary');
+  document.getElementById('errMsg').textContent = String(msg).substring(0, 500);
+  eb.classList.add('show');
+  setTimeout(dismissError, 8000);
+}
+function dismissError() {
+  document.getElementById('errorBoundary').classList.remove('show');
+}
+
+/* ---- Toast notifications ---- */
+function toast(msg, type) {
+  type = type || 'info';
+  var el = document.createElement('div');
+  el.className = 'toast-item ' + type;
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(function() { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 3000);
+  setTimeout(function() { el.remove(); }, 3400);
+}
+
+/* ---- Utility ---- */
+function hex(s) {
+  var r = '';
+  for (var i = 0; i < s.length; i++) r += s.charCodeAt(i).toString(16).padStart(2, '0');
+  return r;
+}
+
+function api(url, opts) {
+  opts = opts || {};
+  return fetch(API + url, opts).then(function(r) {
+    if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    return r.json();
+  });
+}
+
+/* ---- Sidebar (responsive) ---- */
+function toggleSidebar() {
+  var sb = document.getElementById('sidebar');
+  var ov = document.getElementById('overlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('show');
+}
+
+/* ---- Page navigation ---- */
+function showPage(n) {
+  document.querySelectorAll('#sidebar a').forEach(function(a) { a.classList.remove('active'); });
+  var an = document.querySelector('#sidebar a[data-page="' + n + '"]');
+  if (an) an.classList.add('active');
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+  document.getElementById('page-' + n).classList.add('active');
+  if (n === 'dashboard') dh();
+  if (n === 'sq') rSQ();
+  // Close sidebar on mobile after navigation
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  }
+}
+
+/* ---- Status indicators ---- */
+function setStatus(ok) {
+  var dot = document.getElementById('sdot');
+  dot.className = 'ws-dot ' + (ok ? 'connected' : 'disconnected');
+  document.getElementById('stxt').textContent = ok ? 'Online' : 'Offline';
+}
+function setWsStatus(state) {
+  var dot = document.getElementById('wsDot');
+  dot.className = 'ws-dot ' + state;
+  var labels = { connected: 'WS: On', connecting: 'WS: ...', disconnected: 'WS: Off' };
+  document.getElementById('wsTxt').textContent = labels[state] || 'WS: ?';
+}
+
+/* ---- Skeleton helpers ---- */
+function showSkeleton(id) {
+  var el = document.getElementById(id);
+  if (el) el.innerHTML = '<span class="skeleton"></span>';
+}
+function showSkeletons(ids) { ids.forEach(showSkeleton); }
+
+/* ---- Dashboard health ---- */
+function dh() {
+  showSkeletons(['mNodes', 'mSQ', 'mShards', 'mMode', 'mHealth']);
+  api('/api/v2/health').then(function(h) {
+    document.getElementById('mNodes').textContent = h.active_nodes;
+    document.getElementById('mShards').textContent = h.shards;
+    document.getElementById('mSQ').textContent = h.standing_queries;
+    document.getElementById('mMode').textContent = h.mode;
+    document.getElementById('mHealth').textContent = h.status;
+    document.getElementById('uptime').textContent = 'Up ' + Math.floor((Date.now() - st) / 1000) + 's';
+    setStatus(true);
+  }).catch(function(e) {
+    ['mNodes','mSQ','mShards','mMode','mHealth'].forEach(function(id) {
+      document.getElementById(id).textContent = '-';
+    });
+    setStatus(false);
+  });
+}
+
+/* ---- D3 Graph Visualization ---- */
+var vizNodes = [];
+var vizLinks = [];
+var vizSimulation = null;
+
+function vizClear() {
+  if (vizSimulation) { vizSimulation.stop(); vizSimulation = null; }
+  vizNodes = [];
+  vizLinks = [];
+  d3.select('#vizSvg').selectAll('*').remove();
+  updateVizStats();
+}
+
+function updateVizStats() {
+  document.getElementById('vizNodeCount').textContent = vizNodes.length + ' nodes';
+  document.getElementById('vizEdgeCount').textContent = vizLinks.length + ' edges';
+}
+
+function vizDraw() {
+  var svg = d3.select('#vizSvg');
+  var width = svg.node().clientWidth || 600;
+  var height = 400;
+  svg.attr('height', height);
+  svg.selectAll('*').remove();
+
+  svg.append('defs').append('marker')
+    .attr('id', 'arrowhead')
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 15).attr('refY', 0)
+    .attr('markerWidth', 6).attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
+
+  var link = svg.append('g').selectAll('line')
+    .data(vizLinks).enter().append('line')
+    .attr('class', 'graph-link')
+    .attr('stroke-width', 1.5)
+    .attr('marker-end', 'url(#arrowhead)');
+
+  var node = svg.append('g').selectAll('circle')
+    .data(vizNodes).enter().append('circle')
+    .attr('class', 'graph-node')
+    .attr('r', function(d) { return d._r || 8; })
+    .attr('fill', function(d) { return d._color || '#38bdf8'; })
+    .call(d3.drag()
+      .on('start', function(event, d) { if (!event.active && vizSimulation) vizSimulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', function(event, d) { d.fx = event.x; d.fy = event.y; })
+      .on('end', function(event, d) { if (!event.active && vizSimulation) vizSimulation.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
+
+  var label = svg.append('g').selectAll('text')
+    .data(vizNodes).enter().append('text')
+    .attr('class', 'graph-label')
+    .text(function(d) { return d.label || (d.id + '').substring(0, 8); });
+
+  node.append('title').text(function(d) { return d.label || d.id; });
+
+  vizSimulation = d3.forceSimulation(vizNodes)
+    .force('link', d3.forceLink(vizLinks).id(function(d) { return d.id; }).distance(60))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .on('tick', function() {
+      link.attr('x1', function(d) { return d.source.x; })
+          .attr('y1', function(d) { return d.source.y; })
+          .attr('x2', function(d) { return d.target.x; })
+          .attr('y2', function(d) { return d.target.y; });
+      node.attr('cx', function(d) { return d.x; })
+          .attr('cy', function(d) { return d.y; });
+      label.attr('x', function(d) { return d.x; })
+           .attr('y', function(d) { return d.y - 12; });
+    });
+
+  node.on('click', function(event, d) {
+    document.getElementById('gQid').value = d.label || d.id;
+    loadNode();
+  });
+
+  updateVizStats();
+}
+
+function vizReset() { vizClear(); }
+
+function vizLoadAll() {
+  vizClear();
+  fetch(API + '/api/v2/query/cypher', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: 'MATCH (n) RETURN n LIMIT 50' })
+  }).then(function(r) { return r.json(); }).then(function(r) {
+    if (r.error || !r.rows || r.rows.length === 0) {
+      toast('No nodes found. Try creating some first.', 'info');
+      return;
+    }
+    r.rows.forEach(function(row) {
+      var id = String(row[0] || ('node-' + vizNodes.length));
+      if (!vizNodes.some(function(n) { return n.id === id; })) {
+        vizNodes.push({ id: id, label: id.substring(0, 12), _color: '#38bdf8', _r: 8 });
+      }
+    });
+    var edgePromises = vizNodes.map(function(n) {
+      return api('/api/v2/graph/node/' + hex(n.label) + '/edges').catch(function() { return { edges: [] }; });
+    });
+    Promise.all(edgePromises).then(function(results) {
+      results.forEach(function(res, i) {
+        if (res.edges) {
+          res.edges.forEach(function(e) {
+            var targetId = e.other;
+            if (!vizNodes.some(function(n) { return n.id === targetId; })) {
+              vizNodes.push({ id: targetId, label: targetId.substring(0, 12), _color: '#4ade80', _r: 6 });
+            }
+            vizLinks.push({ source: vizNodes[i].id, target: targetId, type: e.edge_type });
+          });
+        }
+      });
+      vizDraw();
+      toast(vizNodes.length + ' nodes, ' + vizLinks.length + ' edges', 'success');
+    });
+  }).catch(function(e) { toast('Failed: ' + e.message, 'error'); });
+}
+
+function vizFromCypherResult(cols, rows) {
+  var foundNodes = [];
+  rows.forEach(function(row) {
+    row.forEach(function(cell) {
+      var val = String(cell);
+      if (val && val.length > 0 && val.length < 100 && foundNodes.indexOf(val) === -1) foundNodes.push(val);
+    });
+  });
+  if (foundNodes.length === 0) return;
+  vizClear();
+  foundNodes.slice(0, 30).forEach(function(id) {
+    vizNodes.push({ id: id, label: id.substring(0, 12), _color: '#fbbf24', _r: 7 });
+  });
+  vizDraw();
+}
+
+/* ---- Graph Browser ---- */
+function loadNode() {
+  var n = document.getElementById('gQid').value.trim();
+  if (!n) return;
+  gQid = hex(n);
+  document.getElementById('gProps').innerHTML = '<span class="skeleton"></span>';
+  document.getElementById('gEdges').innerHTML = '<span class="skeleton"></span>';
+
+  var ks = ['name', 'speed', 'zone', 'status', 'type', 'label'];
+  var ps = ks.map(function(k) {
+    return api('/api/v2/graph/node/' + gQid + '/property/' + k).catch(function() { return {}; });
+  });
+
+  Promise.all(ps).then(function(rs) {
+    var props = {};
+    ks.forEach(function(k, i) {
+      if (rs[i].value !== undefined && rs[i].value !== null) props[k] = rs[i].value;
+    });
+    var el = document.getElementById('gProps');
+    document.getElementById('gLabel').textContent = ' - ' + (props.name || n);
+    if (Object.keys(props).length === 0) {
+      el.innerHTML = '<em style="color:var(--text3)">No properties</em>';
+    } else {
+      el.innerHTML = '<table><tr><th>Key</th><th>Value</th></tr>' +
+        Object.entries(props).map(function(e) { return '<tr><td>' + e[0] + '</td><td>' + JSON.stringify(e[1]) + '</td></tr>'; }).join('') + '</table>';
+    }
+    return api('/api/v2/graph/node/' + gQid + '/edges');
+  }).then(function(e) {
+    var el = document.getElementById('gEdges');
+    if (e.edges && e.edges.length > 0) {
+      el.innerHTML = '<table><tr><th>Type</th><th>Dir</th><th>Target</th></tr>' +
+        e.edges.map(function(ee) { return '<tr><td>' + ee.edge_type + '</td><td>' + ee.direction + '</td><td style="font-size:10px">' + (ee.other + '').substring(0, 12) + '...</td></tr>'; }).join('') + '</table>';
+      // Add node + edges to D3 visualization
+      vizClear();
+      vizNodes.push({ id: n, label: (n + '').substring(0, 12), _color: '#38bdf8', _r: 10 });
+      e.edges.forEach(function(ee) {
+        if (!vizNodes.some(function(nd) { return nd.id === ee.other; })) {
+          vizNodes.push({ id: ee.other, label: (ee.other + '').substring(0, 12), _color: '#4ade80', _r: 6 });
+        }
+        vizLinks.push({ source: n, target: ee.other, type: ee.edge_type });
+      });
+      vizDraw();
+    } else {
+      el.innerHTML = '<em style="color:var(--text3)">No edges</em>';
+      // Still show the single node in viz
+      vizClear();
+      vizNodes.push({ id: n, label: (n + '').substring(0, 12), _color: '#38bdf8', _r: 10 });
+      vizDraw();
+    }
+  }).catch(function(e) {
+    document.getElementById('gProps').innerHTML = '<span style="color:var(--red)">' + e.message + '</span>';
+    document.getElementById('gEdges').innerHTML = '';
+  });
+}
+
+function quickSet() {
+  if (!gQid) { toast('Search a node first', 'error'); return; }
+  var k = document.getElementById('gKey').value.trim(), v = document.getElementById('gVal').value.trim();
+  if (!k || v === '') { toast('Enter key and value', 'error'); return; }
+  api('/api/v2/graph/node/' + gQid + '/property/' + k, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: isNaN(v) ? v : Number(v) })
+  }).then(function() { toast('Property set', 'success'); loadNode(); })
+    .catch(function(e) { toast(e.message, 'error'); });
+}
+
+/* ---- Cypher CodeMirror Editor ---- */
+var cypherKeywords = ['MATCH','WHERE','RETURN','CREATE','DELETE','SET','REMOVE','MERGE','WITH','UNWIND','ORDER BY','LIMIT','SKIP','AND','OR','NOT','IN','IS','AS','DISTINCT','OPTIONAL','UNION','CALL','YIELD','LOAD CSV','ON CREATE','ON MATCH'];
+CodeMirror.defineMode('cypher', function(config) {
+  return CodeMirror.getMode(config, {
+    name: 'javascript',
+    keywords: cypherKeywords.reduce(function(acc, k) { acc[k.toLowerCase()] = true; return acc; }, {}),
+    atoms: { 'true': true, 'false': true, 'null': true },
+  });
+});
+var cypherEditor = CodeMirror(document.getElementById('cypherEditor'), {
+  value: 'MATCH (n) RETURN n LIMIT 10',
+  mode: 'cypher',
+  theme: 'dracula',
+  lineNumbers: false,
+  matchBrackets: true,
+  autoCloseBrackets: true,
+  lineWrapping: true,
+});
+
+var cts = [
+  'MATCH (n) RETURN n LIMIT 10',
+  'MATCH (n) WHERE n.speed > 50 RETURN n.name, n.speed',
+  'CREATE (n:Test {name: "demo", value: 42})',
+  'CREATE (a:Person {name:"Alice"}), (b:Person {name:"Bob"}), (c:Person {name:"Carol"}), (d:Person {name:"Dave"}), (a)-[:KNOWS]->(b), (b)-[:KNOWS]->(c), (c)-[:KNOWS]->(d), (d)-[:KNOWS]->(a)'
+];
+function setCy(i) { cypherEditor.setValue(cts[i] || cts[0]); }
+
+function runCypher() {
+  var q = cypherEditor.getValue().trim();
+  var s = document.getElementById('cypherStatus');
+  var statsEl = document.getElementById('queryStats');
+  statsEl.style.display = 'none';
+  s.textContent = 'Running...';
+  document.getElementById('cypherResult').innerHTML = '<span class="skeleton"></span>';
+  var t0 = performance.now();
+  fetch(API + '/api/v2/query/cypher', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) })
+    .then(function(r) {
+      var durationMs = (performance.now() - t0).toFixed(1);
+      var serverMs = r.headers.get('x-query-duration-ms') || '?';
+      var rowCount = r.headers.get('x-query-result-count') || '0';
+      return r.json().then(function(data) { return { data: data, serverMs: serverMs, rowCount: rowCount, clientMs: durationMs }; });
+    })
+    .then(function(res) {
+      s.textContent = '';
+      var r = res.data;
+      if (r.error) {
+        document.getElementById('cypherResult').innerHTML = '<pre style="color:var(--red)">' + r.error + '</pre>';
+      } else {
+        var cols = r.columns || [], rows = r.rows || [];
+        var h = '<table><thead><tr>';
+        cols.forEach(function(c) { h += '<th>' + c + '</th>'; });
+        h += '</tr></thead><tbody>';
+        rows.forEach(function(rr) { h += '<tr>'; rr.forEach(function(c) { h += '<td>' + JSON.stringify(c) + '</td>'; }); h += '</tr>'; });
+        h += '</tbody></table>';
+        document.getElementById('cypherResult').innerHTML = h;
+        toast(rows.length + ' rows', 'success');
+
+        // Show query performance stats
+        var speedClass = parseFloat(res.serverMs) > 1000 ? 'slow' : 'fast';
+        statsEl.style.display = 'flex';
+        statsEl.innerHTML =
+          '<span class="stat">Server: ' + res.serverMs + 'ms</span>' +
+          '<span class="stat">Client: ' + res.clientMs + 'ms</span>' +
+          '<span class="stat ' + speedClass + '">Rows: ' + res.rowCount + '</span>' +
+          (r.write_stats ? '<span class="stat">Created: ' + r.write_stats.nodes_created + '</span>' : '');
+
+        // If results contain nodes, visualize them
+        if (rows.length > 0 && cols.length > 0) {
+          vizFromCypherResult(cols, rows);
+        }
+      }
+    })
+    .catch(function(e) {
+      s.textContent = 'Error: ' + e.message;
+      document.getElementById('cypherResult').innerHTML = '<pre style="color:var(--red)">' + e.message + '</pre>';
+    });
+}
+
+function explainCypher() {
+  var q = cypherEditor.getValue().trim();
+  var s = document.getElementById('cypherStatus');
+  s.textContent = 'Explaining...';
+  document.getElementById('cypherResult').innerHTML = '<span class="skeleton"></span>';
+  api('/api/v2/query/explain', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, analyze: false }) })
+    .then(function(r) {
+      s.textContent = '';
+      var h = '<div style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;line-height:1.6">';
+      h += '<strong style="color:var(--primary)">Query Execution Plan</strong>\n\n';
+      h += r.explanation + '\n';
+      h += '<span style="color:var(--text2)">Estimated cost:</span> ' + (r.estimated_cost || 0).toFixed(2) + '\n';
+      h += '<span style="color:var(--text2)">Estimated rows:</span> ' + (r.estimated_rows || 0) + '\n';
+      if (r.actual_stats) {
+        h += '\n<span style="color:var(--green)">Actual Stats:</span>\n';
+        h += '  Rows: ' + r.actual_stats.actual_rows + '\n';
+        h += '  Time: ' + r.actual_stats.execution_time_ms.toFixed(2) + 'ms\n';
+        h += '  Nodes examined: ' + r.actual_stats.nodes_examined + '\n';
+      }
+      h += '</div>';
+      document.getElementById('cypherResult').innerHTML = h;
+    })
+    .catch(function(e) {
+      s.textContent = 'Error: ' + e.message;
+      document.getElementById('cypherResult').innerHTML = '<pre style="color:var(--red)">' + e.message + '</pre>';
+    });
+}
+
+/* ---- Standing Queries ---- */
+function regSQ() {
+  var n = document.getElementById('sqName').value.trim() || 'sq-' + Date.now();
+  var k = document.getElementById('sqKey').value.trim() || 'speed';
+  var c = document.getElementById('sqCond').value;
+  var body = { name: n, pattern: { type: 'PropertyFilter', key: k, condition: { type: c } } };
+  var tv = document.getElementById('sqThresh').value.trim();
+  if (c === 'GreaterThan' || c === 'LessThan') body.pattern.condition.value = parseFloat(tv) || 0;
+  else if (c === 'Equals') { try { body.pattern.condition.value = JSON.parse(tv); } catch (e) { body.pattern.condition.value = tv; } }
+  else if (c === 'Contains') body.pattern.condition.value = tv;
+  api('/api/v2/standing-query', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { toast('Registered: ' + r.id, 'success'); rSQ(); })
+    .catch(function(e) { toast(e.message, 'error'); });
+}
+
+function rSQ() {
+  document.getElementById('sqList').innerHTML = '<span class="skeleton"></span>';
+  api('/api/v2/standing-query').then(function(r) {
+    var sqs = r.standing_queries || [], el = document.getElementById('sqList');
+    if (sqs.length === 0) { el.innerHTML = '<em style="color:var(--text3)">No SQs</em>'; return; }
+    var h = '<table><thead><tr><th>Name</th><th>Matches</th><th>Action</th></tr></thead><tbody>';
+    sqs.forEach(function(s) {
+      h += '<tr><td>' + s.name + '</td><td><span style="color:' + (s.match_count > 0 ? 'var(--green)' : 'var(--text2)') + '">' + s.match_count + '</span></td><td><button onclick="delSQ(\'' + s.id + '\')" class="danger" style="font-size:10px;padding:2px 6px">Del</button></td></tr>';
+    });
+    h += '</tbody></table>';
+    el.innerHTML = h;
+  }).catch(function(e) {
+    document.getElementById('sqList').innerHTML = '<span style="color:var(--red)">' + e.message + '</span>';
+  });
+}
+
+function delSQ(id) {
+  api('/api/v2/standing-query/' + id, { method: 'DELETE' }).then(function() { toast('Deleted', 'success'); rSQ(); }).catch(function(e) { toast(e.message, 'error'); });
+}
+
+/* ---- Ingest ---- */
+function startIng() {
+  var p = document.getElementById('ingestPath').value.trim();
+  var f = document.getElementById('ingestIdField').value.trim() || 'id';
+  var el = document.getElementById('ingestMsg');
+  el.textContent = 'Starting...';
+  api('/api/v2/ingest/file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p, id_field: f }) })
+    .then(function(r) { el.innerHTML = '<span style="color:var(--green)">Started: ' + JSON.stringify(r) + '</span>'; toast('Ingest started', 'success'); })
+    .catch(function(e) { el.innerHTML = '<span style="color:var(--red)">' + e.message + '</span>'; toast(e.message, 'error'); });
+}
+
+function crudS() {
+  var q = hex(document.getElementById('crudQid').value.trim()), k = document.getElementById('crudKey').value.trim(), v = document.getElementById('crudVal').value.trim();
+  api('/api/v2/graph/node/' + q + '/property/' + k, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: isNaN(v) ? v : Number(v) }) })
+    .then(function(r) { document.getElementById('crudResult').textContent = JSON.stringify(r, null, 2); })
+    .catch(function(e) { document.getElementById('crudResult').textContent = 'Error: ' + e.message; });
+}
+function crudG() {
+  var q = hex(document.getElementById('crudQid').value.trim()), k = document.getElementById('crudKey').value.trim();
+  api('/api/v2/graph/node/' + q + '/property/' + k)
+    .then(function(r) { document.getElementById('crudResult').textContent = JSON.stringify(r, null, 2); })
+    .catch(function(e) { document.getElementById('crudResult').textContent = 'Error: ' + e.message; });
+}
+
+/* ================================================================
+ * WebSocket with Exponential Backoff Reconnection
+ * ================================================================ */
+function connectWs() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var url = proto + '//' + location.host + '/api/v2/ws/query';
+  setWsStatus('connecting');
+
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    setWsStatus('disconnected');
+    scheduleWsReconnect();
+    return;
+  }
+
+  ws.onopen = function() {
+    wsRetryDelay = 1000; // Reset backoff on success
+    setWsStatus('connected');
+    console.log('[WS] Connected');
+  };
+
+  ws.onmessage = function(ev) {
+    try {
+      var data = JSON.parse(ev.data);
+      // Dispatch to UI based on message type
+      if (data.type === 'sq_match') {
+        toast('SQ Match: ' + (data.name || 'unknown'), 'info');
+        rSQ(); // Refresh SQ list
+      }
+    } catch (e) {
+      // Non-JSON message, ignore
+    }
+  };
+
+  ws.onerror = function(e) {
+    console.error('[WS] Error', e);
+  };
+
+  ws.onclose = function(ev) {
+    setWsStatus('disconnected');
+    if (ev.code !== 1000) {
+      // Abnormal close — schedule reconnect
+      scheduleWsReconnect();
+    }
+  };
+}
+
+function scheduleWsReconnect() {
+  if (wsRetryTimer) clearTimeout(wsRetryTimer);
+  console.log('[WS] Reconnecting in ' + (wsRetryDelay / 1000) + 's...');
+  wsRetryTimer = setTimeout(function() {
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
+    wsRetryDelay = Math.min(wsRetryDelay * 2, wsMaxRetry);
+    connectWs();
+  }, wsRetryDelay);
+}
+
+function disconnectWs() {
+  if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null; }
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  setWsStatus('disconnected');
+}
+
+/* ---- Init ---- */
+function loadSample(dataset) {
+  api('/api/v2/sample-data/' + dataset, { method: 'POST' })
+    .then(function(r) {
+      if (r.errors && r.errors.length > 0) {
+        toast('Loaded with ' + r.errors.length + ' errors', 'error');
+      } else {
+        toast(r.nodes_created + ' nodes, ' + r.edges_created + ' edges loaded', 'success');
+      }
+      dh(); // Refresh dashboard
+    })
+    .catch(function(e) { toast(e.message, 'error'); });
+}
+
+function loadPresetRecipe(recipeId) {
+  api('/api/v2/sample-recipes/' + recipeId, { method: 'POST' })
+    .then(function(r) {
+      if (r.error) { toast(r.error, 'error'); }
+      else { toast('Recipe loaded: ' + r.name, 'success'); }
+    })
+    .catch(function(e) { toast(e.message, 'error'); });
+}
+
+dh();
+setInterval(dh, 5000);
+setInterval(rSQ, 10000);
+rSQ();
+connectWs(); // Start WebSocket with auto-reconnect
+
+// Close sidebar on Escape
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+    dismissError();
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+# =============================================================================
+# Nexora-RS Configuration File
+# =============================================================================
+# Copy this file to nexora.toml and customize as needed:
+#   cp nexora.toml.example nexora.toml
+#
+# Configuration priority (highest first):
+#   1. CLI arguments  (./nexora-app --port 9090)
+#   2. Environment variables  (NEXORA_PORT=9090)
+#   3. This TOML file  (nexora.toml)
+#   4. Built-in defaults
+#
+# All sections are optional — Nexora-RS runs with zero configuration.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# [server] — HTTP server settings
+# -----------------------------------------------------------------------------
+[server]
+# Listen address. Use 0.0.0.0 for all interfaces, 127.0.0.1 for localhost only.
+host = "0.0.0.0"
+
+# HTTP listen port.
+port = 8080
+
+# Maximum request body size in megabytes (prevents memory exhaustion).
+request_body_limit_mb = 16
+
+
+# -----------------------------------------------------------------------------
+# [graph] — Graph engine settings
+# -----------------------------------------------------------------------------
+[graph]
+# Number of graph shards. More shards = more parallelism but more overhead.
+# Recommended: 128-512 for production. Each shard is an independent actor.
+num_shards = 256
+
+# Maximum nodes per shard before LRU eviction kicks in.
+# Increase for larger graphs; decrease to reduce memory pressure.
+max_nodes_per_shard = 10000
+
+# Tokio channel buffer size per node actor.
+# Increase if you see backpressure warnings; decrease to reduce memory.
+node_channel_size = 64
+
+
+# -----------------------------------------------------------------------------
+# [storage] — Persistence configuration
+# -----------------------------------------------------------------------------
+[storage]
+
+# --- RocksDB (durable storage backend) ---
+[storage.rocksdb]
+# Directory path for RocksDB data files.
+path = "./nexora-data"
+
+# Write buffer size (RocksDB memtable). Larger = fewer flushes, more memory.
+# Valid formats: "64MB", "128MB", "1GB"
+write_buffer_size = "64MB"
+
+# Maximum number of write buffers (memtables) before flushing.
+max_write_buffers = 3
+
+# Compression algorithm: "none", "snappy", "lz4", "zstd"
+# lz4 = fast compression, good ratio; zstd = best ratio, slower
+compression = "lz4"
+
+# --- WAL (Write-Ahead Log for crash recovery) ---
+[storage.wal]
+# Directory path for WAL files.
+dir = "./nexora-data/wal"
+
+# Sync policy (overridable via --wal-sync-policy):
+#   "group"   = default; batches one fsync across concurrent writers.
+#               Best throughput, and a write is only acked once it is durable.
+#   "always"  = fsync every write. Lowest single-write durability latency floor,
+#               worst throughput under sustained load.
+#   "every_n" = fsync every `sync_interval` records. Fast, but a crash can lose
+#               up to the last (sync_interval - 1) writes (NOT durable-on-ack).
+#   "never"   = never fsync explicitly; rely on the OS. May lose recent data.
+sync_policy = "group"
+
+# Records between fsyncs — a COUNT, not a duration.
+# Only used when sync_policy = "every_n".
+sync_interval = 1000
+
+# --- S3 (cold storage tier for tiered storage) ---
+# Uncomment to enable S3-backed cold storage
+# [storage.s3]
+# bucket = "my-nexora-bucket"
+# region = "us-east-1"
+# prefix = "nexora/"
+# # Optional: custom endpoint for MinIO or other S3-compatible storage
+# # endpoint = "http://localhost:9000"
+
+# --- Iceberg (planned — Apache Iceberg table format integration) ---
+# [storage.iceberg]
+# catalog_url = "https://my-catalog/api"
+
+
+# -----------------------------------------------------------------------------
+# [cluster] — Distributed cluster configuration
+# -----------------------------------------------------------------------------
+# Only used when --cluster flag is enabled or profile = "clustered"
+[cluster]
+# Cluster mode: "peer" (gossip-based) or "raft" (consensus)
+mode = "peer"
+
+# This node's unique ID (e.g., "node-1", "node-us-east-1a")
+# node_id = "node-1"
+
+# Listen addresses for inter-node communication
+# listen = ["0.0.0.0:9080"]  # graph operations
+#         ["0.0.0.0:9081"]  # heartbeat
+
+# Seed nodes for cluster discovery (format: "node_id:host:port")
+# seeds = ["node-2:10.0.0.2:9080", "node-3:10.0.0.3:9080"]
+
+# Raft consensus port (only if mode = "raft")
+# raft_port = 8086
+
+
+# -----------------------------------------------------------------------------
+# [ingest] — Data ingestion sources
+# -----------------------------------------------------------------------------
+# [[ingest.sources]]
+# type = "kafka"
+# brokers = "localhost:9092"
+# topic = "events"
+# group_id = "nexora-consumer"
+
+# [[ingest.sources]]
+# type = "file"
+# path = "./data/nodes.jsonl"
+# format = "jsonl"
+
+
+# -----------------------------------------------------------------------------
+# [logging] — Log output configuration
+# -----------------------------------------------------------------------------
+[logging]
+# Log level: "error", "warn", "info", "debug", "trace"
+# Can also be set per-crate: "info,nexora_core=debug,nexora_app=trace"
+level = "info"
+
+# Log format: "text" (human-readable) or "json" (structured, for ELK/Loki)
+format = "text"
+
+
+# -----------------------------------------------------------------------------
+# [metrics] — Prometheus metrics
+# -----------------------------------------------------------------------------
+[metrics]
+# Enable Prometheus metrics endpoint at /metrics
+enabled = true

@@ -1,0 +1,11 @@
+{
+  "name": "@nexora/driver",
+  "version": "0.4.0",
+  "description": "JavaScript/TypeScript Driver SDK for Nexora-RS streaming graph database",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node test/test-sdk.js"
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "nexora-mcp"
+version.workspace = true
+edition.workspace = true
+description = "MCP server exposing nexora graph operations as agent tools (stdio JSON-RPC)"
+
+[[bin]]
+name = "nexora-mcp"
+path = "src/main.rs"
+
+[dependencies]
+nexora-client = { path = "../nexora-client" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"

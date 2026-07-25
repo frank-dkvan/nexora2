@@ -1,0 +1,22 @@
+[package]
+name = "nexora-cypher"
+description = "Cypher query engine — wraps Shopify cypher-parser + extends with write operations"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-language = { path = "../nexora-language" }
+cypher-parser = "0.5"
+nexora-id = { path = "../nexora-id" }
+nexora-value = { path = "../nexora-value" }
+nexora-core = { path = "../nexora-core" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+futures = "0.3"
+regex = "1.10"
+
+[dev-dependencies]
+tokio = { workspace = true }

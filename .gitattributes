@@ -1,0 +1,2 @@
+*.fbs linguist-language=FBS
+*.fbs binary

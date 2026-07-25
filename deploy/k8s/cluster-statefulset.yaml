@@ -1,0 +1,176 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nexora-cluster
+  namespace: nexora
+  labels:
+    app.kubernetes.io/name: nexora
+    app.kubernetes.io/component: graph-engine
+    app.kubernetes.io/mode: clustered
+spec:
+  serviceName: nexora-cluster
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexora
+      app.kubernetes.io/component: graph-engine
+      app.kubernetes.io/mode: clustered
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nexora
+        app.kubernetes.io/component: graph-engine
+        app.kubernetes.io/mode: clustered
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: nexora
+          image: nexora:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: cluster-graph
+              containerPort: 9000
+              protocol: TCP
+            - name: cluster-heartbeat
+              containerPort: 9001
+              protocol: TCP
+            - name: raft
+              containerPort: 9010
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: nexora-config
+            - secretRef:
+                name: nexora-secret
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_ORDINAL
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # Args are set via initContainer script to resolve peer list at startup.
+          # Each pod uses its ordinal index to construct node-id and peer list.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              ORDINAL=$(echo "$POD_NAME" | rev | cut -d'-' -f1 | rev)
+              NODE_ID="node-$ORDINAL"
+              MY_GRAPH_ADDR="${POD_NAME}.nexora-cluster.nexora.svc.cluster.local:9000"
+              MY_HEARTBEAT_ADDR="${POD_NAME}.nexora-cluster.nexora.svc.cluster.local:9001"
+              MY_RAFT_ADDR="${POD_NAME}.nexora-cluster.nexora.svc.cluster.local:9010"
+
+              # Build peer list from all 3 pods
+              PEERS=""
+              RAFT_PEERS=""
+              for i in 0 1 2; do
+                if [ "$i" != "$ORDINAL" ]; then
+                  PEER_ID="node-$i"
+                  PEER_GRAPH="nexora-cluster-$i.nexora-cluster.nexora.svc.cluster.local:9000"
+                  PEER_HB="nexora-cluster-$i.nexora-cluster.nexora.svc.cluster.local:9001"
+                  PEER_RAFT="nexora-cluster-$i.nexora-cluster.nexora.svc.cluster.local:9010"
+                  if [ -z "$PEERS" ]; then
+                    PEERS="${PEER_ID}:${PEER_GRAPH}:${PEER_HB}"
+                    RAFT_PEERS="$PEER_RAFT"
+                  else
+                    PEERS="${PEERS},${PEER_ID}:${PEER_GRAPH}:${PEER_HB}"
+                    RAFT_PEERS="${RAFT_PEERS},${PEER_RAFT}"
+                  fi
+                fi
+              done
+
+              echo "Starting nexora cluster node: $NODE_ID (ordinal=$ORDINAL)"
+              echo "Peers: $PEERS"
+              echo "Raft peers: $RAFT_PEERS"
+
+              # Convert comma-separated peers to repeated --peer flags
+              IFS=',' read -ra PEER_ARRAY <<< "$PEERS"
+              PEER_FLAGS=""
+              for p in "${PEER_ARRAY[@]}"; do
+                PEER_FLAGS="$PEER_FLAGS --peer $p"
+              done
+
+              IFS=',' read -ra RAFT_ARRAY <<< "$RAFT_PEERS"
+              RAFT_FLAGS=""
+              for r in "${RAFT_ARRAY[@]}"; do
+                RAFT_FLAGS="$RAFT_FLAGS --raft-peer $r"
+              done
+
+              exec /app/nexora-app \
+                --host 0.0.0.0 \
+                --port 8080 \
+                --rocksdb-path /data/nexora-data \
+                --wal-dir /data/nexora-data/wal \
+                --udf-dir /data/udf \
+                --cluster \
+                --node-id "$NODE_ID" \
+                --cluster-listen-addr "$MY_GRAPH_ADDR" \
+                --cluster-heartbeat-addr "$MY_HEARTBEAT_ADDR" \
+                $PEER_FLAGS \
+                --raft-port 9010 \
+                $RAFT_FLAGS
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/v2/health/ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v2/health/live
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/v2/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 60
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "kill -TERM 1"]
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: nexora
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: standard

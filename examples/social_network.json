@@ -1,0 +1,10 @@
+[
+  {"id": "alice", "name": "Alice Chen", "age": 32, "city": "Shanghai", "role": "engineer", "team": "platform"},
+  {"id": "bob", "name": "Bob Wang", "age": 28, "city": "Beijing", "role": "designer", "team": "product"},
+  {"id": "carol", "name": "Carol Liu", "age": 35, "city": "Shenzhen", "role": "manager", "team": "platform"},
+  {"id": "dave", "name": "Dave Zhang", "age": 26, "city": "Shanghai", "role": "engineer", "team": "infra"},
+  {"id": "eve", "name": "Eve Sun", "age": 30, "city": "Beijing", "role": "analyst", "team": "data"},
+  {"id": "frank", "name": "Frank Li", "age": 40, "city": "Shenzhen", "role": "director", "team": "platform"},
+  {"id": "grace", "name": "Grace Zhou", "age": 29, "city": "Shanghai", "role": "engineer", "team": "infra"},
+  {"id": "henry", "name": "Henry Wu", "age": 33, "city": "Beijing", "role": "architect", "team": "platform"}
+]

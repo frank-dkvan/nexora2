@@ -1,0 +1,80 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--cui-body-bg, #f8f9fa);
+  color: var(--cui-body-color, #212529);
+}
+
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--cui-body-bg, #fff);
+  border-right: 1px solid var(--cui-border-color, #dee2e6);
+}
+
+.sidebar .nav-link {
+  color: var(--cui-body-color, #212529);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+.sidebar .nav-link:hover {
+  background: var(--cui-tertiary-bg, #f0f0f0);
+}
+
+.sidebar .nav-link.active {
+  color: var(--cui-primary, #0d6efd);
+  background: var(--cui-primary-bg-subtle, #e7f1ff);
+}
+
+/* Card tweaks */
+.card {
+  border: 1px solid var(--cui-border-color, #dee2e6);
+}
+
+.card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--cui-border-color, #dee2e6);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+}
+
+/* Sticky header */
+.sticky-top {
+  background: var(--cui-body-bg, #f8f9fa);
+  z-index: 10;
+}
+
+/* Code blocks */
+pre {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.8rem;
+}
+
+/* Table tweaks */
+.table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--cui-secondary-color, #6c757d);
+  font-weight: 600;
+}
+
+/* Responsive sidebar */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+    min-width: 60px;
+  }
+  .sidebar .nav-link {
+    text-align: center;
+    padding: 0.5rem 0.25rem;
+    font-size: 0;
+  }
+  .sidebar .nav-link i {
+    font-size: 1.1rem;
+  }
+}

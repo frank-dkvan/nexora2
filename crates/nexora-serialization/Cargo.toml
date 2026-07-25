@@ -1,0 +1,20 @@
+[package]
+name = "nexora-serialization"
+description = "FlatBuffers code generation and serialization utilities for Nexora persistence"
+version.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-value = { path = "../nexora-value" }
+flatbuffers = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+
+[build-dependencies]
+# We download flatc ourselves in build.rs (matching the Scala FlatcPlugin behavior)

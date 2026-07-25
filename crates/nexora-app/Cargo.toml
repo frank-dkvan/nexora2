@@ -1,0 +1,101 @@
+[package]
+name = "nexora-app"
+description = "Nexora application — HTTP API server and main entry point"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "nexora"
+path = "src/main.rs"
+
+[dependencies]
+nexora-sql = { path = "../nexora-sql" }
+nexora-core = { path = "../nexora-core" }
+nexora-cypher = { path = "../nexora-cypher" }
+nexora-id = { path = "../nexora-id" }
+nexora-value = { path = "../nexora-value" }
+nexora-raft = { path = "../nexora-raft" }
+nexora-zenoh = { path = "../nexora-zenoh" }
+nexora-hnsw = { path = "../nexora-hnsw" }
+axum = { version = "0.8", features = ["macros", "ws"] }
+tokio = { workspace = true }
+futures = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+nexora-standing-query = { path = "../nexora-standing-query" }
+clap = { version = "4", features = ["derive"] }
+nexora-persistor-rocksdb = { path = "../nexora-persistor-rocksdb" }
+nexora-output = { path = "../nexora-output" }
+nexora-stream = { path = "../nexora-stream" }
+nexora-eventlog = { path = "../nexora-eventlog", optional = true }
+nexora-udf = { path = "../nexora-udf" }
+nexora-recipe = { path = "../nexora-recipe" }
+nexora-storage = { path = "../nexora-storage" }
+nexora-fragment = { path = "../nexora-fragment" }
+nexora-pgwire = { path = "../nexora-pgwire" }
+include_dir = "0.7"
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+async-trait = "0.1"
+tower = { version = "0.5", features = ["util"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+rcgen = "0.13"
+toml = "0.8"
+nom = "8.0.0"
+regex-lite = "0.1"
+opentelemetry = { version = "0.32.0", optional = true }
+opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic"], optional = true }
+tracing-opentelemetry = { version = "0.33.0", optional = true }
+
+[[bench]]
+name = "ingest_benchmark"
+harness = false
+
+[[bench]]
+name = "wal_benchmark"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+futures = "0.3"
+tokio-stream = "0.1"
+tokio-postgres = "0.7"
+reqwest = { version = "0.12", features = ["json"] }
+
+[features]
+default = []
+kafka = ["nexora-stream/kafka"]
+mqtt = ["nexora-stream/mqtt"]
+websocket = ["nexora-stream/websocket"]
+# Kinesis pulls rocksdb-offsets so its per-shard sequence checkpoints persist
+# across restart (resume AFTER_SEQUENCE_NUMBER instead of re-reading from
+# TRIM_HORIZON). Without it Kinesis falls back to an in-memory offset store.
+kinesis = ["nexora-stream/kinesis", "rocksdb-offsets"]
+rocksdb-offsets = ["nexora-stream/rocksdb-offsets"]
+zenoh = ["nexora-stream/zenoh"]
+event-first = ["dep:nexora-eventlog", "nexora-eventlog/olap", "nexora-pgwire/event-first"]
+encrypt = ["nexora-core/encrypt"]
+wasm = ["nexora-udf/wasm"]
+# Distributed tracing export via OpenTelemetry OTLP (gRPC).
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]

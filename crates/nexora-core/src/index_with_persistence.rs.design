@@ -1,0 +1,361 @@
+//! Property index with L3 LSM persistence (RocksDB backend).
+//!
+//! Extends the in-memory PropertyIndex with a persistent L3 tier.
+//!
+//! Architecture:
+//! - L1: Hash (hot data, 10K entries, O(1))
+//! - L2: BTree (warm data, 100K entries, O(log N))
+//! - L3: RocksDB (cold data, unlimited, persistent)
+//!
+//! This module is only available when compiling nexora-persistor-rocksdb.
+
+use crate::{IndexConfig, IndexError, PropertyIndex};
+use nexora_id::{PropertyValue, NexoraId};
+use rust_rocksdb::{ColumnFamilyDescriptor, Options, DB};
+use std::path::Path;
+use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+
+const CF_PROPERTY_INDEX: &str = "property-index";
+
+/// Property index key for RocksDB storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IndexKey {
+    property: String,
+    value: PropertyValue,
+}
+
+impl IndexKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, IndexError> {
+        bincode::deserialize(bytes)
+            .map_err(|e| IndexError::Serialization(e.to_string()))
+    }
+}
+
+/// Property index with L3 LSM persistence
+///
+/// Combines in-memory L1+L2 cache with persistent RocksDB L3 tier.
+pub struct PropertyIndexWithPersistence {
+    /// In-memory tiers (L1 + L2)
+    memory_index: PropertyIndex,
+
+    /// Persistent tier (L3) - RocksDB
+    db: Arc<DB>,
+}
+
+impl PropertyIndexWithPersistence {
+    /// Create a new persistent property index
+    pub fn new(db_path: impl AsRef<Path>, config: IndexConfig) -> Result<Self, IndexError> {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
+
+        // Optimize for write-heavy workload
+        opts.set_write_buffer_size(128 * 1024 * 1024); // 128 MB
+        opts.set_max_write_buffer_number(4);
+        opts.set_compression_type(rust_rocksdb::DBCompressionType::Lz4);
+
+        // Column family for property index
+        let cf_descriptor = ColumnFamilyDescriptor::new(
+            CF_PROPERTY_INDEX,
+            Options::default(),
+        );
+
+        let db = DB::open_cf_descriptors(&opts, db_path, vec![cf_descriptor])
+            .map_err(|e| IndexError::Backend(e.to_string()))?;
+
+        Ok(Self {
+            memory_index: PropertyIndex::new_with_config(config),
+            db: Arc::new(db),
+        })
+    }
+
+    /// Insert a property index entry (writes to L3, caches in L1/L2)
+    pub fn insert(
+        &self,
+        property: impl Into<String>,
+        value: PropertyValue,
+        node_id: NexoraId,
+    ) -> Result<(), IndexError> {
+        let property = property.into();
+        let key = IndexKey {
+            property: property.clone(),
+            value: value.clone(),
+        };
+
+        // Write to L3 (RocksDB) first for durability
+        self.write_to_l3(&key, &node_id)?;
+
+        // Then cache in L1/L2
+        self.memory_index.insert(property, value, node_id)?;
+
+        Ok(())
+    }
+
+    /// Query with three-tier lookup
+    pub fn query(
+        &self,
+        property: &str,
+        value: &PropertyValue,
+    ) -> Result<Vec<NexoraId>, IndexError> {
+        // Try L1/L2 first
+        let memory_result = self.memory_index.query(property, value)?;
+
+        if !memory_result.is_empty() {
+            return Ok(memory_result);
+        }
+
+        // Fall back to L3 (RocksDB)
+        let key = IndexKey {
+            property: property.to_string(),
+            value: value.clone(),
+        };
+
+        let nodes = self.read_from_l3(&key)?;
+
+        // Cache the result in memory for future queries
+        if !nodes.is_empty() {
+            for node in &nodes {
+                self.memory_index.insert(property, value.clone(), node.clone())?;
+            }
+        }
+
+        Ok(nodes)
+    }
+
+    /// Range query (uses L2 BTree + L3 RocksDB iterator)
+    pub fn range_query(
+        &self,
+        property: &str,
+        start: &PropertyValue,
+        end: &PropertyValue,
+    ) -> Result<Vec<NexoraId>, IndexError> {
+        // Query L2 (BTree)
+        let mut results = self.memory_index.range_query(property, start, end)?;
+
+        // Query L3 (RocksDB iterator)
+        let l3_results = self.range_query_l3(property, start, end)?;
+
+        // Merge and deduplicate
+        results.extend(l3_results);
+        results.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        results.dedup();
+
+        Ok(results)
+    }
+
+    /// Remove all index entries for a node
+    pub fn remove_node(&self, node_id: &NexoraId) -> Result<(), IndexError> {
+        // Remove from memory tiers
+        self.memory_index.remove_node(node_id)?;
+
+        // Remove from L3 (expensive - requires full scan)
+        // In production, maintain a reverse index: node_id -> [(property, value)]
+        self.remove_from_l3(node_id)?;
+
+        Ok(())
+    }
+
+    /// Clear memory cache (L1/L2), keeps L3 persistent data
+    pub fn clear_cache(&self) {
+        self.memory_index.clear();
+    }
+
+    /// Get statistics (memory tiers only)
+    pub fn stats(&self) -> crate::IndexStats {
+        self.memory_index.stats()
+    }
+
+    // Internal L3 operations
+
+    fn write_to_l3(&self, key: &IndexKey, node_id: &NexoraId) -> Result<(), IndexError> {
+        let cf = self.db.cf_handle(CF_PROPERTY_INDEX)
+            .ok_or_else(|| IndexError::NotFound(CF_PROPERTY_INDEX.to_string()))?;
+
+        let key_bytes = key.to_bytes();
+
+        // Read existing nodes
+        let mut nodes: Vec<NexoraId> = match self.db.get_cf(&cf, &key_bytes) {
+            Ok(Some(bytes)) => bincode::deserialize(&bytes)
+                .map_err(|e| IndexError::Serialization(e.to_string()))?,
+            Ok(None) => Vec::new(),
+            Err(e) => return Err(IndexError::Backend(e.to_string())),
+        };
+
+        // Add new node (avoid duplicates)
+        if !nodes.contains(node_id) {
+            nodes.push(node_id.clone());
+        }
+
+        // Write back
+        let value_bytes = bincode::serialize(&nodes)
+            .map_err(|e| IndexError::Serialization(e.to_string()))?;
+
+        self.db.put_cf(&cf, key_bytes, value_bytes)
+            .map_err(|e| IndexError::Backend(e.to_string()))?;
+
+        Ok(())
+    }
+
+    fn read_from_l3(&self, key: &IndexKey) -> Result<Vec<NexoraId>, IndexError> {
+        let cf = self.db.cf_handle(CF_PROPERTY_INDEX)
+            .ok_or_else(|| IndexError::NotFound(CF_PROPERTY_INDEX.to_string()))?;
+
+        let key_bytes = key.to_bytes();
+
+        match self.db.get_cf(&cf, &key_bytes) {
+            Ok(Some(bytes)) => bincode::deserialize(&bytes)
+                .map_err(|e| IndexError::Serialization(e.to_string())),
+            Ok(None) => Ok(Vec::new()),
+            Err(e) => Err(IndexError::Backend(e.to_string())),
+        }
+    }
+
+    fn range_query_l3(
+        &self,
+        property: &str,
+        start: &PropertyValue,
+        end: &PropertyValue,
+    ) -> Result<Vec<NexoraId>, IndexError> {
+        let cf = self.db.cf_handle(CF_PROPERTY_INDEX)
+            .ok_or_else(|| IndexError::NotFound(CF_PROPERTY_INDEX.to_string()))?;
+
+        let start_key = IndexKey {
+            property: property.to_string(),
+            value: start.clone(),
+        };
+        let end_key = IndexKey {
+            property: property.to_string(),
+            value: end.clone(),
+        };
+
+        let start_bytes = start_key.to_bytes();
+        let end_bytes = end_key.to_bytes();
+
+        let mut results = Vec::new();
+        let iter = self.db.iterator_cf(
+            &cf,
+            rust_rocksdb::IteratorMode::From(&start_bytes, rust_rocksdb::Direction::Forward)
+        );
+
+        for item in iter {
+            let (key, value) = item.map_err(|e| IndexError::Backend(e.to_string()))?;
+
+            // Stop if we've passed the end key
+            if key.as_ref() > end_bytes.as_slice() {
+                break;
+            }
+
+            let nodes: Vec<NexoraId> = bincode::deserialize(&value)
+                .map_err(|e| IndexError::Serialization(e.to_string()))?;
+
+            results.extend(nodes);
+        }
+
+        Ok(results)
+    }
+
+    fn remove_from_l3(&self, node_id: &NexoraId) -> Result<(), IndexError> {
+        let cf = self.db.cf_handle(CF_PROPERTY_INDEX)
+            .ok_or_else(|| IndexError::NotFound(CF_PROPERTY_INDEX.to_string()))?;
+
+        // This is expensive: full scan of L3
+        // Production should maintain reverse index
+        let iter = self.db.iterator_cf(&cf, rust_rocksdb::IteratorMode::Start);
+
+        let mut to_update = Vec::new();
+
+        for item in iter {
+            let (key, value) = item.map_err(|e| IndexError::Backend(e.to_string()))?;
+
+            let mut nodes: Vec<NexoraId> = bincode::deserialize(&value)
+                .map_err(|e| IndexError::Serialization(e.to_string()))?;
+
+            let original_len = nodes.len();
+            nodes.retain(|id| id != node_id);
+
+            if nodes.len() != original_len {
+                if nodes.is_empty() {
+                    // Delete the key if no nodes left
+                    self.db.delete_cf(&cf, &key)
+                        .map_err(|e| IndexError::Backend(e.to_string()))?;
+                } else {
+                    to_update.push((key.to_vec(), nodes));
+                }
+            }
+        }
+
+        // Update modified entries
+        for (key, nodes) in to_update {
+            let value_bytes = bincode::serialize(&nodes)
+                .map_err(|e| IndexError::Serialization(e.to_string()))?;
+            self.db.put_cf(&cf, key, value_bytes)
+                .map_err(|e| IndexError::Backend(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_insert_and_query() {
+        let dir = tempdir().unwrap();
+        let index = PropertyIndexWithPersistence::new(dir.path(), IndexConfig::default()).unwrap();
+
+        let node1 = NexoraId::from_bytes(b"node1".to_vec());
+        let node2 = NexoraId::from_bytes(b"node2".to_vec());
+
+        index.insert("age", PropertyValue::Integer(25), node1.clone()).unwrap();
+        index.insert("age", PropertyValue::Integer(25), node2.clone()).unwrap();
+
+        let results = index.query("age", &PropertyValue::Integer(25)).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_persistence() {
+        let dir = tempdir().unwrap();
+        let node = NexoraId::from_bytes(b"node1".to_vec());
+
+        // Write and close
+        {
+            let index = PropertyIndexWithPersistence::new(dir.path(), IndexConfig::default()).unwrap();
+            index.insert("name", PropertyValue::String("Alice".into()), node.clone()).unwrap();
+        }
+
+        // Reopen and query
+        {
+            let index = PropertyIndexWithPersistence::new(dir.path(), IndexConfig::default()).unwrap();
+            let results = index.query("name", &PropertyValue::String("Alice".into())).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0], node);
+        }
+    }
+
+    #[test]
+    fn test_cache_miss_loads_from_l3() {
+        let dir = tempdir().unwrap();
+        let index = PropertyIndexWithPersistence::new(dir.path(), IndexConfig::default()).unwrap();
+        let node = NexoraId::from_bytes(b"node1".to_vec());
+
+        // Insert (goes to L3)
+        index.insert("city", PropertyValue::String("Beijing".into()), node.clone()).unwrap();
+
+        // Clear cache
+        index.clear_cache();
+
+        // Query should load from L3
+        let results = index.query("city", &PropertyValue::String("Beijing".into())).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], node);
+    }
+}

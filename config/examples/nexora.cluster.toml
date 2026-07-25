@@ -1,0 +1,87 @@
+# Nexora Cluster Configuration
+# Multi-node cluster setup with high availability
+
+[server]
+host = "0.0.0.0"
+port = 8080
+request_body_limit_mb = 16
+
+[logging]
+level = "info"
+format = "json"
+
+[auth]
+require_auth = true
+secret = "${NEXORA_AUTH_SECRET}"
+
+[security]
+cors_origin = "https://your-domain.com"
+rate_limit = true
+rate_limit_rate = 100
+rate_limit_burst = 200
+strict_security = true
+
+[tls]
+cert_file = "/etc/nexora/tls/cert.pem"
+key_file = "/etc/nexora/tls/key.pem"
+
+[database]
+data_dir = "/var/lib/nexora/data"
+num_shards = 512  # Higher shard count for distributed setup
+
+[wal]
+sync_policy = "group"
+group_commit_interval_ms = 50
+encrypt_wal = true
+encryption_key = "${NEXORA_ENCRYPTION_KEY}"
+
+[cluster]
+# Distributed cluster mode
+mode = "distributed"
+node_id = "${NEXORA_NODE_ID}"  # Unique per node: node-1, node-2, node-3, etc.
+
+# Replication settings
+replication_factor = 3  # RF=3 for HA
+quorum_writes = true    # Require quorum for writes
+
+# Node discovery via Zenoh
+# Each node should list all other nodes
+zenoh_peers = [
+    "tcp/nexora-node-1.cluster.local:7447",
+    "tcp/nexora-node-2.cluster.local:7447",
+    "tcp/nexora-node-3.cluster.local:7447",
+    "tcp/nexora-node-4.cluster.local:7447",
+    "tcp/nexora-node-5.cluster.local:7447"
+]
+
+# Control plane settings
+control_plane_enabled = true
+heartbeat_interval_ms = 1000
+failover_timeout_ms = 5000
+
+[monitoring]
+audit_log_file = "/var/log/nexora/audit.jsonl"
+metrics_port = 9090
+
+# Prometheus-compatible metrics endpoint
+metrics_enabled = true
+
+[query]
+# More generous limits for cluster setup
+max_result_rows = 100000
+max_execution_time_secs = 60
+max_snapshot_nodes = 50000000
+
+[features]
+# Zenoh is required for clustering
+# zenoh = true
+# Enable other features as needed
+# kafka = true
+# mqtt = true
+# websocket = true
+
+[otel]
+# Distributed tracing recommended for clusters
+enabled = true
+endpoint = "http://otel-collector:4317"
+service_name = "nexora-cluster"

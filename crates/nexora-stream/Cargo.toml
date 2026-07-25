@@ -1,0 +1,60 @@
+[package]
+name = "nexora-stream"
+version.workspace = true
+edition.workspace = true
+description = "Stream ingestion connectors (Kafka, Kinesis, Pulsar) with offset management"
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-core = { path = "../nexora-core" }
+nexora-value = { path = "../nexora-value" }
+nexora-barrier = { path = "../nexora-barrier" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = "0.1"
+async-trait = "0.1"
+chrono = { workspace = true }
+uuid = { workspace = true }
+bytes = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Kafka (feature-gated)
+rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }
+sha2 = { workspace = true }
+
+# MQTT (feature-gated)
+rumqttc = { version = "0.24", optional = true }
+
+# WebSocket (feature-gated)
+tokio-tungstenite = { version = "0.24", optional = true }
+futures-util = { version = "0.3", optional = true }
+
+# Kinesis (feature-gated)
+aws-config = { version = "1", optional = true }
+aws-sdk-kinesis = { version = "1", optional = true }
+
+# zenoh (feature-gated)
+zenoh = { version = "1", optional = true }
+
+# RocksDB-backed offset store (feature-gated)
+rust-rocksdb = { version = "0.50", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+async-trait = "0.1"
+tempfile = "3"
+nexora-id = { path = "../nexora-id" }
+
+[features]
+default = []
+kafka = ["rdkafka"]
+mqtt = ["rumqttc"]
+websocket = ["tokio-tungstenite", "futures-util"]
+kinesis = ["aws-config", "aws-sdk-kinesis"]
+zenoh = ["dep:zenoh"]
+rocksdb-offsets = ["rust-rocksdb"]

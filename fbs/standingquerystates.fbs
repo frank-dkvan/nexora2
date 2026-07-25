@@ -1,0 +1,125 @@
+include "base.fbs";
+include "cypher.fbs";
+
+namespace com.nexora.persistence;
+
+// See [[com.nexora.graph.cypher.QueryContext]]
+// TODO: Consider a highly compacted representation of this type embedded in a byte array.
+table QueryContext {
+  columns: [string];
+  values: [CypherValue];
+}
+
+// Encoding of Option[Seq[cypher.QueryContext]]
+// A missing/null reference to one of these is considered None.
+// TODO: Consider a highly compacted representation of this type embedded in a byte array.
+table MultipleValuesStandingQueryResults {
+  results: [QueryContext]; // optional
+}
+
+// See [[com.nexora.graph.cypher.StandingQueryState]]
+union MultipleValuesStandingQueryState {
+  MultipleValuesUnitStandingQueryState,
+  MultipleValuesCrossStandingQueryState,
+  MultipleValuesLocalPropertyStandingQueryState,
+  MultipleValuesLocalIdStandingQueryState,
+  MultipleValuesSubscribeAcrossEdgeStandingQueryState,
+  MultipleValuesEdgeSubscriptionReciprocalStandingQueryState,
+  MultipleValuesFilterMapStandingQueryState,
+  MultipleValuesAllPropertiesStandingQueryState,
+  MultipleValuesLabelsStandingQueryState,
+}
+
+// See [[com.nexora.graph.cypher.UnitState]]
+table MultipleValuesUnitStandingQueryState { }
+
+// See [[com.nexora.graph.cypher.CrossState]]
+table MultipleValuesCrossStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+
+  // Map[c.t.q.graph.MultipleValuesStandingQueryPartId, Option[Seq[c.t.q.g.cypher.QueryContext]]]
+  results_accumulator_keys: [MultipleValuesStandingQueryPartId2];
+  results_accumulator_values: [MultipleValuesStandingQueryResults];
+}
+
+
+// See [[com.nexora.graph.cypher.LocalPropertyState]]
+table MultipleValuesLocalPropertyStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+}
+
+// See [[com.nexora.graph.cypher.LocalIdState]]
+table MultipleValuesLocalIdStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+}
+
+// See [[com.nexora.graph.cypher.SubscribeAcrossEdgeState]]
+table MultipleValuesSubscribeAcrossEdgeStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+
+  // Map[c.t.q.model.HalfEdge, Option[Seq[c.t.q.g.cypher.QueryContext]]]
+  edge_results_keys: [HalfEdge2];
+  edge_results_values: [MultipleValuesStandingQueryResults];
+}
+
+// See [[com.nexora.graph.cypher.EdgeSubscriptionReciprocalState]]
+table MultipleValuesEdgeSubscriptionReciprocalStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+  half_edge: HalfEdge2 (required);
+  and_then_id: MultipleValuesStandingQueryPartId2;
+  currently_matching: bool;
+  // Logically the same as a single MultipleValuesStandingQueryResults, but we can inline the result vector to eliminate
+  // an extra indirection since there is only one.
+  // Should decode to Option[Seq[c.t.q.g.cypher.QueryContext]]
+  cached_result: [QueryContext];
+}
+
+// See [[com.nexora.graph.cypher.FilterMapState]]
+table MultipleValuesFilterMapStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+  // kept_results could be a MultipleValuesStandingQueryResults, but nesting a single table in another takes up more
+  // space than inlining the fields. See https://flatbuffers.dev/flatbuffers_guide_tutorial.html
+  // Should decode to Option[Seq[c.t.q.g.cypher.QueryContext]]
+  kept_results: [QueryContext];
+}
+
+// See [[com.nexora.graph.cypher.AllPropertiesState]]
+table MultipleValuesAllPropertiesStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId (required);
+}
+
+// See [[com.nexora.graph.cypher.LabelsState]]
+table MultipleValuesLabelsStandingQueryState {
+  query_part_id: MultipleValuesStandingQueryPartId (required);
+}
+
+// See [[com.nexora.graph.messaging.StandingQueryMessage.CypherSubscriber]]
+union MultipleValuesStandingQuerySubscriber {
+  CypherNodeSubscriber,
+  CypherGlobalSubscriber,
+}
+
+// See [[com.nexora.graph.messaging.StandingQueryMessage.MultipleValuesStandingQuerySubscriber.QuerySubscriber]]
+table CypherNodeSubscriber {
+  on_node: [byte] (required); // NexoraId
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+  global_query_id: StandingQueryId2 (required);
+}
+
+// See [[com.nexora.graph.messaging.StandingQueryMessage.MultipleValuesStandingQuerySubscriber.GlobalSubscriber]]
+table CypherGlobalSubscriber {
+  global_query_id: StandingQueryId2 (required);
+}
+
+// See [[com.nexora.graph.behavior.StandingQuerySubscribers]]
+table MultipleValuesStandingQuerySubscribers {
+  query_part_id: MultipleValuesStandingQueryPartId2 (required);
+  global_query_id: StandingQueryId2 (required);
+  subscribers: [MultipleValuesStandingQuerySubscriber];
+}
+
+table MultipleValuesStandingQueryStateAndSubscribers {
+  subscribers: MultipleValuesStandingQuerySubscribers (required);
+  state: MultipleValuesStandingQueryState (required);
+}
+root_type MultipleValuesStandingQueryStateAndSubscribers;

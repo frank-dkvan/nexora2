@@ -1,0 +1,337 @@
+include "base.fbs";
+include "cypher.fbs";
+
+namespace com.nexora.persistence;
+
+// TODO the "See" references in this file may not be up to date
+
+// See [[com.nexora.graph.StandingQueryPattern]]
+union StandingQueryPattern {
+  BranchQuery,
+  SqV4Query,
+  NexoraPatternQueryPattern
+}
+
+// See [[com.nexora.graph.PatternOrigin.DgbOrigin]]
+union BranchOrigin {
+  DirectDgb,
+  GraphPatternOrigin,
+}
+
+// See [[com.nexora.graph.PatternOrigin.Sqv4Origin]]
+union SqV4Origin {
+  DirectSqV4,
+  GraphPatternOrigin,
+}
+
+// See [[com.nexora.graph.PatternOrigin.DirectDgb]]
+table DirectDgb { }
+
+// See [[com.nexora.graph.PatternOrigin.DirectSqV4]]
+table DirectSqV4 { }
+
+// See [[com.nexora.graph.PatternOrigin.GraphPattern]]
+table GraphPatternOrigin {
+  pattern: GraphQueryPattern (required);
+  cypher_original: string;
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.ReturnColumn]]
+union ReturnColumn {
+  ReturnColumnId,
+  ReturnColumnProperty,
+  ReturnColumnAllProperties,
+}
+
+// See [[com.nexora.graph.cypher.MultipleValuesStandingQuery]]
+union MultipleValuesStandingQuery {
+  MultipleValuesUnitStandingQuery,
+  MultipleValuesCrossStandingQuery,
+  MultipleValuesLocalPropertyStandingQuery,
+  MultipleValuesLocalIdStandingQuery,
+  MultipleValuesSubscribeAcrossEdgeStandingQuery,
+  MultipleValuesEdgeSubscriptionReciprocalStandingQuery,
+  MultipleValuesFilterMapStandingQuery,
+  MultipleValuesAllPropertiesStandingQuery,
+  MultipleValuesLabelsStandingQuery,
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.ValueConstraint]]
+union CypherValueConstraint {
+  CypherValueConstraintEqual,
+  CypherValueConstraintNotEqual,
+  CypherValueConstraintAny,
+  CypherValueConstraintNone,
+  CypherValueConstraintRegex,
+  CypherValueConstraintListContains,
+  CypherValueConstraintUnconditional,
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.Equal]]
+table CypherValueConstraintEqual {
+  compare_to: CypherValue (required);
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.NotEqual]]
+table CypherValueConstraintNotEqual {
+  compare_to: CypherValue (required);
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.Any]]
+table CypherValueConstraintAny { }
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.None]]
+table CypherValueConstraintNone { }
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.Regex]]
+table CypherValueConstraintRegex {
+  pattern: string (required);
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.ListContains]]
+table CypherValueConstraintListContains {
+  values: [CypherValue];
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty.Unconditional]]
+table CypherValueConstraintUnconditional { }
+
+
+// See [[com.nexora.graph.cypher.MultipleValuesStandingQuery.Labels.LabelsConstraint]]
+union LabelsConstraint {
+  LabelsConstraintContains,
+  LabelsConstraintUnconditional,
+}
+
+// See [[com.nexora.graph.cypher.MultipleValuesStandingQuery.Labels.Contains]]
+table LabelsConstraintContains {
+  labels: [string];
+}
+
+// See [[com.nexora.graph.cypher.MultipleValuesStandingQuery.Labels.Unconditional]]
+table LabelsConstraintUnconditional { }
+
+
+// See [[com.nexora.graph.cypher.StandingQuery.UnitSq]]
+table MultipleValuesUnitStandingQuery { }
+
+// See [[com.nexora.graph.cypher.StandingQuery.Cross]]
+table MultipleValuesCrossStandingQuery {
+  queries: [MultipleValuesStandingQuery];
+  emit_subscriptions_lazily: bool;
+}
+
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalProperty]]
+table MultipleValuesLocalPropertyStandingQuery {
+  property_key: string (required);
+  property_constraint: CypherValueConstraint (required);
+  aliased_as: string;
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.LocalId]]
+table MultipleValuesLocalIdStandingQuery {
+  aliased_as: string (required);
+  format_as_string: bool;
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.SubscribeAcrossEdge]]
+table MultipleValuesSubscribeAcrossEdgeStandingQuery {
+  edge_name: string;
+  edge_direction: BoxedEdgeDirection;
+  and_then: MultipleValuesStandingQuery;
+}
+
+// Like `EdgeDirection`, but can be null
+table BoxedEdgeDirection {
+  edge_direction: EdgeDirection;
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.EdgeSubscriptionReciprocal]]
+table MultipleValuesEdgeSubscriptionReciprocalStandingQuery {
+  half_edge: HalfEdge (required);
+  and_then_id: MultipleValuesStandingQueryPartId;
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.FilterMap]]
+table MultipleValuesFilterMapStandingQuery {
+  condition: CypherExpr;
+  to_filter: MultipleValuesStandingQuery (required);
+  drop_existing: bool;
+  to_add: [CypherMapExprEntry];
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.AllProperties]]
+table MultipleValuesAllPropertiesStandingQuery {
+  aliased_as: string (required);
+}
+
+// See [[com.nexora.graph.cypher.StandingQuery.Labels]]
+table MultipleValuesLabelsStandingQuery {
+  aliased_as: string;
+  constraint: LabelsConstraint (required);
+}
+
+// See [[com.nexora.graph.StandingQuery]]
+table StandingQuery {
+  name: string (required);
+  id: StandingQueryId (required);
+  query: StandingQueryPattern (required);
+  queue_backpressure_threshold: int;
+  queue_max_size: int;
+}
+
+// See [[com.nexora.graph.StandingQueryPattern.DomainGraphNodeStandingQueryPattern]]
+table BranchQuery {
+  dgn_id: long;
+  format_return_as_string: bool;
+  alias_return_as: string (required);
+  include_cancellation: bool;
+  origin: BranchOrigin (required);
+}
+
+table NexoraUnit {}
+
+table Node {
+  binding: string;
+}
+
+union NexoraPattern {
+  NexoraUnit,
+  Node,
+  Edge,
+  Fold
+}
+
+table Edge {
+  binding: string;
+  remote_pattern: NexoraPattern;
+}
+
+table Merge {}
+table Append {}
+
+union BinOp {
+  Merge,
+  Append
+}
+
+table Output {}
+
+table Fold {
+  init: NexoraPattern;
+  over: [NexoraPattern];
+  f: BinOp;
+  output: Output;
+}
+
+table NexoraPatternOrigin {}
+
+table NexoraPatternQueryPattern {
+  nexora_pattern: NexoraPattern;
+  include_cancellation: bool;
+  origin: NexoraPatternOrigin;
+}
+
+// See [[com.nexora.graph.StandingQueryPattern.GraphPattern]]
+table GraphPatternStandingQuery {
+  graph: GraphQueryPattern (required);
+  cypher_query: string;
+  include_cancellation: bool;
+  use_domain_graph_branch: bool;
+}
+
+// See [[com.nexora.graph.GraphQueryPattern]]
+table GraphQueryPattern {
+  nodes: [NodePattern];
+  edges: [EdgePattern];
+  starting_point: NodePatternId;
+  to_extract: [ReturnColumn];
+  filter_cond: CypherExpr;
+  to_return: [CypherMapExprEntry];
+  distinct: bool;
+}
+
+// See [[com.nexora.graph.StandingQueryPattern.SqV4]]
+table SqV4Query {
+  query: MultipleValuesStandingQuery (required);
+  include_cancellation: bool;
+  origin: SqV4Origin (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.NodePatternId]]
+struct NodePatternId {
+  id: int;
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.NodePattern]]
+table NodePattern {
+  pattern_id: NodePatternId;
+  labels: [string];
+  nexora_id: NexoraId;
+  properties: [NodePatternProperty];
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.PropertyValuePattern]]
+union NodePatternPropertyValuePattern {
+  NodePatternPropertyValue,
+  NodePatternPropertyAnyValueExcept,
+  NodePatternPropertyRegexMatch,
+  NodePatternPropertyAnyValue,
+  NodePatternPropertyNoValue,
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.PropertyValuePattern.Value]]
+table NodePatternPropertyValue {
+  compare_to: NexoraValue (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.PropertyValuePattern.AnyValueExcept]]
+table NodePatternPropertyAnyValueExcept {
+  compare_to: NexoraValue (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.PropertyValuePattern.RegexMatch]]
+table NodePatternPropertyRegexMatch {
+  pattern: string (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.PropertyValuePattern.AnyValue]]
+table NodePatternPropertyAnyValue { }
+
+// See [[com.nexora.graph.GraphQueryPattern.PropertyValuePattern.NoValue]]
+table NodePatternPropertyNoValue { }
+
+table NodePatternProperty {
+  key: string (required);
+  pattern: NodePatternPropertyValuePattern (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.EdgePattern]]
+table EdgePattern {
+  from: NodePatternId;
+  to: NodePatternId;
+  is_directed: bool;
+  label: string (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.ReturnColumn.Id]]
+table ReturnColumnId {
+  node: NodePatternId;
+  format_as_string: bool;
+  aliased_as: string (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.ReturnColumn.Property]]
+table ReturnColumnProperty {
+  node: NodePatternId;
+  property_key: string (required);
+  aliased_as: string (required);
+}
+
+// See [[com.nexora.graph.GraphQueryPattern.ReturnColumn.AllProperties]]
+table ReturnColumnAllProperties {
+  node: NodePatternId;
+  aliased_as: string (required);
+}
+

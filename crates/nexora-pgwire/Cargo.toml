@@ -1,0 +1,70 @@
+[package]
+name = "nexora-pgwire"
+version.workspace = true
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "PostgreSQL wire protocol server for Nexora graph database"
+repository = "https://github.com/frank-dkvan/nexora"
+
+[dependencies]
+pgwire = { version = "0.40", features = ["server-api-ring"] }
+tokio = { workspace = true, features = ["full"] }
+futures = "0.3"
+bytes = "1"
+async-trait = "0.1"
+
+nexora-core = { path = "../nexora-core" }
+nexora-sql = { path = "../nexora-sql" }
+nexora-id = { path = "../nexora-id" }
+nexora-standing-query = { path = "../nexora-standing-query" }
+nexora-zenoh = { path = "../nexora-zenoh" }
+
+# Event-first: query Iceberg event tables via DataFusion (feature-gated so the
+# heavy OLAP stack is only pulled in when event-first is enabled).
+nexora-eventlog = { path = "../nexora-eventlog", optional = true }
+arrow = { version = "57.1", optional = true }
+arrow-schema = { version = "57.1", optional = true }
+datafusion = { version = "52.2", optional = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+hex = { workspace = true }
+sqlparser = { workspace = true }
+rustls-pemfile = "2"
+
+clap = { version = "4", features = ["derive"] }
+
+[features]
+default = []
+event-first = [
+    "dep:nexora-eventlog",
+    "nexora-eventlog/olap",
+    "dep:arrow",
+    "dep:arrow-schema",
+    "dep:datafusion",
+]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+nexora-core = { path = "../nexora-core" }
+nexora-standing-query = { path = "../nexora-standing-query" }
+tempfile = "3"
+tokio-postgres = "0.7"
+rcgen = "0.13"
+warp = "0.3"
+nexora-zenoh = { path = "../nexora-zenoh" }
+nexora-id = { path = "../nexora-id" }
+
+[[test]]
+name = "pgwire_integration"
+path = "tests/pgwire_integration.rs"
+
+[[test]]
+name = "e2e_pgwire_sq_mv_chain"
+path = "tests/e2e_pgwire_sq_mv_chain.rs"

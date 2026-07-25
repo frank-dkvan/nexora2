@@ -1,0 +1,18 @@
+[package]
+name = "nexora-id"
+description = "NexoraId — the fundamental node identifier in the Nexora graph"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+xxhash-rust = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }

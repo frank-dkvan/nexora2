@@ -1,0 +1,16 @@
+[package]
+name = "nexora-fixpoint"
+version.workspace = true
+edition.workspace = true
+description = "Streaming fixpoint operator — incremental graph transitive closure computation"
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-core = { path = "../nexora-core" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

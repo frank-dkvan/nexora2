@@ -1,0 +1,199 @@
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║ NEXORA GRAPH BROWSER - ADVANCED SEARCH INTERFACE                                                   ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ TOOLBAR                                                                                               │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                       │
+│  Graph Browser  │ [Node ID_________] [Search] [🔍 Advanced Search] [History ▼]     5 nodes • 8 edges│
+│                                                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ ADVANCED SEARCH PANEL (Expandable)                                                                   │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                       │
+│  Mode Tabs:  [●Quick Search] [○Filter] [○Cypher] [○SQL]                                             │
+│                                                                                                       │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                       │
+│  ┌─ MODE 1: QUICK SEARCH ─────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                                                  │ │
+│  │  [Search by name, type, or any property...___________________________] [Search]                 │ │
+│  │                                                                                                  │ │
+│  │  Quick: [Alice] [Bob] [Person] [Zone] [Forklift]                                                │ │
+│  │                                                                                                  │ │
+│  └──────────────────────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                                       │
+│  ┌─ MODE 2: FILTER SEARCH ────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                                                  │ │
+│  │  [name ▼] [contains ▼] [value_______________] [Search]                                          │ │
+│  │                                                                                                  │ │
+│  │  Property: name, type, status, speed, label                                                     │ │
+│  │  Operator: equals, contains, gt (>), lt (<)                                                     │ │
+│  │                                                                                                  │ │
+│  └──────────────────────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                                       │
+│  ┌─ MODE 3: CYPHER QUERY ─────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                                                  │ │
+│  │  ┌────────────────────────────────────────────────────────────────────────────────────────────┐│ │
+│  │  │ MATCH (n) WHERE n.name CONTAINS $term RETURN n LIMIT 20                                    ││ │
+│  │  │                                                                                             ││ │
+│  │  │                                                                                             ││ │
+│  │  └────────────────────────────────────────────────────────────────────────────────────────────┘│ │
+│  │                                                                                                  │ │
+│  │  [Execute Cypher] [All Nodes] [With Edges] [Filter by Type]                                     │ │
+│  │                                                                                                  │ │
+│  │  💡 Use $term for parameter substitution                                                        │ │
+│  │                                                                                                  │ │
+│  └──────────────────────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                                       │
+│  ┌─ MODE 4: SQL QUERY ────────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                                                  │ │
+│  │  ┌────────────────────────────────────────────────────────────────────────────────────────────┐│ │
+│  │  │ SELECT * FROM nodes WHERE name LIKE '%term%' LIMIT 20                                      ││ │
+│  │  │                                                                                             ││ │
+│  │  │                                                                                             ││ │
+│  │  └────────────────────────────────────────────────────────────────────────────────────────────┘│ │
+│  │                                                                                                  │ │
+│  │  [Execute SQL] [All Nodes] [By Type] [With Edge Count]                                          │ │
+│  │                                                                                                  │ │
+│  │  💡 Query graph data using SQL syntax (translated to Cypher internally)                         │ │
+│  │                                                                                                  │ │
+│  └──────────────────────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                                       │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ SEARCH RESULTS (Scrollable, max 200px)                                                               │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                       │
+│  ┌────────────┬───────────────────┬─────────────────────────────┬────────┐                          │
+│  │ Label      │ ID                │ Properties                  │ Action │                          │
+│  ├────────────┼───────────────────┼─────────────────────────────┼────────┤                          │
+│  │ Alice      │ 616c696365...     │ name, type, age, status     │ [Load] │                          │
+│  │ Bob        │ 626f62...         │ name, type, department      │ [Load] │                          │
+│  │ Forklift-1 │ 666f726b6c...     │ name, speed, location       │ [Load] │                          │
+│  │ Zone-A     │ 7a6f6e65...       │ name, type, capacity        │ [Load] │                          │
+│  └────────────┴───────────────────┴─────────────────────────────┴────────┘                          │
+│                                                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────┬───────────────────────────────┐
+│ GRAPH CANVAS (vis-network visualization)                             │ SELECTED NODE PANEL           │
+│                                                                       │                               │
+│   ┌─────────────────────────────────────────────────────────────┐   │  ● Alice                      │
+│   │                                                              │   │  616c696365...                │
+│   │         (Alice)●────KNOWS────▶●(Bob)                        │   │  ───────────────────────      │
+│   │            │                   │                             │   │  PROPERTIES                   │
+│   │            │                   │                             │   │  name    Alice                │
+│   │       LOCATED_IN          REPORTS_TO                         │   │  type    Person               │
+│   │            │                   │                             │   │  age     32                   │
+│   │            ▼                   ▼                             │   │  status  active               │
+│   │         ●(Zone-A)           ●(Manager)                       │   │  ───────────────────────      │
+│   │                                                              │   │  SET PROPERTY                 │
+│   │                                                              │   │  [key___] [value____] [Set]   │
+│   │         ●(Forklift-1)────MONITORED_BY────▶●(Sensor-1)       │   │  ───────────────────────      │
+│   │            │                                                 │   │  ADD EDGE                     │
+│   │            │                                                 │   │  [type__] [target___] [Add]   │
+│   │       OPERATES                                               │   │                               │
+│   │            │                                                 │   │                               │
+│   │            ▼                                                 │   │                               │
+│   │         ●(Operator-Joe)                                      │   │                               │
+│   │                                                              │   │                               │
+│   └─────────────────────────────────────────────────────────────┘   │                               │
+│                                                                       │                               │
+│   Right-click context menu:                                          │ 💡 Double-click: expand edges │
+│   ┌──────────────────┐                                               │ 💡 Right-click: context menu  │
+│   │ 🔍 Focus Node    │                                               │ 💡 Search bar: load node      │
+│   │ 📊 Expand Edges  │                                               │                               │
+│   │ 📋 Copy ID       │                                               │ Edge Colors:                  │
+│   │ ───────────────  │                                               │ ── KNOWS                      │
+│   │ ✗ Remove from    │                                               │ ── REPORTS_TO                 │
+│   │   View           │                                               │ ── LOCATED_IN                 │
+│   └──────────────────┘                                               │ ── MONITORED_BY               │
+│                                                                       │                               │
+└──────────────────────────────────────────────────────────────────────┴───────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║ SEARCH WORKFLOW                                                                                       ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+1. Click [Advanced Search] button in toolbar
+   └─▶ Search panel expands below toolbar
+
+2. Select search mode (Quick / Filter / Cypher / SQL)
+   └─▶ Mode-specific UI appears
+
+3. Enter search criteria
+   └─▶ Type in input field OR click preset button
+
+4. Execute search
+   └─▶ Click [Search] / [Execute] button OR press Enter
+
+5. View results in scrollable table
+   └─▶ Each result shows: Label, ID, Properties, Load button
+
+6. Load node into graph
+   └─▶ Click [Load] button on desired result
+   └─▶ Node appears in graph canvas
+   └─▶ Node properties loaded automatically
+   └─▶ Connected edges fetched and displayed
+
+7. Interact with loaded node
+   └─▶ Double-click to expand edges
+   └─▶ Right-click for context menu
+   └─▶ Select to view/edit properties
+   └─▶ Add new edges or properties
+
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║ KEY FEATURES SUMMARY                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+✓ Four distinct search modes (Quick, Filter, Cypher, SQL)
+✓ Expandable/collapsible search panel
+✓ Quick filter chips for common searches
+✓ Property-based filtering with comparison operators
+✓ Full Cypher query language support
+✓ SQL syntax support (translated to Cypher)
+✓ Preset query templates for each mode
+✓ Scrollable search results table
+✓ One-click node loading from results
+✓ Seamless integration with graph visualization
+✓ Keyboard shortcuts (Enter to search)
+✓ Loading indicators and error handling
+✓ State preservation across mode switches
+✓ Help text and inline documentation
+✓ Responsive layout with efficient space usage
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║ EXAMPLE QUERIES                                                                                       ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+Quick Search:
+  Alice
+  Person
+  Forklift
+
+Filter Search:
+  name contains "Alice"
+  speed > 100
+  status equals "active"
+  type equals "Person"
+
+Cypher:
+  MATCH (n) RETURN n LIMIT 20
+  MATCH (n:Person)-[:KNOWS]->(m) RETURN n, m
+  MATCH (n) WHERE n.speed > 100 RETURN n ORDER BY n.speed DESC
+  MATCH (n)-[r]->(m) WHERE type(r) = 'REPORTS_TO' RETURN n, r, m
+
+SQL:
+  SELECT * FROM nodes LIMIT 20
+  SELECT * FROM nodes WHERE type = 'Person'
+  SELECT * FROM nodes WHERE name LIKE '%Alice%'
+  SELECT n.*, COUNT(e.*) as edge_count
+  FROM nodes n
+  LEFT JOIN edges e ON n.id = e.source
+  GROUP BY n.id
+  LIMIT 20

@@ -1,0 +1,49 @@
+{
+  "title": "DeepStreaming — Streaming Graph Engine",
+  "uid": "deepstreaming",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "title": "Active Nodes",
+      "type": "stat",
+      "targets": [{"expr": "deepstreaming_active_nodes", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "green", "value": 0}]}}}
+    },
+    {
+      "title": "Standing Queries",
+      "type": "stat",
+      "targets": [{"expr": "deepstreaming_standing_queries", "refId": "A"}]
+    },
+    {
+      "title": "Events / Second",
+      "type": "timeseries",
+      "targets": [{"expr": "rate(deepstreaming_events_total[1m])", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "title": "WAL Append Latency (p50/p95/p99)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(deepstreaming_wal_append_bucket[1m]))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, rate(deepstreaming_wal_append_bucket[1m]))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, rate(deepstreaming_wal_append_bucket[1m]))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "title": "SQ Match Rate",
+      "type": "timeseries",
+      "targets": [{"expr": "rate(deepstreaming_sq_matches_total[1m])", "refId": "A"}]
+    },
+    {
+      "title": "Fragment Count",
+      "type": "timeseries",
+      "targets": [{"expr": "deepstreaming_fragment_count", "refId": "A"}]
+    },
+    {
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [{"expr": "rate(deepstreaming_errors_total[5m])", "refId": "A"}],
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green"}, {"color": "red", "value": 0.01}]}}}
+    }
+  ]
+}

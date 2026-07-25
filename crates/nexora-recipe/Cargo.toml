@@ -1,0 +1,26 @@
+[package]
+name = "nexora-recipe"
+description = "Recipe interpreter — YAML declarative pipeline definitions"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+nexora-standing-query = { path = "../nexora-standing-query" }
+nexora-id = { path = "../nexora-id" }
+nexora-core = { path = "../nexora-core" }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+nexora-standing-query = { path = "../nexora-standing-query" }
+nexora-core = { path = "../nexora-core" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tempfile = "3"

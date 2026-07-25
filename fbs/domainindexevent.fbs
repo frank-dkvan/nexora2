@@ -1,0 +1,51 @@
+include "base.fbs";
+
+namespace com.nexora.persistence;
+
+// See [[com.nexora.graph.DomainIndexEvent]]
+union DomainIndexEventUnion {
+  CreateDomainNodeSubscription,
+  CreateDomainStandingQuerySubscription,
+  DomainNodeSubscriptionResult,
+  CancelDomainNodeSubscription,
+}
+
+table CreateDomainNodeSubscription {
+  test_dgn_id: long;
+  reply_to: [byte] (required); // raw bytes of a `NexoraId`
+  related_queries: [StandingQueryId] (required);
+}
+
+// See [[com.nexora.graph.CreateDomainStandingQuerySubscription]]
+table CreateDomainStandingQuerySubscription {
+  test_dgn_id: long;
+  reply_to: StandingQueryId (required);
+  related_queries: [StandingQueryId] (required);
+}
+
+// See [[com.nexora.graph.DomainNodeSubscriptionResult]]
+table DomainNodeSubscriptionResult {
+  from_id: [byte] (required); // raw bytes of a `NexoraId`
+  test_dgn_id: long;
+  result: bool;
+}
+
+// See [[com.nexora.graph.CancelDomainNodeSubscription]]
+table CancelDomainNodeSubscription {
+    test_dgn_id: long;
+    already_cancelled_subscriber: [byte] (required); // raw bytes of a `NexoraId`
+}
+
+// Also see [[com.nexora.graph.NodeEvent.WithTime]]
+table DomainIndexEventWithTime {
+  event_time: long;
+  event: DomainIndexEventUnion (required);
+}
+root_type DomainIndexEventWithTime;
+
+// Also see [[com.nexora.graph.DomainIndexEvent]]
+// Unlike `NodeEventUnion`, this can be used as a root type
+table DomainIndexEvent {
+  event: DomainIndexEventUnion (required);
+}
+root_type DomainIndexEvent;

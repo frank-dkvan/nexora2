@@ -1,0 +1,58 @@
+# Lakekeeper (Rust-native Iceberg REST Catalog) + Postgres, reusing an
+# externally-running MinIO on the host at localhost:9000.
+#
+# Usage:
+#   docker compose -f scripts/lakekeeper/docker-compose.yml up -d
+#   # then bootstrap + create a warehouse (see scripts/lakekeeper/bootstrap.sh)
+#
+# Lakekeeper listens on :8181. The Iceberg REST endpoint that clients use is
+#   http://localhost:8181/catalog
+# (management API is under /management).
+
+services:
+  lakekeeper-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: lakekeeper
+      POSTGRES_PASSWORD: lakekeeper
+      POSTGRES_DB: lakekeeper
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lakekeeper"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: run DB migrations, then exit.
+  lakekeeper-migrate:
+    image: quay.io/lakekeeper/catalog:latest
+    depends_on:
+      lakekeeper-db:
+        condition: service_healthy
+    environment:
+      LAKEKEEPER__PG_ENCRYPTION_KEY: this-is-a-dev-only-encryption-key
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgres://lakekeeper:lakekeeper@lakekeeper-db:5432/lakekeeper
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgres://lakekeeper:lakekeeper@lakekeeper-db:5432/lakekeeper
+    command: ["migrate"]
+    restart: "no"
+
+  lakekeeper:
+    image: quay.io/lakekeeper/catalog:latest
+    depends_on:
+      lakekeeper-migrate:
+        condition: service_completed_successfully
+    environment:
+      LAKEKEEPER__PG_ENCRYPTION_KEY: this-is-a-dev-only-encryption-key
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgres://lakekeeper:lakekeeper@lakekeeper-db:5432/lakekeeper
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgres://lakekeeper:lakekeeper@lakekeeper-db:5432/lakekeeper
+      # No auth for local dev; the catalog is open on :8181.
+      RUST_LOG: info
+    command: ["serve"]
+    ports:
+      - "8181:8181"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8181/health || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30

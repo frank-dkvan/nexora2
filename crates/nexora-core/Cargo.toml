@@ -1,0 +1,99 @@
+[package]
+name = "nexora-core"
+description = "Core graph engine — NodeTask, GraphShard, GraphService, persistence, standing queries"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-value = { path = "../nexora-value" }
+nexora-serialization = { path = "../nexora-serialization" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+flatbuffers = { workspace = true }
+serde_yaml = { workspace = true }
+rmp-serde = { workspace = true }
+async-trait = "0.1"
+bincode = "1.3"
+hex = { workspace = true }
+dashmap = { workspace = true }
+crc32fast = { workspace = true }
+blake3 = "1.5"
+futures = "0.3"
+aes-gcm = { version = "0.10", optional = true }
+rust-rocksdb = "0.50"
+
+[features]
+encrypt = ["aes-gcm"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"
+criterion = "0.5"
+proptest = { workspace = true }
+nexora-standing-query = { path = "../nexora-standing-query" }
+nexora-persistor-rocksdb = { path = "../nexora-persistor-rocksdb" }
+nexora-cypher = { path = "../nexora-cypher" }
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[[bench]]
+name = "wal_sync_benchmark"
+harness = false
+
+[[bench]]
+name = "query_benchmark"
+harness = false
+
+[[bench]]
+name = "concurrent_writes"
+harness = false
+
+[[bench]]
+name = "index_benchmark"
+harness = false
+
+[[bench]]
+name = "label_benchmark"
+harness = false
+
+[[bench]]
+name = "tpc_graph"
+harness = false
+
+[[bench]]
+name = "comparison"
+harness = false
+
+[[bench]]
+name = "group_commit_throughput"
+harness = false
+
+[[bench]]
+name = "scan_projection"
+harness = false
+
+[[bench]]
+name = "edge_index_scaling"
+harness = false
+
+[[bench]]
+name = "add_edge_decomposition"
+harness = false
+
+[[bench]]
+name = "batch_ingest_throughput"
+harness = false
+
+[[bench]]
+name = "index_contention"
+harness = false

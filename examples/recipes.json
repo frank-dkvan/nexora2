@@ -1,0 +1,48 @@
+{
+  "recipes": [
+    {
+      "name": "high-temp-alert",
+      "description": "Alert when any sensor reports temperature above threshold",
+      "steps": [
+        {
+          "query": "MATCH (n) WHERE n.temp > 10 RETURN n.name, n.temp, n.zone",
+          "description": "Find sensors with temperature above 10 degrees"
+        }
+      ],
+      "trigger": { "event_type": "property_change" }
+    },
+    {
+      "name": "door-open-warning",
+      "description": "Alert when a cold storage door is left open",
+      "steps": [
+        {
+          "query": "MATCH (n) WHERE n.door = 'open' AND n.zone <> 'dock' RETURN n.name, n.zone",
+          "description": "Find non-dock doors that are open"
+        }
+      ],
+      "trigger": { "event_type": "property_change" }
+    },
+    {
+      "name": "team-collaboration",
+      "description": "Find engineers in the same team and city for collaboration opportunities",
+      "steps": [
+        {
+          "query": "MATCH (a), (b) WHERE a.team = b.team AND a.city = b.city AND a.id <> b.id RETURN a.name, b.name, a.team, a.city",
+          "description": "Match same-team same-city pairs"
+        }
+      ],
+      "trigger": { "event_type": "node_created" }
+    },
+    {
+      "name": "critical-status-watch",
+      "description": "Monitor all nodes with critical status",
+      "steps": [
+        {
+          "query": "MATCH (n) WHERE n.status = 'critical' RETURN n.name, n.zone, n.temp",
+          "description": "Watch for critical status nodes"
+        }
+      ],
+      "trigger": { "event_type": "property_change" }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nexora-cluster-pdb
+  namespace: nexora
+  labels:
+    app.kubernetes.io/name: nexora
+    app.kubernetes.io/component: graph-engine
+    app.kubernetes.io/mode: clustered
+spec:
+  # For a 3-node Raft cluster, at most 1 pod can be voluntarily disrupted
+  # to maintain quorum (2 of 3 nodes must remain).
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nexora
+      app.kubernetes.io/component: graph-engine
+      app.kubernetes.io/mode: clustered

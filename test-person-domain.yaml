@@ -1,0 +1,33 @@
+schema:
+  domain: test_person
+  version: "1.0"
+  description: "Test domain for Person events"
+  extends: generic
+  labels:
+    - name: Person
+      description: "Person entity"
+      properties:
+        - name: name
+          prop_type: string
+          required: true
+        - name: age
+          prop_type: integer
+        - name: city
+          prop_type: string
+        - name: device_id
+          prop_type: string
+mappings:
+  - domain: test_person
+    source: person_events
+    event_type: PERSON_CREATED
+    node:
+      label: Person
+      id: "$.device_id"
+    properties:
+      name: "$.name"
+      age: "$.age"
+      city: "$.city"
+      device_id: "$.device_id"
+    edges: []
+standing_queries: []
+materialized_views: []

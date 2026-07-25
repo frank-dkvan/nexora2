@@ -1,0 +1,63 @@
+[package]
+name = "nexora-eventlog"
+description = "Event-first ingestion: topic-partitioned append-only Iceberg event tables (source of truth) queried via DataFusion"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-core = { path = "../nexora-core" }
+nexora-stream = { path = "../nexora-stream", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+bytes = { workspace = true }
+anyhow = { workspace = true }
+async-trait = "0.1"
+toml = "0.8"
+arc-swap = "1.9"
+
+# --- OLAP / event-table stack (feature-gated: heavy deps) ---
+# Versions pinned to the iceberg 0.9.1 ecosystem: arrow/parquet 57.x, datafusion 52.2.
+# iceberg-datafusion 0.9.1 depends on datafusion ^52.2, so we MUST match arrow 57 /
+# parquet 57 across the whole tree or we get two incompatible arrow versions.
+arrow = { version = "57.1", optional = true }
+arrow-schema = { version = "57.1", optional = true }
+parquet = { version = "57.1", optional = true }
+datafusion = { version = "52.2", optional = true }
+iceberg = { version = "0.9.1", optional = true }
+iceberg-datafusion = { version = "0.9.1", optional = true }
+iceberg-catalog-sql = { version = "0.9.1", optional = true }
+iceberg-catalog-rest = { version = "0.9.1", optional = true }
+iceberg-storage-opendal = { version = "0.9.1", optional = true, features = ["opendal-fs", "opendal-memory", "opendal-s3"] }
+typetag = { version = "0.2.23", optional = true }
+object_store = { version = "0.12", optional = true }
+sqlx = { version = "0.8", optional = true, default-features = false, features = ["sqlite", "runtime-tokio"] }
+futures = { version = "0.3", optional = true }
+
+[features]
+default = []
+olap = [
+    "dep:arrow",
+    "dep:arrow-schema",
+    "dep:parquet",
+    "dep:datafusion",
+    "dep:iceberg",
+    "dep:iceberg-datafusion",
+    "dep:iceberg-catalog-sql",
+    "dep:iceberg-catalog-rest",
+    "dep:iceberg-storage-opendal",
+    "dep:object_store",
+    "dep:sqlx",
+    "dep:futures",
+    "dep:nexora-stream",
+    "dep:typetag",
+]
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"

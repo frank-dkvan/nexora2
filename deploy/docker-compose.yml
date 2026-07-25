@@ -1,0 +1,30 @@
+# Nexora-RS Single Node Deployment
+# Usage: docker compose -f deploy/docker-compose.yml up
+
+services:
+  nexora:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"      # HTTP API
+      - "3000:3000"      # Dashboard (if built with UI)
+    volumes:
+      - nexora-data:/data
+    command:
+      - --rocksdb-path=/data
+      - --wal-dir=/data/wal
+      - --num-shards=256
+      - --max-nodes-per-shard=10000
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v2/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  nexora-data:

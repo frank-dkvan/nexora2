@@ -1,0 +1,47 @@
+include "base.fbs";
+
+namespace com.nexora.persistence;
+
+table NodeSnapshot {
+  time: long;
+  properties: [Property];
+  edges: [HalfEdge];
+  subscribers: [Subscriber];
+  domain_node_index: [NodeIndex];
+  reserved: bool = false; // Do not modify. Always false in Nexora: See [[NodeSnapshotPlus]] in nexora-plus
+}
+
+table PropertyCollectionValue {
+  value: [byte];
+}
+
+union Notifiable {
+  NexoraId,
+  StandingQueryId,
+}
+
+enum LastNotification: byte {
+  True,
+  False,
+  None,
+}
+
+table Subscriber {
+  dgn_id: long;
+  notifiable: [Notifiable];
+  last_notification: LastNotification;
+  related_queries: [StandingQueryId] (required);
+}
+
+table NodeIndex {
+  subscriber: NexoraId;
+  queries: [NodeIndexQuery];
+}
+
+table NodeIndexQuery {
+  dgn_id: long;
+  result: LastNotification;
+}
+
+root_type NodeSnapshot;
+

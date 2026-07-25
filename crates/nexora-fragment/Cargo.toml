@@ -1,0 +1,22 @@
+[package]
+name = "nexora-fragment"
+description = "Fragment-based time-sharded immutble graph storage (inspired by TileDB)"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-core = { path = "../nexora-core" }
+nexora-storage = { path = "../nexora-storage" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+bytes = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"

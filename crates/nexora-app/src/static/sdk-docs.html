@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexora-RS SDK Documentation</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --primary: #38bdf8;
+    --green: #4ade80;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+  }
+  .sidebar {
+    position: fixed; left: 0; top: 0; width: 260px; height: 100vh;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 24px 16px; overflow-y: auto;
+  }
+  .sidebar h1 { font-size: 18px; color: var(--primary); margin-bottom: 4px; }
+  .sidebar .version { font-size: 11px; color: var(--text2); margin-bottom: 20px; }
+  .sidebar a {
+    display: block; padding: 6px 12px; color: var(--text2);
+    text-decoration: none; font-size: 13px; border-radius: 6px; margin-bottom: 2px;
+  }
+  .sidebar a:hover { background: var(--border); color: var(--text); }
+  .sidebar a.active { background: var(--primary); color: var(--bg); }
+  .sidebar .section { margin-top: 16px; font-size: 10px; text-transform: uppercase; color: var(--text2); padding: 0 12px 4px; }
+  .main { margin-left: 260px; padding: 40px; max-width: 900px; }
+  h2 { font-size: 28px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 20px; margin: 24px 0 12px; color: var(--primary); }
+  h4 { font-size: 15px; margin: 16px 0 8px; color: var(--yellow); }
+  p { margin-bottom: 12px; color: var(--text); }
+  code {
+    font-family: var(--mono); font-size: 13px; background: var(--surface);
+    padding: 2px 6px; border-radius: 4px; color: var(--primary);
+  }
+  pre {
+    font-family: var(--mono); font-size: 13px; background: var(--surface);
+    padding: 16px; border-radius: 8px; border: 1px solid var(--border);
+    overflow-x: auto; margin: 12px 0; line-height: 1.5;
+  }
+  pre .kw { color: var(--primary); }
+  pre .str { color: var(--green); }
+  pre .com { color: var(--text2); font-style: italic; }
+  pre .num { color: var(--yellow); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  th, td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; font-size: 13px; }
+  th { background: var(--surface); color: var(--primary); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-python { background: #3776ab; color: white; }
+  .badge-ts { background: #3178c6; color: white; }
+  .badge-rust { background: #dea584; color: #1a1a1a; }
+  .note { background: rgba(56, 189, 248, 0.1); border-left: 3px solid var(--primary); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .warn { background: rgba(251, 191, 36, 0.1); border-left: 3px solid var(--yellow); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h1>Nexora-RS</h1>
+  <div class="version">SDK Documentation v0.1.0</div>
+
+  <div class="section">Getting Started</div>
+  <a href="#overview" class="active">Overview</a>
+  <a href="#install">Installation</a>
+  <a href="#quickstart">Quick Start</a>
+
+  <div class="section">Python SDK</div>
+  <a href="#py-sync">Sync Client</a>
+  <a href="#py-async">Async Client</a>
+  <a href="#py-streaming">Streaming (WebSocket)</a>
+  <a href="#py-types">Types & Errors</a>
+
+  <div class="section">TypeScript SDK</div>
+  <a href="#ts-client">Client API</a>
+  <a href="#ts-types">Types</a>
+  <a href="#ts-ws">WebSocket</a>
+
+  <div class="section">Rust Client</div>
+  <a href="#rust-client">nexora-client crate</a>
+
+  <div class="section">REST API</div>
+  <a href="#api-graph">Graph Operations</a>
+  <a href="#api-cypher">Cypher Query</a>
+  <a href="#api-sq">Standing Queries</a>
+  <a href="#api-admin">Admin & Ops</a>
+</div>
+
+<div class="main">
+
+<h2 id="overview">SDK Overview</h2>
+<p>Nexora-RS provides three SDKs for different languages, all backed by the same REST API.</p>
+
+<table>
+  <tr><th>SDK</th><th>Language</th><th>Package</th><th>Install</th></tr>
+  <tr><td><span class="badge badge-python">Python</span></td><td>Python 3.9+</td><td>nexora</td><td><code>pip install nexora</code></td></tr>
+  <tr><td><span class="badge badge-ts">TypeScript</span></td><td>Node 18+ / Browser</td><td>nexora</td><td><code>npm install nexora</code></td></tr>
+  <tr><td><span class="badge badge-rust">Rust</span></td><td>Rust 1.75+</td><td>nexora-client</td><td><code>cargo add nexora-client</code></td></tr>
+</table>
+
+<h2 id="install">Installation</h2>
+
+<h3>Python</h3>
+<pre><span class="com"># Using pip</span>
+pip install nexora
+
+<span class="com"># Using poetry</span>
+poetry add nexora
+
+<span class="com"># From source</span>
+cd sdk/python && pip install -e .</pre>
+
+<h3>TypeScript</h3>
+<pre><span class="com"># Using npm</span>
+npm install nexora
+
+<span class="com"># Using yarn</span>
+yarn add nexora
+
+<span class="com"># From source</span>
+cd sdk/typescript && npm install && npm run build</pre>
+
+<h3>Rust</h3>
+<pre><span class="com"># In Cargo.toml</span>
+[dependencies]
+nexora-client = { path = "crates/nexora-client" }
+<span class="com"># or from git</span>
+<span class="com"># nexora-client = { git = "https://github.com/frank-dkvan/deepstreaming" }</pre>
+
+<h2 id="quickstart">Quick Start</h2>
+
+<h3>Python (Sync)</h3>
+<pre><span class="kw">from</span> nexora_rs <span class="kw">import</span> NexoraClient
+
+client = NexoraClient(<span class="str">"http://localhost:8080"</span>)
+
+<span class="com"># Create a node with properties</span>
+client.set_property(<span class="str">"alice"</span>, <span class="str">"name"</span>, <span class="str">"Alice"</span>)
+client.set_property(<span class="str">"alice"</span>, <span class="str">"age"</span>, <span class="num">32</span>)
+
+<span class="com"># Read properties</span>
+name = client.get_property(<span class="str">"alice"</span>, <span class="str">"name"</span>)
+<span class="kw">print</span>(name)  <span class="com"># "Alice"</span>
+
+<span class="com"># Add edges</span>
+client.add_edge(<span class="str">"alice"</span>, <span class="str">"bob"</span>, <span class="str">"KNOWS"</span>)
+
+<span class="com"># Query with Cypher</span>
+results = client.query(<span class="str">"MATCH (n) RETURN n.name, n.age LIMIT 10"</span>)
+<span class="kw">for</span> row <span class="kw">in</span> results:
+    <span class="kw">print</span>(row)
+
+<span class="com"># Register a standing query</span>
+sq = client.create_standing_query(
+    name=<span class="str">"high-temp"</span>,
+    pattern={<span class="str">"type"</span>: <span class="str">"PropertyFilter"</span>, <span class="str">"key"</span>: <span class="str">"temp"</span>,
+             <span class="str">"condition"</span>: {<span class="str">"type"</span>: <span class="str">"GreaterThan"</span>, <span class="str">"value"</span>: <span class="num">10</span>}}
+)
+<span class="kw">print</span>(<span class="str">f"Registered SQ: {sq['id']}"</span>)
+
+client.close()</pre>
+
+<h3>Python (Async)</h3>
+<pre><span class="kw">import</span> asyncio
+<span class="kw">from</span> nexora_rs <span class="kw">import</span> AsyncNexoraClient
+
+<span class="kw">async def</span> main():
+    client = AsyncNexoraClient(<span class="str">"http://localhost:8080"</span>)
+
+    <span class="com"># Batch operations</span>
+    <span class="kw">await</span> client.set_property(<span class="str">"alice"</span>, <span class="str">"name"</span>, <span class="str">"Alice"</span>)
+    <span class="kw">await</span> client.set_property(<span class="str">"bob"</span>, <span class="str">"name"</span>, <span class="str">"Bob"</span>)
+    <span class="kw">await</span> client.add_edge(<span class="str">"alice"</span>, <span class="str">"bob"</span>, <span class="str">"KNOWS"</span>)
+
+    <span class="com"># Concurrent queries</span>
+    results = <span class="kw">await</span> client.query(<span class="str">"MATCH (n) RETURN n LIMIT 10"</span>)
+    <span class="kw">print</span>(results)
+
+    <span class="kw">await</span> client.close()
+
+asyncio.run(main())</pre>
+
+<h3>TypeScript</h3>
+<pre><span class="kw">import</span> { NexoraClient } <span class="kw">from</span> <span class="str">'nexora'</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> NexoraClient(<span class="str">'http://localhost:8080'</span>);
+
+<span class="com">// Create nodes</span>
+<span class="kw">await</span> client.setProperty(<span class="str">'alice'</span>, <span class="str">'name'</span>, <span class="str">'Alice'</span>);
+<span class="kw">await</span> client.setProperty(<span class="str">'alice'</span>, <span class="str">'age'</span>, <span class="num">32</span>);
+
+<span class="com">// Query</span>
+<span class="kw">const</span> rows = <span class="kw">await</span> client.query(<span class="str">'MATCH (n) RETURN n LIMIT 10'</span>);
+console.log(rows);
+
+<span class="com">// Standing queries</span>
+<span class="kw">const</span> sq = <span class="kw">await</span> client.createStandingQuery({
+  name: <span class="str">'high-temp'</span>,
+  pattern: { type: <span class="str">'PropertyFilter'</span>, key: <span class="str">'temp'</span>,
+             condition: { type: <span class="str">'GreaterThan'</span>, value: <span class="num">10</span> } }
+});
+console.log(<span class="str">`Registered: ${sq.id}`</span>);</pre>
+
+<h3>Rust</h3>
+<pre><span class="kw">use</span> nexora_client::NexoraClient;
+
+<span class="kw">let</span> client = NexoraClient::new(<span class="str">"http://localhost:8080"</span>)?;
+
+<span class="com">// Create a node</span>
+client.set_property(<span class="str">"alice"</span>, <span class="str">"name"</span>, <span class="str">"Alice"</span>).await?;
+
+<span class="com">// Query</span>
+<span class="kw">let</span> results = client.query(<span class="str">"MATCH (n) RETURN n LIMIT 10"</span>).await?;
+<span class="kw">for</span> row <span class="kw">in</span> &amp;results.rows {
+    println!(<span class="str">"{:?}"</span>, row);
+}</pre>
+
+<h2 id="py-sync">Python Sync Client API</h2>
+
+<h3>NexoraClient</h3>
+<table>
+  <tr><th>Method</th><th>Parameters</th><th>Returns</th><th>Description</th></tr>
+  <tr><td><code>set_property(node_id, key, value)</code></td><td>node_id: str, key: str, value: Any</td><td>dict</td><td>Set a property on a node</td></tr>
+  <tr><td><code>get_property(node_id, key)</code></td><td>node_id: str, key: str</td><td>Any</td><td>Get a property value</td></tr>
+  <tr><td><code>get_all_properties(node_id)</code></td><td>node_id: str</td><td>dict</td><td>Get all properties of a node</td></tr>
+  <tr><td><code>add_edge(from_id, to_id, edge_type)</code></td><td>from: str, to: str, type: str</td><td>dict</td><td>Add a directed edge</td></tr>
+  <tr><td><code>get_edges(node_id)</code></td><td>node_id: str</td><td>list[dict]</td><td>Get all edges of a node</td></tr>
+  <tr><td><code>delete_node(node_id)</code></td><td>node_id: str</td><td>dict</td><td>Delete a node and its edges</td></tr>
+  <tr><td><code>query(cypher)</code></td><td>cypher: str</td><td>list[list]</td><td>Execute a Cypher query</td></tr>
+  <tr><td><code>create_standing_query(name, pattern)</code></td><td>name: str, pattern: dict</td><td>dict</td><td>Register a standing query</td></tr>
+  <tr><td><code>list_standing_queries()</code></td><td>-</td><td>list[dict]</td><td>List all standing queries</td></tr>
+  <tr><td><code>delete_standing_query(id)</code></td><td>id: str</td><td>dict</td><td>Delete a standing query</td></tr>
+  <tr><td><code>ingest_file(path, id_field)</code></td><td>path: str, id_field: str</td><td>dict</td><td>Start file ingestion</td></tr>
+  <tr><td><code>health()</code></td><td>-</td><td>dict</td><td>Check server health</td></tr>
+  <tr><td><code>close()</code></td><td>-</td><td>-</td><td>Close the client</td></tr>
+</table>
+
+<h2 id="py-async">Python Async Client API</h2>
+<p>Same API as the sync client, but all methods are <code>async</code> and return coroutines.</p>
+
+<h2 id="py-streaming">Streaming (WebSocket)</h2>
+<pre><span class="kw">from</span> nexora_rs <span class="kw">import</span> AsyncNexoraClient
+<span class="kw">from</span> nexora_rs.streaming <span class="kw">import</span> StreamingClient
+
+<span class="kw">async def</span> main():
+    client = AsyncNexoraClient(<span class="str">"http://localhost:8080"</span>)
+    streaming = StreamingClient(client)
+
+    <span class="com"># Subscribe to standing query matches</span>
+    <span class="kw">async for</span> event <span class="kw">in</span> streaming.subscribe():
+        <span class="kw">print</span>(<span class="str">f"Event: {event}"</span>)
+
+        <span class="kw">if</span> event.type == <span class="str">"sq_match"</span>:
+            <span class="kw">print</span>(<span class="str">f"  Match: {event.data}"</span>)
+
+<span class="com"># Run with reconnect support</span>
+<span class="kw">import</span> asyncio
+asyncio.run(main())</pre>
+
+<h2 id="api-graph">REST API: Graph Operations</h2>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>PUT</td><td><code>/api/v2/graph/node/{qid}/property/{key}</code></td><td>Set node property</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/graph/node/{qid}/property/{key}</code></td><td>Get node property</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/graph/node/{qid}/properties</code></td><td>Get all properties</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/graph/node/{qid}/edges</code></td><td>Get node edges</td></tr>
+  <tr><td>POST</td><td><code>/api/v2/graph/node/{qid}/edges</code></td><td>Add an edge</td></tr>
+  <tr><td>DELETE</td><td><code>/api/v2/graph/node/{qid}</code></td><td>Delete a node</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/graph/node/{qid}/history</code></td><td>Get node history</td></tr>
+</table>
+
+<h2 id="api-cypher">REST API: Cypher Query</h2>
+<pre>POST /api/v2/query/cypher
+Content-Type: application/json
+
+{
+  <span class="str">"query"</span>: <span class="str">"MATCH (n) WHERE n.age > 25 RETURN n.name, n.age ORDER BY n.age DESC LIMIT 10"</span>
+}
+
+<span class="com"># Response headers include performance stats:</span>
+<span class="com"># X-Query-Duration-Ms: 15</span>
+<span class="com"># X-Query-Result-Count: 5</span>
+<span class="com"># X-Query-Duration-Us: 15342</span></pre>
+
+<h2 id="api-sq">REST API: Standing Queries</h2>
+<pre><span class="com"># Register a standing query</span>
+POST /api/v2/standing-query
+{
+  <span class="str">"name"</span>: <span class="str">"high-temp-alert"</span>,
+  <span class="str">"pattern"</span>: {
+    <span class="str">"type"</span>: <span class="str">"PropertyFilter"</span>,
+    <span class="str">"key"</span>: <span class="str">"temp"</span>,
+    <span class="str">"condition"</span>: { <span class="str">"type"</span>: <span class="str">"GreaterThan"</span>, <span class="str">"value"</span>: <span class="num">10</span> }
+  }
+}
+
+<span class="com"># List all standing queries</span>
+GET /api/v2/standing-query
+
+<span class="com"># Delete a standing query</span>
+DELETE /api/v2/standing-query/{id}</pre>
+
+<h2 id="api-admin">REST API: Admin & Operations</h2>
+<table>
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>GET</td><td><code>/api/v2/admin/status</code></td><td>Detailed system status</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/admin/slow-queries</code></td><td>Slow query analysis</td></tr>
+  <tr><td>POST</td><td><code>/api/v2/admin/backup</code></td><td>Trigger WAL backup</td></tr>
+  <tr><td>POST</td><td><code>/api/v2/admin/reindex</code></td><td>Trigger HNSW reindex</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/health</code></td><td>Health check</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/system/info</code></td><td>System information</td></tr>
+  <tr><td>GET</td><td><code>/metrics</code></td><td>Prometheus metrics</td></tr>
+  <tr><td>GET</td><td><code>/api/v2/sample-data</code></td><td>List sample datasets</td></tr>
+  <tr><td>POST</td><td><code>/api/v2/sample-data/{dataset}</code></td><td>Load sample data</td></tr>
+  <tr><td>POST</td><td><code>/api/v2/sample-recipes/{recipe_id}</code></td><td>Load preset recipe</td></tr>
+  <tr><td>POST</td><td><code>/api/v2/query/explain</code></td><td>Query execution plan</td></tr>
+</table>
+
+<div class="note">
+  <strong>Tip:</strong> Use <code>./bin/nexora-admin.sh</code> for CLI access to admin endpoints.
+  Run <code>./bin/nexora-admin.sh help</code> for usage.
+</div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,37 @@
+[package]
+name = "nexora-storage"
+version.workspace = true
+edition.workspace = true
+description = "Tiered storage abstraction (Hot/Warm/Cold) — inspired by TileDB VFS"
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+bytes = { workspace = true }
+async-trait = "0.1"
+# S3 backend (legacy, self-written): plain HTTP + AWS SigV4 (no AWS SDK).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# S3 backend (opendal-based, spike): unified VFS via OpenDAL. Pinned to match the
+# opendal already pulled in transitively by iceberg-storage-opendal (0.55).
+opendal = { version = "0.55", default-features = false, features = ["services-s3", "services-fs", "services-memory"], optional = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+# B10 Filter Pipeline: pluggable compression + encryption chain.
+zstd = "0.13"
+aes-gcm = "0.10"
+crc32fast = "1"
+
+[features]
+# Opt-in opendal-based backend (spike for unifying the storage layer).
+opendal-backend = ["dep:opendal"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"

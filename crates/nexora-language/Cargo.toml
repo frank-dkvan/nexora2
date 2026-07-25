@@ -1,0 +1,16 @@
+[package]
+name = "nexora-language"
+description = "Cypher parser — lexer, AST, and recursive descent parser for Nexora"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-value = { path = "../nexora-value" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+regex = "1"
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,41 @@
+# Nexora Cluster Configuration
+# This file defines a 3-node cluster with RF=3 replication
+
+# Cluster metadata
+cluster:
+  name: "nexora-prod"
+  total_shards: 256
+  replication_factor: 3
+
+# This node's configuration
+node:
+  id: "node-1"
+  # Address to listen on for graph operations (PG-wire, HTTP API)
+  listen_addr: "127.0.0.1:7000"
+  # Address to listen on for heartbeat protocol
+  heartbeat_addr: "127.0.0.1:7001"
+
+# Peer nodes in the cluster
+peers:
+  - node_id: "node-2"
+    graph_addr: "127.0.0.1:7010"
+    heartbeat_addr: "127.0.0.1:7011"
+
+  - node_id: "node-3"
+    graph_addr: "127.0.0.1:7020"
+    heartbeat_addr: "127.0.0.1:7021"
+
+# Health check and failure detection
+health:
+  # Interval between heartbeat messages (seconds)
+  heartbeat_interval_secs: 5
+  # Timeout before declaring a node failed (seconds)
+  failure_timeout_secs: 15
+
+# Replication configuration
+replication:
+  # Directory for durable replication log (optional)
+  # When set, incremental catch-up survives restarts
+  log_dir: "./data/replication-log"
+  # Quorum write timeout (seconds)
+  write_timeout_secs: 10

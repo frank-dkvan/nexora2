@@ -1,0 +1,3 @@
+{"id": "sensor-001", "_label": "Person", "name": "FileAlice", "age": 28, "city": "Beijing", "device_id": "sensor-001"}
+{"id": "sensor-002", "_label": "Person", "name": "FileBob", "age": 35, "city": "Shanghai", "device_id": "sensor-002"}
+{"id": "sensor-003", "_label": "Person", "name": "FileCarol", "age": 42, "city": "Shenzhen", "device_id": "sensor-003"}

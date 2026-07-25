@@ -1,0 +1,24 @@
+# Single-node cluster configuration
+# Suitable for development and testing
+
+cluster:
+  name: "nexora-dev"
+  total_shards: 64
+  replication_factor: 1
+
+node:
+  id: "node-1"
+  listen_addr: "127.0.0.1:7000"
+  heartbeat_addr: "127.0.0.1:7001"
+
+# No peers in single-node mode
+peers: []
+
+health:
+  heartbeat_interval_secs: 5
+  failure_timeout_secs: 15
+
+replication:
+  # In-memory replication log (no durability)
+  log_dir: null
+  write_timeout_secs: 10

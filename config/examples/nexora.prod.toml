@@ -1,0 +1,89 @@
+# Nexora Production Configuration
+# Secure defaults for production deployment
+
+[server]
+host = "0.0.0.0"  # Bind to all interfaces (behind firewall/load balancer)
+port = 8080
+request_body_limit_mb = 16
+
+[logging]
+level = "info"
+format = "json"  # Structured logging for production
+
+[auth]
+# Authentication is REQUIRED in production
+require_auth = true
+# MUST set via environment variable: NEXORA_AUTH_SECRET
+# Generate with: openssl rand -hex 32
+secret = "${NEXORA_AUTH_SECRET}"
+
+[security]
+# CORS - Restrict to your domain
+cors_origin = "https://your-domain.com"
+# Rate limiting - ENABLED
+rate_limit = true
+rate_limit_rate = 50
+rate_limit_burst = 100
+# Enable security checks
+strict_security = true
+
+[tls]
+# TLS is REQUIRED in production
+# Paths to certificate and private key
+cert_file = "/etc/nexora/tls/cert.pem"
+key_file = "/etc/nexora/tls/key.pem"
+
+[database]
+# Data directory - use persistent volume
+data_dir = "/var/lib/nexora/data"
+# Number of shards - tune based on workload
+num_shards = 256
+
+[wal]
+# Write-ahead log settings
+sync_policy = "group"  # Balance between durability and performance
+group_commit_interval_ms = 50
+# Encryption is RECOMMENDED
+encrypt_wal = true
+# Set via environment variable: NEXORA_ENCRYPTION_KEY
+encryption_key = "${NEXORA_ENCRYPTION_KEY}"
+
+[cluster]
+# Cluster mode configuration
+mode = "distributed"  # Options: "standalone", "distributed"
+node_id = "${NEXORA_NODE_ID}"
+# Replication factor
+replication_factor = 3
+# Zenoh discovery configuration
+zenoh_peers = [
+    "tcp/10.0.1.10:7447",
+    "tcp/10.0.1.11:7447",
+    "tcp/10.0.1.12:7447"
+]
+
+[monitoring]
+# Audit logging
+audit_log_file = "/var/log/nexora/audit.jsonl"
+# Metrics endpoint (internal only, behind firewall)
+metrics_port = 9090
+
+[query]
+# Query execution limits (more conservative)
+max_result_rows = 10000
+max_execution_time_secs = 30
+max_snapshot_nodes = 10000000
+
+[features]
+# Enable required features
+# Uncomment as needed (requires recompilation)
+# kafka = true
+# mqtt = true
+# websocket = true
+# kinesis = true
+# zenoh = true
+# wasm = true
+
+# OpenTelemetry tracing (optional)
+[otel]
+enabled = false
+# endpoint = "http://localhost:4317"  # OTLP gRPC endpoint

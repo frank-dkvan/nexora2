@@ -1,0 +1,59 @@
+# Nexora Development Configuration
+# This is a development-friendly configuration with relaxed security settings
+# DO NOT USE IN PRODUCTION
+
+[server]
+host = "127.0.0.1"
+port = 8080
+request_body_limit_mb = 16
+
+[logging]
+level = "debug"
+format = "pretty"  # Use "json" for structured logging
+
+[auth]
+# Authentication is OPTIONAL in dev mode
+# Set NEXORA_AUTH_REQUIRED=true to enforce
+require_auth = false
+# Change this secret if you enable auth!
+secret = "nexora-dev-secret-change-me"
+
+[security]
+# CORS - Allow all origins in dev
+cors_origin = "*"
+# Rate limiting - disabled for easier development
+rate_limit = false
+rate_limit_rate = 100
+rate_limit_burst = 200
+
+[database]
+# Data directory
+data_dir = "./nexora-data"
+# Number of shards
+num_shards = 256
+
+[wal]
+# Write-ahead log settings
+sync_policy = "group"  # Options: "always", "every_n", "group"
+group_commit_interval_ms = 100
+encrypt_wal = false
+
+[cluster]
+# Single-node mode (no clustering)
+mode = "standalone"
+node_id = "dev-node-1"
+
+[features]
+# Enable/disable features (requires compilation with feature flags)
+# kafka = false
+# mqtt = false
+# websocket = false
+# kinesis = false
+# zenoh = false
+# wasm = false
+
+[query]
+# Query execution limits
+max_result_rows = 100000
+max_execution_time_secs = 30
+max_snapshot_nodes = 10000000

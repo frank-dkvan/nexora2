@@ -1,0 +1,33 @@
+[package]
+name = "nexora-output"
+description = "Output sinks for Standing Query results — Console, HTTP, Kafka"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-id = { path = "../nexora-id" }
+nexora-standing-query = { path = "../nexora-standing-query" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+async-trait = "0.1"
+base64 = { workspace = true }
+rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }
+futures = "0.3"
+
+[features]
+default = []
+kafka = ["rdkafka"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+nexora-id = { path = "../nexora-id" }
+nexora-standing-query = { path = "../nexora-standing-query" }
+tempfile = "3"

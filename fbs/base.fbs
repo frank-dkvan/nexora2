@@ -1,0 +1,272 @@
+namespace com.nexora.persistence;
+
+// See [[com.nexora.model.EdgeDirection]]
+enum EdgeDirection: byte {
+  Outgoing,
+  Incoming,
+  Undirected,
+}
+
+// See [[com.nexora.model.NexoraId]]
+table NexoraId {
+  id: [byte] (required);
+}
+
+// See [[com.nexora.model.HalfEdge]]
+table HalfEdge {
+  edge_type: string (required);
+  direction: EdgeDirection;
+  other: NexoraId (required);
+}
+
+// See [[com.nexora.model.HalfEdge]]
+table HalfEdge2 {
+   edge_type: string (required);
+   direction: EdgeDirection;
+   other_nexora_id: [byte] (required); // NexoraId
+}
+
+table Property {
+  key: string (required);
+  value: [byte] (required);
+}
+
+// See [[com.nexora.model.NexoraValue]]
+table NexoraValue {
+  // We serialize all `NexoraValue`'s using MessagePack instead of FlatBuffers.
+  //
+  // This is because FlatBuffer's is quite a bit heavier, especially for small
+  // values. MessagePack is a perfect fit for `NexoraValue` too:
+  //
+  //  - it is designed for JSON-like structure
+  //  - it supports "extension" types
+  //  - it is optimized to require less bytes for small values, using bitpacking
+  //  - this is a known format, so users can make sense of the raw data too
+  //  - we can validate MessagePack quickly (so we might even ingest serialized data)
+  //
+  msg_packed: [byte] (required);
+}
+
+// See [[com.nexora.model.PropertyComparisonFunc]]
+union PropertyComparisonFunction {
+  PropertyComparisonFunctionIdenticality,
+  PropertyComparisonFunctionWildcard,
+  PropertyComparisonFunctionNone,
+  PropertyComparisonFunctionNonIdenticality,
+  PropertyComparisonFunctionRegexMatch,
+  PropertyComparisonFunctionListContains,
+}
+
+// See [[com.nexora.model.PropertyComparisonFunctions.identicality]]
+table PropertyComparisonFunctionIdenticality { }
+
+// See [[com.nexora.model.PropertyComparisonFunctions.wildcard]]
+table PropertyComparisonFunctionWildcard { }
+
+// See [[com.nexora.model.PropertyComparisonFunctions.none]]
+table PropertyComparisonFunctionNone { }
+
+// See [[com.nexora.model.PropertyComparisonFunctions.nonIdenticality]]
+table PropertyComparisonFunctionNonIdenticality { }
+
+// See [[com.nexora.model.PropertyComparisonFunctions.regexMatch]]
+table PropertyComparisonFunctionRegexMatch {
+  pattern: string (required);
+}
+
+// See [[com.nexora.model.PropertyComparisonFunctions.listContains]]
+table PropertyComparisonFunctionListContains {
+  values: [NexoraValue];
+}
+
+// See [[com.nexora.model.NodeLocalComparisonFunc]]
+enum NodeLocalComparisonFunction: byte {
+  Identicality,
+  EqualSubset,
+  Wildcard,
+}
+
+// See [[com.nexora.model.DependencyDirection]]
+enum DependencyDirection: byte {
+  DependsUpon,
+  IsDependedUpon,
+  Incidental,
+}
+
+// See [[com.nexora.model.DomainNodeEquiv]]
+table DomainNodeEquiv {
+  class_name: string;
+  local_properties: [LocalProperty];
+  circular_edges: [CircularEdge];
+}
+
+table LocalProperty {
+  property_key: string (required);
+  comparison_function: PropertyComparisonFunction (required);
+  value: [byte];
+}
+
+// See [[com.nexora.model.CircularEdge]]
+table CircularEdge {
+  edge_type: string (required);
+  is_directed: bool;
+}
+
+// See [[com.nexora.model.GenericEdge]]
+table GenericEdge {
+  edge_type: string (required);
+  direction: EdgeDirection;
+}
+
+// See [[com.nexora.model.EdgeMatchConstraints]]
+union EdgeMatchConstraints {
+  FetchConstraint,
+  MandatoryConstraint,
+}
+
+// See [[com.nexora.model.FetchConstraint]]
+table FetchConstraint {
+  min: int;
+  has_max: bool; // if this is defined, the max is meaningful
+  max: int;
+}
+
+// See [[com.nexora.model.MandatoryConstraint]]
+table MandatoryConstraint { }
+
+// See [[com.nexora.model.DomainGraphNode]]
+union DomainGraphNode {
+  SingleNode,
+  OrNode,
+  AndNode,
+  NotNode,
+  MuNode,
+  MuVarNode,
+}
+
+// See [[com.nexora.model.DomainGraphNode.SingleNode]]
+table SingleNode {
+  domain_node_equiv: DomainNodeEquiv (required);
+  identification: Identification;
+  next_nodes: [DomainEdge];
+  comparison_function: NodeLocalComparisonFunction;
+}
+
+table Identification {
+  id: NexoraId (required);
+}
+
+// See [[com.nexora.model.DomainGraphNode.Or]]
+table OrNode {
+  disjuncts_dgn_ids: [long];
+}
+
+// See [[com.nexora.model.DomainGraphNode.And]]
+table AndNode {
+  conjuncts_dgn_ids: [long];
+}
+
+// See [[com.nexora.model.DomainGraphNode.Not]]
+table NotNode {
+  negated_dgn_id: long;
+}
+
+// See [[com.nexora.model.DomainGraphNode.Mu]]
+table MuNode {
+  variable: string (required);
+  dgn_id: long;
+}
+
+// See [[com.nexora.model.DomainGraphNode.MuVar]]
+table MuVarNode {
+  variable: string (required);
+}
+
+// See [[com.nexora.model.DomainEdge]]
+table DomainEdge {
+  edge: GenericEdge (required);
+  dependency: DependencyDirection;
+  dgn_id: long;
+  circular_match_allowed: bool;
+  constraints: EdgeMatchConstraints (required);
+}
+
+// See [[com.nexora.graph.StandingQueryId]]
+table StandingQueryId {
+  low_bytes: long;
+  high_bytes: long;
+}
+
+// See [[com.nexora.graph.StandingQueryId]]
+// Backward incompatible representation that saves 128 bits per value.
+struct StandingQueryId2 {
+  low_bytes: long;
+  high_bytes: long;
+}
+
+// See [[com.nexora.graph.StandingQueryPartId]]
+table MultipleValuesStandingQueryPartId {
+  low_bytes: long;
+  high_bytes: long;
+}
+
+// See [[com.nexora.graph.StandingQueryPartId]]
+// Backward incompatible representation that saves 128 bits per value.
+struct MultipleValuesStandingQueryPartId2 {
+  low_bytes: long;
+  high_bytes: long;
+}
+
+// See [[java.time.Duration]]
+struct Duration {
+  seconds: long;
+  nanos: int;
+}
+
+// See [[java.time.LocalDate]]
+struct LocalDate {
+  year: int;
+  month: byte;
+  day: byte;
+}
+
+// See [[java.time.LocalTime]]
+struct LocalTime {
+  hour: byte;
+  minute: byte;
+  second: byte;
+  nano: int;
+}
+
+// See [[java.time.OffsetTime]]
+struct OffsetTime {
+  local_time: LocalTime;
+  offset: short; // GMT offset in minutes
+}
+// See [[java.time.Instant]]
+struct Instant {
+  seconds: long;
+  nanos: int;
+}
+
+// See [[java.time.LocalDateTime]]
+struct LocalDateTime {
+  local_date: LocalDate;
+  local_time: LocalTime;
+}
+
+// See [[java.time.ZonedDateTime]]
+// This must be a table rather than a struct because of the string member
+table ZonedDateTime {
+  instant: Instant (required);
+  zone_id: string (required);
+}
+
+root_type NexoraValue;
+
+// Also see [[com.nexora.model.DomainGraphNode]]
+// Unlike `DomainGraphNode`, this can be used as a root type
+table BoxedDomainGraphNode {
+  node: DomainGraphNode (required);
+}
+root_type BoxedDomainGraphNode;

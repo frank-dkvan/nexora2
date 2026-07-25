@@ -1,0 +1,18 @@
+[package]
+name = "nexora-sql"
+version.workspace = true
+edition.workspace = true
+description = "SQL-to-Cypher translator for DeepStreaming"
+
+[dependencies]
+nexora-core = { path = "../nexora-core" }
+nexora-cypher = { path = "../nexora-cypher" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+sqlparser = { workspace = true }
+
+[dev-dependencies]
+nexora-id = { path = "../nexora-id" }

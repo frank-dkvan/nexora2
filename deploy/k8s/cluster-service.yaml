@@ -1,0 +1,36 @@
+# Headless service for cluster peer discovery (DNS-based)
+# Each pod gets a stable DNS name: nexora-cluster-0.nexora-cluster.nexora.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexora-cluster
+  namespace: nexora
+  labels:
+    app.kubernetes.io/name: nexora
+    app.kubernetes.io/component: graph-engine
+    app.kubernetes.io/mode: clustered
+spec:
+  type: ClusterIP
+  clusterIP: None  # headless — required for StatefulSet DNS
+  selector:
+    app.kubernetes.io/name: nexora
+    app.kubernetes.io/component: graph-engine
+    app.kubernetes.io/mode: clustered
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: cluster-graph
+      port: 9000
+      targetPort: cluster-graph
+      protocol: TCP
+    - name: cluster-heartbeat
+      port: 9001
+      targetPort: cluster-heartbeat
+      protocol: TCP
+    - name: raft
+      port: 9010
+      targetPort: raft
+      protocol: TCP
+  publishNotReadyAddresses: true  # peers need to discover each other during startup

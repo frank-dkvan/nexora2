@@ -1,0 +1,10 @@
+[
+  {"id": "sensor-01", "name": "Cold Storage A1", "temp": -18.5, "humidity": 65, "status": "normal", "zone": "A", "door": "closed"},
+  {"id": "sensor-02", "name": "Cold Storage A2", "temp": -20.1, "humidity": 70, "status": "normal", "zone": "A", "door": "closed"},
+  {"id": "sensor-03", "name": "Cold Storage B1", "temp": 2.3, "humidity": 85, "status": "warning", "zone": "B", "door": "closed"},
+  {"id": "sensor-04", "name": "Cold Storage B2", "temp": 8.7, "humidity": 90, "status": "critical", "zone": "B", "door": "open"},
+  {"id": "sensor-05", "name": "Dock Door 1", "temp": 15.2, "humidity": 60, "status": "normal", "zone": "dock", "door": "closed"},
+  {"id": "sensor-06", "name": "Dock Door 2", "temp": 16.8, "humidity": 55, "status": "normal", "zone": "dock", "door": "open"},
+  {"id": "sensor-07", "name": "Freezer C1", "temp": -25.3, "humidity": 50, "status": "normal", "zone": "C", "door": "closed"},
+  {"id": "sensor-08", "name": "Chiller C2", "temp": 4.1, "humidity": 75, "status": "warning", "zone": "C", "door": "closed"}
+]

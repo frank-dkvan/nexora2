@@ -1,0 +1,350 @@
+include "base.fbs";
+
+namespace com.nexora.persistence;
+
+// See [[com.nexora.graph.cypher.Value]]
+union CypherValue {
+  CypherStr,
+  CypherInteger,
+  CypherFloating,
+  CypherTrue,
+  CypherFalse,
+  CypherNull,
+  CypherBytes,
+  CypherNode,
+  CypherRelationship,
+  CypherList,
+  CypherMap,
+  CypherPath,
+  CypherLocalDateTime,
+  CypherDateTime,
+  CypherDate,
+  CypherLocalTime,
+  CypherDuration,
+  CypherTime
+}
+
+// See [[com.nexora.graph.cypher.Expr]]
+union CypherExpr {
+  CypherStr,
+  CypherInteger,
+  CypherFloating,
+  CypherTrue,
+  CypherFalse,
+  CypherNull,
+  CypherBytes,
+  CypherNode,
+  CypherRelationship,
+  CypherList,
+  CypherMap,
+  CypherPath,
+  CypherLocalDateTime,
+  CypherDateTime,
+  CypherDuration,
+  CypherDate,
+  CypherLocalTime,
+  CypherVariable,
+  CypherPropertyAccess,
+  CypherDynamicPropertyAccess,
+  CypherListSlice,
+  CypherParameter,
+  CypherMapLiteral,
+  CypherMapProjection,
+  CypherUnaryOp,
+  CypherBinaryOp,
+  CypherNaryOp,
+  CypherCase,
+  CypherFunction,
+  CypherListComprehension,
+  CypherListFold,
+  CypherReduceList,
+  CypherFreshNodeId,
+  CypherTime
+}
+
+// Key-value pair in a map with string keys
+table CypherProperty {
+  key: string (required);
+  value: CypherValue (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Str]]
+table CypherStr {
+  text: string (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Integer]]
+table CypherInteger {
+  integer: long;
+}
+
+// See [[com.nexora.graph.cypher.Expr.Floating]]
+table CypherFloating {
+  floating: double;
+}
+
+// See [[com.nexora.graph.cypher.Expr.True]]
+table CypherTrue { }
+
+// See [[com.nexora.graph.cypher.Expr.False]]
+table CypherFalse { }
+
+// See [[com.nexora.graph.cypher.Expr.Null]]
+table CypherNull { }
+
+// See [[com.nexora.graph.cypher.Expr.Bytes]]
+table CypherBytes {
+  bytes: [byte];
+  represents_id: bool;
+}
+
+// See [[com.nexora.graph.cypher.Expr.Node]]
+table CypherNode {
+  id: NexoraId (required);
+  labels: [string];
+  properties: [CypherProperty];
+}
+
+// See [[com.nexora.graph.cypher.Expr.Relationship]]
+table CypherRelationship {
+  start: NexoraId (required);
+  name: string (required);
+  properties: [CypherProperty];
+  end: NexoraId (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.List]]
+table CypherList {
+  elements: [CypherValue];
+}
+
+// See [[com.nexora.graph.cypher.Expr.Map]]
+table CypherMap {
+  entries: [CypherProperty];
+}
+
+// See [[com.nexora.graph.cypher.Expr.Path]]
+table CypherPath {
+  head: CypherNode (required);
+  tails: [CypherPathSegment];
+}
+
+// TODO: there is some redundancy in this format (IDs duplicated across nodes and segments)
+table CypherPathSegment {
+  edge: CypherRelationship (required);
+  to: CypherNode (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.LocalDateTime]]
+table CypherLocalDateTime {
+  local_date_time: LocalDateTime (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.DateTime]]
+table CypherDateTime {
+  zoned_date_time: ZonedDateTime (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Duration]]
+table CypherDuration {
+  duration: Duration (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Date]]
+table CypherDate {
+   date: LocalDate (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.LocalTime]]
+table CypherLocalTime {
+   time: LocalTime (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Time]]
+table CypherTime {
+   time: OffsetTime (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Variable]]
+table CypherVariable {
+  id: string (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.Property]]
+table CypherPropertyAccess {
+  expr: CypherExpr (required);
+  key: string (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.DynamicProperty]]
+table CypherDynamicPropertyAccess {
+  expr: CypherExpr (required);
+  key_expr: CypherExpr (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.ListSlice]]
+table CypherListSlice {
+  list: CypherExpr (required);
+  from: CypherExpr;
+  to: CypherExpr;
+}
+
+// See [[com.nexora.graph.cypher.Expr.Parameter]]
+table CypherParameter {
+  index: int;
+}
+
+// See [[com.nexora.graph.cypher.Expr.MapLiteral]]
+table CypherMapLiteral {
+  arguments: [CypherMapExprEntry];
+}
+
+// See [[com.nexora.graph.cypher.Expr.MapProjection]]
+table CypherMapProjection {
+  original: CypherExpr (required);
+  items: [CypherMapExprEntry];
+  include_all_props: bool;
+}
+
+table CypherMapExprEntry {
+  key: string (required);
+  value: CypherExpr (required);
+}
+
+enum CypherUnaryOperator: byte {
+  Add,
+  Negate,
+  Not,
+  IsNull,
+  IsNotNull,
+  RelationshipStart,
+  RelationshipEnd,
+}
+
+// See [[com.nexora.graph.cypher.Expr.UnaryAdd]]
+// See [[com.nexora.graph.cypher.Expr.UnarySubtract]]
+// See [[com.nexora.graph.cypher.Expr.Not]]
+// See [[com.nexora.graph.cypher.Expr.IsNull]]
+// See [[com.nexora.graph.cypher.Expr.IsNotNull]]
+// See [[com.nexora.graph.cypher.Expr.RelationshipStart]]
+// See [[com.nexora.graph.cypher.Expr.RelationshipEnd]]
+table CypherUnaryOp {
+  operation: CypherUnaryOperator;
+  rhs: CypherExpr (required);
+}
+
+enum CypherBinaryOperator: byte {
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  Modulo,
+  Exponentiate,
+  Equal,
+  GreaterEqual,
+  LessEqual,
+  Greater,
+  Less,
+  InList,
+  StartsWith,
+  EndsWith,
+  Contains,
+  Regex,
+}
+
+// See [[com.nexora.graph.cypher.Expr.Add]]
+// See [[com.nexora.graph.cypher.Expr.Subtract]]
+// See [[com.nexora.graph.cypher.Expr.Multiply]]
+// See [[com.nexora.graph.cypher.Expr.Divide]]
+// See [[com.nexora.graph.cypher.Expr.Modulo]]
+// See [[com.nexora.graph.cypher.Expr.Exponentiate]]
+// See [[com.nexora.graph.cypher.Expr.Equal]]
+// See [[com.nexora.graph.cypher.Expr.GreaterEqual]]
+// See [[com.nexora.graph.cypher.Expr.LessEqual]]
+// See [[com.nexora.graph.cypher.Expr.Greater]]
+// See [[com.nexora.graph.cypher.Expr.Less]]
+// See [[com.nexora.graph.cypher.Expr.InList]]
+// See [[com.nexora.graph.cypher.Expr.StartsWith]]
+// See [[com.nexora.graph.cypher.Expr.EndsWith]]
+// See [[com.nexora.graph.cypher.Expr.Contains]]
+// See [[com.nexora.graph.cypher.Expr.Regex]]
+table CypherBinaryOp {
+  operation: CypherBinaryOperator;
+  lhs: CypherExpr (required);
+  rhs: CypherExpr (required);
+}
+
+enum CypherNaryOperator: byte {
+  And,
+  Or,
+  ListLiteral,
+  PathExpression,
+}
+
+// See [[com.nexora.graph.cypher.Expr.And]]
+// See [[com.nexora.graph.cypher.Expr.Or]]
+// See [[com.nexora.graph.cypher.Expr.ListLiteral]]
+// See [[com.nexora.graph.cypher.Expr.PathExpression]]
+table CypherNaryOp {
+  operation: CypherNaryOperator;
+  arguments: [CypherExpr];
+}
+
+// See [[com.nexora.graph.cypher.Expr.Case]]
+table CypherCase {
+  scrutinee: CypherExpr;
+  branches: [CypherCaseBranch];
+  fall_through: CypherExpr;
+}
+
+table CypherCaseBranch {
+  condition: CypherExpr;
+  outcome: CypherExpr;
+}
+
+// See [[com.nexora.graph.cypher.Expr.Function]]
+table CypherFunction {
+  function: string (required);
+  arguments: [CypherExpr];
+}
+
+// See [[com.nexora.graph.cypher.Expr.ListComprehension]]
+table CypherListComprehension {
+  variable: string (required);
+  list: CypherExpr (required);
+  filter_predicate: CypherExpr (required);
+  extract: CypherExpr (required);
+}
+
+enum CypherListFoldOperator: byte {
+  All,
+  Any,
+  Single,
+}
+
+// See [[com.nexora.graph.cypher.Expr.AllInList]]
+// See [[com.nexora.graph.cypher.Expr.AnyInList]]
+// See [[com.nexora.graph.cypher.Expr.SingleInList]]
+table CypherListFold {
+  operator: CypherListFoldOperator;
+  variable: string (required);
+  list: CypherExpr (required);
+  filter_predicate: CypherExpr (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.ReduceList]]
+table CypherReduceList {
+  accumulator: string (required);
+  initial: CypherExpr (required);
+  variable: string (required);
+  list: CypherExpr (required);
+  reducer: CypherExpr (required);
+}
+
+// See [[com.nexora.graph.cypher.Expr.FreshNodeId]]
+table CypherFreshNodeId { }
+
+table BoxedCypherExpr {
+  expr: CypherExpr (required);
+}
+root_type BoxedCypherExpr;

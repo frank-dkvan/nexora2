@@ -1,0 +1,41 @@
+include "base.fbs";
+include "journal.fbs";
+include "domainindexevent.fbs";
+
+namespace com.nexora.persistence;
+
+// WAL operation types — each variant encodes the operation using
+// FlatBuffers where schemas exist, or as embedded bytes otherwise.
+union WalOperationBuffer {
+  NodeEventWithTime,
+  NodeEventsBatch,
+  DomainIndexEventWithTime,
+  SnapshotCheckpoint,
+  IngestOffsetCommit,
+}
+
+// Batch of node events (vector of timed events).
+table NodeEventsBatch {
+  events: [NodeEventWithTime];
+}
+
+// Snapshot checkpoint — marks that a snapshot has been persisted up to a time.
+table SnapshotCheckpoint {
+  qid: [byte] (required);      // NexoraId raw bytes
+  snapshot_time: long;          // EventTime as microseconds
+}
+
+// Ingest offset commit — for exactly-once ingest semantics.
+table IngestOffsetCommit {
+  ingest_id: string (required);
+  partition: int;
+  offset: long;
+}
+
+// Root WAL record type — the top-level FlatBuffer for WAL persistence.
+table WalRecordBuffer {
+  seq_no: long;
+  operation: WalOperationBuffer (required);
+}
+
+root_type WalRecordBuffer;

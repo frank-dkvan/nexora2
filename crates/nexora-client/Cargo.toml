@@ -1,0 +1,12 @@
+[package]
+name = "nexora-client"
+version.workspace = true
+edition = "2021"
+description = "HTTP client SDK for nexora streaming graph database"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"

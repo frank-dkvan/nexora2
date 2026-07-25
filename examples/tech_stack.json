@@ -1,0 +1,12 @@
+[
+  {"id": "rust", "name": "Rust", "category": "language", "paradigm": "systems", "year": 2010},
+  {"id": "tokio", "name": "Tokio", "category": "framework", "paradigm": "async", "year": 2016, "depends_on": "rust"},
+  {"id": "axum", "name": "Axum", "category": "framework", "paradigm": "web", "year": 2021, "depends_on": "tokio"},
+  {"id": "serde", "name": "Serde", "category": "library", "paradigm": "serialization", "year": 2014, "depends_on": "rust"},
+  {"id": "rocksdb", "name": "RocksDB", "category": "storage", "paradigm": "embedded", "year": 2012},
+  {"id": "hnsw", "name": "HNSW", "category": "algorithm", "paradigm": "ann", "year": 2016},
+  {"id": "cypher", "name": "Cypher", "category": "language", "paradigm": "query", "year": 2015},
+  {"id": "zenoh", "name": "Eclipse Zenoh", "category": "middleware", "paradigm": "pubsub", "year": 2020},
+  {"id": "wasmtime", "name": "Wasmtime", "category": "runtime", "paradigm": "sandbox", "year": 2019, "depends_on": "rust"},
+  {"id": "nexora", "name": "Nexora-RS", "category": "database", "paradigm": "streaming-graph", "year": 2025, "depends_on": "tokio"}
+]

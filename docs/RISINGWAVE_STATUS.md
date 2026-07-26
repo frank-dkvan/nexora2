@@ -1,7 +1,8 @@
 # RisingWave Integration - Current Status
 
 **Last Updated**: 2026-07-26  
-**Branch**: feat/risingwave-phase3-wrapper
+**Branch**: main (merged)  
+**Release**: v2.1.0-risingwave
 
 ## Phase Completion Summary
 
@@ -279,9 +280,10 @@ Phase 6 is **production-ready**. Phase 7 enhancements are optional and only need
 
 ## All Phases Complete ✅
 
-**Status**: All 6 planned phases successfully implemented and tested.  
+**Status**: All 6 planned phases successfully implemented, tested, and merged to main.  
 **Quality**: Production-ready, 1640+ tests passing, zero breaking changes.  
-**Next Action**: Merge to main or proceed with optional Phase 7.
+**Release**: v2.1.0-risingwave tagged and pushed to GitHub.  
+**Next Action**: Optional Phase 7 enhancements (native CDC, full SQL parser, etc.)
 
 ## Architecture Comparison
 
@@ -508,13 +510,16 @@ All limitations are **acceptable for production** use with Phase 6 scope. Phase 
 4. Run benchmarks to measure improvements
 
 ### Ready to Merge
-- Branch `feat/risingwave-phase3-wrapper` contains all Phase 1-6 work
-- All tests passing (1640+)
-- Documentation complete
-- Ready to merge to `main`
+
+- ✅ Branch `feat/risingwave-phase3-wrapper` merged to `main` (commit ef629ef)
+- ✅ All tests passing (1640+)
+- ✅ Documentation complete and updated
+- ✅ Release tag v2.1.0-risingwave created and pushed
+- ✅ README.md updated with "What's New in Nexora 2.1?" section
 
 ---
 
 **Status**: All 6 Phases Complete ✅  
 **Quality**: Production-ready, fully tested, zero breaking changes  
-**Next Action**: Merge to main or proceed with optional Phase 7 enhancements
+**Release**: v2.1.0-risingwave available on GitHub  
+**Next Action**: Optional Phase 7 enhancements

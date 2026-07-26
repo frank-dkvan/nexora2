@@ -51,20 +51,27 @@ pub enum RisingWaveError {
     /// Generic error.
     #[error("risingwave error: {0}")]
     Other(String),
+
+    /// Internal error.
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 impl RisingWaveError {
     /// Create a DDL error from any error type.
+    #[allow(dead_code)]
     pub fn ddl<E: std::fmt::Display>(err: E) -> Self {
         Self::DdlFailed(err.to_string())
     }
 
     /// Create a query error from any error type.
+    #[allow(dead_code)]
     pub fn query<E: std::fmt::Display>(err: E) -> Self {
         Self::QueryFailed(err.to_string())
     }
 
     /// Create a generic error from any error type.
+    #[allow(dead_code)]
     pub fn other<E: std::fmt::Display>(err: E) -> Self {
         Self::Other(err.to_string())
     }

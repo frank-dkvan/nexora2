@@ -90,7 +90,7 @@ impl DdlParser {
 
         let columns = columns_str
             .split(',')
-            .map(|col| {
+            .map(|col: &str| {
                 let col_name = col.trim().split_whitespace().last().unwrap_or(col.trim());
                 ColumnDef {
                     name: col_name.to_string(),

@@ -3,7 +3,7 @@
 //! This module provides functionality to query RisingWave's system catalog
 //! and retrieve metadata about sources, materialized views, tables, etc.
 
-use crate::error::{Result, RisingWaveError};
+use crate::error::Result;
 use std::net::SocketAddr;
 
 /// Information about a RisingWave source

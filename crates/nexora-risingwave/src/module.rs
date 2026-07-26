@@ -241,7 +241,7 @@ impl RisingWaveModule {
         &self,
         mv_name: &str,
     ) -> Result<tokio::sync::mpsc::Receiver<crate::event_sink::Change>> {
-        use crate::event_sink::{Change, ColumnValue, Row};
+        use crate::event_sink::{Change, Row};
         use std::time::Duration;
 
         let (tx, rx) = tokio::sync::mpsc::channel(1000);

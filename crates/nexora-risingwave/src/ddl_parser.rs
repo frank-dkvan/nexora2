@@ -91,7 +91,7 @@ impl DdlParser {
         let columns = columns_str
             .split(',')
             .map(|col: &str| {
-                let col_name = col.trim().split_whitespace().last().unwrap_or(col.trim());
+                let col_name = col.split_whitespace().last().unwrap_or(col.trim());
                 ColumnDef {
                     name: col_name.to_string(),
                     sql_type: "VARCHAR".to_string(), // Default for Phase 6

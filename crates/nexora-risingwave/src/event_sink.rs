@@ -4,11 +4,15 @@
 //! to flow into Nexora's EventLogStore, enabling the advanced path:
 //! Kafka → RisingWave (SQL MV) → EventLogStore → Graph
 
-use crate::error::{Result, RisingWaveError};
+use crate::error::Result;
+#[cfg(feature = "event-first")]
+use crate::error::RisingWaveError;
 use crate::module::RisingWaveModule;
 use serde_json::json;
 use std::sync::Arc;
+#[cfg(feature = "event-first")]
 use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "event-first")]
 use tracing::{debug, error, info, warn};
 
 /// Change event from RisingWave materialized view (CDC-like)
@@ -73,6 +77,7 @@ pub enum ColumnValue {
 pub struct EventLogSink {
     #[cfg(feature = "event-first")]
     event_store: Arc<nexora_eventlog::EventLogStore>,
+    #[allow(dead_code)]
     risingwave: Arc<RisingWaveModule>,
 }
 
@@ -198,6 +203,7 @@ impl EventLogSink {
     }
 
     /// Convert RisingWave Row to Nexora Event (JSON)
+    #[allow(dead_code)]
     fn row_to_event(&self, row: &Row) -> Result<serde_json::Value> {
         let mut obj = serde_json::Map::new();
 
@@ -210,6 +216,7 @@ impl EventLogSink {
     }
 
     /// Convert RisingWave ColumnValue to JSON
+    #[allow(dead_code)]
     fn value_to_json(&self, value: &ColumnValue) -> Result<serde_json::Value> {
         Ok(match value {
             ColumnValue::Int32(v) => json!(v),

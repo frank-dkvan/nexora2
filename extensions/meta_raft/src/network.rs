@@ -177,7 +177,7 @@ impl RaftNetwork {
         let clients = self.clients.read().await;
         let mut responses = Vec::new();
 
-        for (_i, client) in clients.iter().enumerate() {
+        for client in clients.iter() {
             let result = match client
                 .call("raft.message", Bytes::copy_from_slice(message))
                 .await

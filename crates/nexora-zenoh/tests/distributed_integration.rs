@@ -142,6 +142,18 @@ impl tcp_transport::GraphHandler for TestGraphHandler {
                 ok: true,
                 message: "pong".into(),
             }),
+            GraphOperation::ScanEventTable { .. } => Ok(GraphResult::Status {
+                ok: true,
+                message: "scan event table ok".into(),
+            }),
+            GraphOperation::ApplyOntology { .. } => Ok(GraphResult::Status {
+                ok: true,
+                message: "apply ontology ok".into(),
+            }),
+            GraphOperation::RemoveOntology { .. } => Ok(GraphResult::Status {
+                ok: true,
+                message: "remove ontology ok".into(),
+            }),
         }
     }
 }

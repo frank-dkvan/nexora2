@@ -1864,6 +1864,7 @@ mod tests {
             auth: None,
             drain: crate::drain::DrainState::default(),
             query_pool: Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+            cluster_manager: None,
         }
     }
 
@@ -4897,6 +4898,7 @@ mod e7_f4_tests {
             auth: None,
             drain: crate::drain::DrainState::default(),
             query_pool: Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+            cluster_manager: None,
         }
     }
 

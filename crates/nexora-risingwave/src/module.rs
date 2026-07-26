@@ -223,7 +223,7 @@ impl RisingWaveModule {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use nexora_risingwave::RisingWaveModule;
+    /// # use nexora_risingwave::{RisingWaveModule, Change};
     /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
     /// let mut rx = rw.subscribe_mv("enriched_events").await?;
     ///

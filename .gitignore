@@ -73,3 +73,10 @@ crates/nexora-core/benches/comparison_results.json
 # Temporary files
 /tmp/
 /tls-test/
+
+# RisingWave Integration
+/vendor/risingwave/target/
+/vendor/risingwave/.idea/
+/vendor/risingwave/.vscode/
+/vendor/risingwave/Cargo.lock
+/vendor/risingwave/.DS_Store

@@ -1,0 +1,19 @@
+[package]
+name = "extensions-meta-raft"
+description = "RisingWave Meta Raft HA extension"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-consensus = { path = "../../crates/nexora-consensus" }
+nexora-rpc = { path = "../../crates/nexora-rpc" }
+tokio = { workspace = true }
+async-trait = "0.1"
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+# RisingWave Meta dependencies (will be added in Phase 4)
+# risingwave_meta = { path = "../../vendor/risingwave/src/meta" }
+
+[dev-dependencies]
+tokio = { workspace = true }

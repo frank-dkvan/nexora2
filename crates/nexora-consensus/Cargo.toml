@@ -1,0 +1,19 @@
+[package]
+name = "nexora-consensus"
+description = "Consensus protocol abstraction (Raft-based)"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = "0.1"
+bytes = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Raft implementation (will be added in Phase 2)
+# openraft = "0.9"
+
+[dev-dependencies]
+tokio = { workspace = true }

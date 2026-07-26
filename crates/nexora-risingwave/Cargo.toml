@@ -1,0 +1,26 @@
+[package]
+name = "nexora-risingwave"
+description = "RisingWave integration wrapper for Nexora 2"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexora-core = { path = "../nexora-core" }
+nexora-consensus = { path = "../nexora-consensus", optional = true }
+nexora-rpc = { path = "../nexora-rpc", optional = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# RisingWave dependencies (will be added in Phase 3)
+# risingwave_meta = { path = "../../vendor/risingwave/src/meta" }
+# risingwave_frontend = { path = "../../vendor/risingwave/src/frontend" }
+
+[features]
+default = []
+raft-ha = ["dep:nexora-consensus", "dep:nexora-rpc"]
+
+[dev-dependencies]
+tokio = { workspace = true }

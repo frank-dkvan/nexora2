@@ -1,0 +1,20 @@
+[package]
+name = "nexora-rpc"
+description = "RPC abstraction layer (gRPC-based)"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = "0.1"
+bytes = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# gRPC implementation (will be added in Phase 2)
+# tonic = "0.11"
+# prost = "0.12"
+
+[dev-dependencies]
+tokio = { workspace = true }

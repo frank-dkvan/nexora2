@@ -1,26 +1,26 @@
 [package]
 name = "nexora-risingwave"
-description = "RisingWave integration wrapper for Nexora 2"
 version.workspace = true
 edition.workspace = true
+description = "RisingWave integration for advanced stream processing"
 
 [dependencies]
-nexora-core = { path = "../nexora-core" }
-nexora-consensus = { path = "../nexora-consensus", optional = true }
-nexora-rpc = { path = "../nexora-rpc", optional = true }
-tokio = { workspace = true }
-anyhow = { workspace = true }
-tracing = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+# Internal dependencies
+nexora-consensus = { path = "../nexora-consensus" }
+nexora-rpc = { path = "../nexora-rpc" }
 
-# RisingWave dependencies (will be added in Phase 3)
-# risingwave_meta = { path = "../../vendor/risingwave/src/meta" }
-# risingwave_frontend = { path = "../../vendor/risingwave/src/frontend" }
+# RisingWave components (Phase 3: simplified, full integration in Phase 4)
+# Note: These will be added in Phase 4 when we integrate with vendor/risingwave
 
-[features]
-default = []
-raft-ha = ["dep:nexora-consensus", "dep:nexora-rpc"]
+# Core dependencies
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytes = "1"
 
 [dev-dependencies]
-tokio = { workspace = true }
+tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = "3"

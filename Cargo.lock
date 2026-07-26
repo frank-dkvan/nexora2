@@ -3368,6 +3368,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "nexora-consensus",
  "nexora-rpc",
  "tokio",
@@ -5653,12 +5654,14 @@ dependencies = [
 name = "nexora-risingwave"
 version = "0.3.0"
 dependencies = [
- "anyhow",
+ "async-trait",
+ "bytes",
  "nexora-consensus",
- "nexora-core",
  "nexora-rpc",
  "serde",
  "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
  "tokio",
  "tracing",
 ]

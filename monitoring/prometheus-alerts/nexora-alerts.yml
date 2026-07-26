@@ -1,0 +1,145 @@
+groups:
+  - name: nexora_replication
+    interval: 30s
+    rules:
+      # Critical: High replication lag
+      - alert: NexoraHighReplicationLag
+        expr: deepstreaming_replication_lag_ms > 5000
+        for: 2m
+        labels:
+          severity: critical
+          component: replication
+        annotations:
+          summary: "High replication lag detected on {{ $labels.instance }}"
+          description: "Replication lag is {{ $value }}ms (threshold: 5000ms). Followers may be falling behind."
+          runbook: "https://github.com/frank-dkvan/nexora2/blob/main/docs/ops/RUNBOOK.md#high-replication-lag"
+
+      # Critical: Failover failures
+      - alert: NexoraFailoverFailed
+        expr: increase(deepstreaming_failover_total[5m]) - increase(deepstreaming_failover_success_total[5m]) >= 2
+        for: 1m
+        labels:
+          severity: critical
+          component: failover
+        annotations:
+          summary: "Multiple failover failures on {{ $labels.instance }}"
+          description: "{{ $value }} failover attempts failed in the last 5 minutes. Cluster resilience compromised."
+          runbook: "https://github.com/frank-dkvan/nexora2/blob/main/docs/ops/RUNBOOK.md#failover-failures"
+
+      # Critical: Catch-up stuck
+      - alert: NexoraCatchupStuck
+        expr: deepstreaming_catch_up_in_progress == 1
+        for: 30m
+        labels:
+          severity: critical
+          component: recovery
+        annotations:
+          summary: "Catch-up operation stuck on {{ $labels.instance }}"
+          description: "Catch-up has been running for over 30 minutes. Shard may be unable to recover."
+          runbook: "https://github.com/frank-dkvan/nexora2/blob/main/docs/ops/RUNBOOK.md#catch-up-stuck"
+
+      # Critical: Cluster completely down
+      - alert: NexoraClusterDown
+        expr: sum(up{job="nexora"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cluster
+        annotations:
+          summary: "Nexora cluster is completely down"
+          description: "All Nexora instances are unreachable. Complete service outage."
+          runbook: "https://github.com/frank-dkvan/nexora2/blob/main/docs/ops/RUNBOOK.md#cluster-down"
+
+      # Warning: Moderate replication lag
+      - alert: NexoraModerateReplicationLag
+        expr: deepstreaming_replication_lag_ms > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: replication
+        annotations:
+          summary: "Moderate replication lag on {{ $labels.instance }}"
+          description: "Replication lag is {{ $value }}ms. Monitor for further increases."
+          runbook: "https://github.com/frank-dkvan/nexora2/blob/main/docs/ops/RUNBOOK.md#moderate-lag"
+
+      # Warning: Low failover success rate
+      - alert: NexoraLowFailoverSuccessRate
+        expr: |
+          (
+            rate(deepstreaming_failover_success_total[1h])
+            /
+            rate(deepstreaming_failover_total[1h])
+          ) < 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: failover
+        annotations:
+          summary: "Low failover success rate on {{ $labels.instance }}"
+          description: "Failover success rate is {{ $value | humanizePercentage }} (threshold: 90%). Investigate root causes."
+
+  - name: nexora_performance
+    interval: 30s
+    rules:
+      # Warning: High slow query rate
+      - alert: NexoraHighSlowQueryRate
+        expr: rate(deepstreaming_slow_queries_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: query
+        annotations:
+          summary: "High slow query rate on {{ $labels.instance }}"
+          description: "{{ $value }} slow queries per second. Query performance degraded."
+
+      # Warning: High error rate
+      - alert: NexoraHighErrorRate
+        expr: |
+          (
+            rate(deepstreaming_errors_total[5m])
+            /
+            rate(deepstreaming_queries_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: query
+        annotations:
+          summary: "High error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)."
+
+      # Info: High WAL append latency
+      - alert: NexoraHighWALLatency
+        expr: deepstreaming_wal_append_avg_us > 50000
+        for: 10m
+        labels:
+          severity: info
+          component: wal
+        annotations:
+          summary: "High WAL append latency on {{ $labels.instance }}"
+          description: "Average WAL append latency is {{ $value }}µs (50ms). Storage may be slow."
+
+  - name: nexora_capacity
+    interval: 60s
+    rules:
+      # Warning: High node count
+      - alert: NexoraHighNodeCount
+        expr: deepstreaming_active_nodes > 100000
+        for: 15m
+        labels:
+          severity: warning
+          component: capacity
+        annotations:
+          summary: "High active node count on {{ $labels.instance }}"
+          description: "Active nodes: {{ $value }}. Consider archiving or partitioning."
+
+      # Info: Standing query count high
+      - alert: NexoraHighStandingQueryCount
+        expr: deepstreaming_standing_queries > 100
+        for: 30m
+        labels:
+          severity: info
+          component: capacity
+        annotations:
+          summary: "High standing query count on {{ $labels.instance }}"
+          description: "{{ $value }} standing queries registered. Review for unused queries."

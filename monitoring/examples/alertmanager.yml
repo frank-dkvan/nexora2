@@ -1,0 +1,102 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Route tree
+route:
+  receiver: 'slack-notifications'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  routes:
+    # Critical alerts to PagerDuty
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      continue: true
+
+    # Critical alerts also to Slack
+    - match:
+        severity: critical
+      receiver: 'slack-critical'
+
+    # Warning alerts to Slack
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+
+    # Info alerts to Slack (low priority)
+    - match:
+        severity: info
+      receiver: 'slack-info'
+
+# Inhibition rules (suppress redundant alerts)
+inhibit_rules:
+  # Suppress lag warnings if cluster is down
+  - source_match:
+      alertname: 'NexoraClusterDown'
+    target_match:
+      alertname: 'NexoraHighReplicationLag'
+    equal: ['cluster']
+
+  # Suppress moderate lag if high lag is firing
+  - source_match:
+      alertname: 'NexoraHighReplicationLag'
+    target_match:
+      alertname: 'NexoraModerateReplicationLag'
+    equal: ['instance']
+
+# Receivers
+receivers:
+  # PagerDuty for critical alerts
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          details: '{{ .CommonAnnotations.description }}'
+          runbook: '{{ .CommonAnnotations.runbook }}'
+
+  # Slack for critical alerts
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#nexora-alerts-critical'
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Runbook:* {{ .CommonAnnotations.runbook }}
+        color: 'danger'
+        send_resolved: true
+
+  # Slack for warnings
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#nexora-alerts-warnings'
+        title: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+        color: 'warning'
+        send_resolved: true
+
+  # Slack for info
+  - name: 'slack-info'
+    slack_configs:
+      - channel: '#nexora-alerts-info'
+        title: 'ℹ️ INFO: {{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}'
+        color: 'good'
+        send_resolved: true
+
+  # Default Slack notifications
+  - name: 'slack-notifications'
+    slack_configs:
+      - channel: '#nexora-alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}'
+        send_resolved: true

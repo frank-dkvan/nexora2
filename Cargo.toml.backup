@@ -28,11 +28,6 @@ members = [
     "crates/nexora-mcp",
     "crates/nexora-pgwire", "crates/nexora-etl",
     "crates/nexora-eventlog",
-    # RisingWave Integration (Phase 1)
-    "crates/nexora-risingwave",
-    "crates/nexora-consensus",
-    "crates/nexora-rpc",
-    "extensions/meta_raft",
 ]
 
 [workspace.package]
@@ -74,13 +69,7 @@ hex = "0.4"
 sqlparser = "0.53"
 rust-rocksdb = "0.50"
 
-# Consensus & RPC (Phase 2)
-openraft = { version = "0.9", features = ["serde"] }
-tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
-tonic-build = "0.12"
-tower = "0.4"
-
 # Testing
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
+

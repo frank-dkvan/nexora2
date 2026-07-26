@@ -5237,6 +5237,7 @@ dependencies = [
  "nexora-pgwire",
  "nexora-raft",
  "nexora-recipe",
+ "nexora-risingwave",
  "nexora-sql",
  "nexora-standing-query",
  "nexora-storage",

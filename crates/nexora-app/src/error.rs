@@ -47,6 +47,7 @@ pub enum ErrorCode {
     UdfError,
     RecipeError,
     MaterializedViewError,
+    FeatureNotEnabled,
 
     // Server errors (5xx)
     InternalError,
@@ -79,6 +80,7 @@ impl ErrorCode {
             | Self::RecipeError
             | Self::MaterializedViewError
             | Self::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::FeatureNotEnabled => StatusCode::NOT_IMPLEMENTED,
         }
     }
 }
@@ -162,6 +164,23 @@ impl ApiError {
 
     pub fn internal() -> Self {
         Self::new(ErrorCode::InternalError, "Internal server error")
+    }
+
+    pub fn feature_not_enabled(feature: String) -> Self {
+        Self::new(
+            ErrorCode::FeatureNotEnabled,
+            format!("Feature '{}' is not enabled. Compile with --features {} and enable at runtime.", feature, feature),
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn Internal(msg: String) -> Self {
+        Self::new(ErrorCode::InternalError, msg)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn FeatureNotEnabled(feature: String) -> Self {
+        Self::feature_not_enabled(feature)
     }
 }
 

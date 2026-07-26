@@ -381,6 +381,42 @@ struct Cli {
     #[arg(long)]
     ws_url: Option<String>,
 
+    // ============================================================
+    // RisingWave integration (opt-in)
+    // ============================================================
+    /// Enable RisingWave integration (requires --features risingwave)
+    #[cfg(feature = "risingwave")]
+    #[arg(long)]
+    enable_risingwave: bool,
+
+    /// RisingWave Meta node address (e.g., "127.0.0.1:5690")
+    #[cfg(feature = "risingwave")]
+    #[arg(long, requires = "enable_risingwave")]
+    risingwave_meta_addr: Option<String>,
+
+    /// RisingWave Frontend node address (e.g., "127.0.0.1:4566")
+    #[cfg(feature = "risingwave")]
+    #[arg(long, requires = "enable_risingwave")]
+    risingwave_frontend_addr: Option<String>,
+
+    /// Enable RisingWave Meta HA with Raft
+    #[cfg(feature = "risingwave")]
+    #[arg(long, requires = "enable_risingwave")]
+    risingwave_ha: bool,
+
+    /// RisingWave Raft node ID (for HA mode)
+    #[cfg(feature = "risingwave")]
+    #[arg(long, requires = "risingwave_ha")]
+    risingwave_raft_node_id: Option<u64>,
+
+    /// RisingWave Raft peer node IDs (e.g., "2,3" for a 3-node cluster)
+    #[cfg(feature = "risingwave")]
+    #[arg(long, requires = "risingwave_ha", value_delimiter = ',')]
+    risingwave_raft_peers: Vec<u64>,
+
+    // ============================================================
+    // Kinesis
+    // ============================================================
     /// Kinesis stream name to ingest from. Enables Kinesis ingestion.
     #[arg(long)]
     kinesis_stream: Option<String>,
@@ -1684,6 +1720,73 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // ============================================================
+    // RisingWave integration (opt-in via --enable-risingwave)
+    // ============================================================
+    #[cfg(feature = "risingwave")]
+    let risingwave_module: Option<Arc<nexora_risingwave::RisingWaveModule>> =
+        if cli.enable_risingwave {
+            let meta_addr = cli.risingwave_meta_addr.clone().unwrap_or_else(|| {
+                tracing::warn!(
+                    "No --risingwave-meta-addr provided, using default 127.0.0.1:5690"
+                );
+                "127.0.0.1:5690".to_string()
+            });
+            let frontend_addr = cli.risingwave_frontend_addr.clone().unwrap_or_else(|| {
+                tracing::warn!(
+                    "No --risingwave-frontend-addr provided, using default 127.0.0.1:4566"
+                );
+                "127.0.0.1:4566".to_string()
+            });
+
+            let meta_socket: std::net::SocketAddr = meta_addr.parse().map_err(|e| {
+                anyhow::anyhow!("Invalid --risingwave-meta-addr '{}': {}", meta_addr, e)
+            })?;
+            let frontend_socket: std::net::SocketAddr = frontend_addr.parse().map_err(|e| {
+                anyhow::anyhow!("Invalid --risingwave-frontend-addr '{}': {}", frontend_addr, e)
+            })?;
+
+            let mut config = nexora_risingwave::RisingWaveConfig::new()
+                .with_meta_addr(meta_socket)
+                .with_frontend_addr(frontend_socket);
+
+            // Enable HA mode with Raft if requested
+            if cli.risingwave_ha {
+                let node_id = cli.risingwave_raft_node_id.unwrap_or_else(|| {
+                    tracing::warn!("No --risingwave-raft-node-id provided, using default 1");
+                    1
+                });
+                let peers: Vec<(u64, String)> = cli
+                    .risingwave_raft_peers
+                    .iter()
+                    .map(|&peer_id| (peer_id, format!("node-{}:5690", peer_id)))
+                    .collect();
+                config = config.with_ha(true).with_raft_peers(peers);
+                tracing::info!(
+                    "   RisingWave: HA enabled (Raft node_id={}, peers={:?})",
+                    node_id,
+                    cli.risingwave_raft_peers
+                );
+            }
+
+            match nexora_risingwave::RisingWaveModule::start(config).await {
+                Ok(module) => {
+                    tracing::info!(
+                        "   RisingWave: started (meta={}, frontend={})",
+                        meta_addr,
+                        frontend_addr
+                    );
+                    Some(Arc::new(module))
+                }
+                Err(e) => {
+                    tracing::error!("Failed to start RisingWave module: {}", e);
+                    anyhow::bail!("RisingWave initialization failed: {}", e);
+                }
+            }
+        } else {
+            None
+        };
+
     let state = AppState {
         graph: graph.clone(),
         sq_manager: sq_manager.clone(),
@@ -1737,6 +1840,8 @@ async fn main() -> anyhow::Result<()> {
                 .map(|n| n.get() * 4)
                 .unwrap_or(64),
         )),
+        #[cfg(feature = "risingwave")]
+        risingwave: risingwave_module,
     };
 
     // ============================================================
@@ -2423,6 +2528,30 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/ws/sq", get(handlers::ws_sq_all_handler))
         .route("/api/ws/sq/{id}", get(handlers::ws_sq_handler))
         .route("/api/ws/metrics", get(handlers::ws_metrics_handler));
+
+    // RisingWave HTTP endpoints (feature-gated)
+    #[cfg(feature = "risingwave")]
+    let operator_routes = operator_routes
+        .route(
+            "/api/risingwave/ddl",
+            post(handlers::risingwave::execute_ddl),
+        )
+        .route(
+            "/api/risingwave/query",
+            post(handlers::risingwave::query_mv),
+        )
+        .route(
+            "/api/risingwave/sources",
+            get(handlers::risingwave::list_sources),
+        )
+        .route(
+            "/api/risingwave/materialized_views",
+            get(handlers::risingwave::list_materialized_views),
+        )
+        .route(
+            "/api/risingwave/status",
+            get(handlers::risingwave::get_status),
+        );
 
     let mut app = Router::new().merge(public_routes);
 

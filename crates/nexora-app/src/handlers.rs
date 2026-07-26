@@ -10,6 +10,8 @@ pub mod materialized_view;
 pub mod ontology;
 #[allow(dead_code)]
 pub mod query_mgmt;
+#[cfg(feature = "risingwave")]
+pub mod risingwave;
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
@@ -192,6 +194,9 @@ pub struct AppState {
     pub drain: DrainState,
     /// D6: Query execution pool for bounded concurrency + backpressure.
     pub query_pool: Arc<nexora_core::query_pool::QueryPool>,
+    /// RisingWave module for advanced stream processing (optional, feature-gated)
+    #[cfg(feature = "risingwave")]
+    pub risingwave: Option<Arc<nexora_risingwave::RisingWaveModule>>,
 }
 
 impl AppState {

@@ -98,7 +98,10 @@ impl MaterializedView {
 
     /// 设置过滤条件
     pub fn with_filter(mut self, filter: impl Into<String>) -> Self {
-        if let ViewTransform::Aggregate { filter: ref mut f, .. } = self.transform {
+        if let ViewTransform::Aggregate {
+            filter: ref mut f, ..
+        } = self.transform
+        {
             *f = Some(filter.into());
         }
         self
@@ -179,9 +182,13 @@ fn parse_refresh_mode(s: &str) -> RefreshMode {
                 .and_then(|v| v.trim().parse::<u64>().ok())
                 .filter(|n| *n > 0)
                 .unwrap_or(DEFAULT_INTERVAL);
-            RefreshMode::Pull { interval_secs: interval }
+            RefreshMode::Pull {
+                interval_secs: interval,
+            }
         }
-        _ => RefreshMode::Pull { interval_secs: DEFAULT_INTERVAL },
+        _ => RefreshMode::Pull {
+            interval_secs: DEFAULT_INTERVAL,
+        },
     }
 }
 
@@ -240,7 +247,11 @@ mod tests {
         assert_eq!(view.target_table, "sensor_hourly_mv");
 
         match view.transform {
-            ViewTransform::Aggregate { group_by, aggregations, .. } => {
+            ViewTransform::Aggregate {
+                group_by,
+                aggregations,
+                ..
+            } => {
                 assert_eq!(group_by.len(), 1);
                 assert_eq!(aggregations.len(), 2);
             }

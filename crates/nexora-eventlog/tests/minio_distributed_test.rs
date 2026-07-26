@@ -36,10 +36,7 @@ mod minio_distributed_tests {
     /// Create N EventLogStore instances that all share the same S3 prefix and
     /// SQLite catalog — the correct multi-node setup where every node sees the
     /// same data.
-    async fn create_shared_cluster(
-        n: usize,
-        prefix: &str,
-    ) -> (Vec<Arc<EventLogStore>>, TempDir) {
+    async fn create_shared_cluster(n: usize, prefix: &str) -> (Vec<Arc<EventLogStore>>, TempDir) {
         let tmp = TempDir::new().unwrap();
         let catalog = tmp.path().join("catalog.db");
         let catalog_str = catalog.to_str().unwrap().to_owned();
@@ -280,7 +277,10 @@ mod minio_distributed_tests {
                 stores[1].append(&ev1),
                 stores[2].append(&ev2),
             );
-            assert!(r0.is_ok() && r1.is_ok() && r2.is_ok(), "round {round} failed");
+            assert!(
+                r0.is_ok() && r1.is_ok() && r2.is_ok(),
+                "round {round} failed"
+            );
             eprintln!("✓ round {}/{}", round + 1, rounds);
         }
 
@@ -293,7 +293,9 @@ mod minio_distributed_tests {
             .sum();
         let expected = rounds * per_round * 3;
         assert_eq!(total, expected, "expected {expected}, got {total}");
-        eprintln!("✅ test_high_concurrency_stress: {total} rows ({rounds} rounds × {per_round} × 3)");
+        eprintln!(
+            "✅ test_high_concurrency_stress: {total} rows ({rounds} rounds × {per_round} × 3)"
+        );
     }
 
     // ── Test 6 ──────────────────────────────────────────────────────────────

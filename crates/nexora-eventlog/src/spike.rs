@@ -121,9 +121,7 @@ mod tests {
 
         // Step 2: Create namespace + Iceberg table with days(event_time) partition
         let namespace = NamespaceIdent::new("events".into());
-        catalog
-            .create_namespace(&namespace, HashMap::new())
-            .await?;
+        catalog.create_namespace(&namespace, HashMap::new()).await?;
 
         let iceberg_schema = IcebergSchema::builder()
             .with_fields(vec![
@@ -173,4 +171,3 @@ mod tests {
         Ok(())
     }
 }
-

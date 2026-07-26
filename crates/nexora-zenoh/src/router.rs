@@ -182,7 +182,8 @@ impl HybridRouter {
     /// deterministic ordering.
     pub async fn all_node_ids(&self) -> Vec<crate::shard_map::NodeId> {
         let map = self.shard_map.read().await;
-        let mut ids: std::collections::BTreeSet<crate::shard_map::NodeId> = std::collections::BTreeSet::new();
+        let mut ids: std::collections::BTreeSet<crate::shard_map::NodeId> =
+            std::collections::BTreeSet::new();
         ids.insert(map.local_node.clone());
         for a in map.assignments.values() {
             ids.insert(a.owner.clone());

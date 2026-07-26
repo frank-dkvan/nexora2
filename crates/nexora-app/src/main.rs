@@ -851,7 +851,9 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::anyhow!("--event-store-rest-uri required when --event-store-backend=rest")
             })?;
             let warehouse = cli.event_store_rest_warehouse.clone().ok_or_else(|| {
-                anyhow::anyhow!("--event-store-rest-warehouse required when --event-store-backend=rest")
+                anyhow::anyhow!(
+                    "--event-store-rest-warehouse required when --event-store-backend=rest"
+                )
             })?;
             let endpoint = es_endpoint.clone().ok_or_else(|| {
                 anyhow::anyhow!("S3 endpoint required for rest backend (set --event-store-s3-endpoint, --s3-endpoint, or AWS_ENDPOINT_URL)")
@@ -865,7 +867,9 @@ async fn main() -> anyhow::Result<()> {
 
             tracing::info!(
                 "Event store: REST catalog mode (uri={}, warehouse={}, s3_endpoint={})",
-                uri, warehouse, endpoint
+                uri,
+                warehouse,
+                endpoint
             );
 
             StorageConfig::rest(
@@ -967,7 +971,9 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 ticker.tick().await;
                 match mgr.expire_all(&policy).await {
-                    Ok(n) => tracing::info!("Retention sweep: {} expirable snapshot(s) identified", n),
+                    Ok(n) => {
+                        tracing::info!("Retention sweep: {} expirable snapshot(s) identified", n)
+                    }
                     Err(e) => tracing::warn!("Retention sweep failed: {}", e),
                 }
             }
@@ -1657,14 +1663,8 @@ async fn main() -> anyhow::Result<()> {
             let router_opt = event_router.clone();
             let scheduler_opt = refresh_scheduler.clone();
             tokio::spawn(async move {
-                drain_ontology_activations(
-                    rx,
-                    ontology_mgr,
-                    store_opt,
-                    router_opt,
-                    scheduler_opt,
-                )
-                .await;
+                drain_ontology_activations(rx, ontology_mgr, store_opt, router_opt, scheduler_opt)
+                    .await;
             });
             tracing::info!("Ontology activation drain task spawned (Raft consensus mode)");
         }
@@ -1724,68 +1724,69 @@ async fn main() -> anyhow::Result<()> {
     // RisingWave integration (opt-in via --enable-risingwave)
     // ============================================================
     #[cfg(feature = "risingwave")]
-    let risingwave_module: Option<Arc<nexora_risingwave::RisingWaveModule>> =
-        if cli.enable_risingwave {
-            let meta_addr = cli.risingwave_meta_addr.clone().unwrap_or_else(|| {
-                tracing::warn!(
-                    "No --risingwave-meta-addr provided, using default 127.0.0.1:5690"
-                );
-                "127.0.0.1:5690".to_string()
+    let risingwave_module: Option<Arc<nexora_risingwave::RisingWaveModule>> = if cli
+        .enable_risingwave
+    {
+        let meta_addr = cli.risingwave_meta_addr.clone().unwrap_or_else(|| {
+            tracing::warn!("No --risingwave-meta-addr provided, using default 127.0.0.1:5690");
+            "127.0.0.1:5690".to_string()
+        });
+        let frontend_addr = cli.risingwave_frontend_addr.clone().unwrap_or_else(|| {
+            tracing::warn!("No --risingwave-frontend-addr provided, using default 127.0.0.1:4566");
+            "127.0.0.1:4566".to_string()
+        });
+
+        let meta_socket: std::net::SocketAddr = meta_addr.parse().map_err(|e| {
+            anyhow::anyhow!("Invalid --risingwave-meta-addr '{}': {}", meta_addr, e)
+        })?;
+        let frontend_socket: std::net::SocketAddr = frontend_addr.parse().map_err(|e| {
+            anyhow::anyhow!(
+                "Invalid --risingwave-frontend-addr '{}': {}",
+                frontend_addr,
+                e
+            )
+        })?;
+
+        let mut config = nexora_risingwave::RisingWaveConfig::new()
+            .with_meta_addr(meta_socket)
+            .with_frontend_addr(frontend_socket);
+
+        // Enable HA mode with Raft if requested
+        if cli.risingwave_ha {
+            let node_id = cli.risingwave_raft_node_id.unwrap_or_else(|| {
+                tracing::warn!("No --risingwave-raft-node-id provided, using default 1");
+                1
             });
-            let frontend_addr = cli.risingwave_frontend_addr.clone().unwrap_or_else(|| {
-                tracing::warn!(
-                    "No --risingwave-frontend-addr provided, using default 127.0.0.1:4566"
-                );
-                "127.0.0.1:4566".to_string()
-            });
+            let peers: Vec<(u64, String)> = cli
+                .risingwave_raft_peers
+                .iter()
+                .map(|&peer_id| (peer_id, format!("node-{}:5690", peer_id)))
+                .collect();
+            config = config.with_ha(true).with_raft_peers(peers);
+            tracing::info!(
+                "   RisingWave: HA enabled (Raft node_id={}, peers={:?})",
+                node_id,
+                cli.risingwave_raft_peers
+            );
+        }
 
-            let meta_socket: std::net::SocketAddr = meta_addr.parse().map_err(|e| {
-                anyhow::anyhow!("Invalid --risingwave-meta-addr '{}': {}", meta_addr, e)
-            })?;
-            let frontend_socket: std::net::SocketAddr = frontend_addr.parse().map_err(|e| {
-                anyhow::anyhow!("Invalid --risingwave-frontend-addr '{}': {}", frontend_addr, e)
-            })?;
-
-            let mut config = nexora_risingwave::RisingWaveConfig::new()
-                .with_meta_addr(meta_socket)
-                .with_frontend_addr(frontend_socket);
-
-            // Enable HA mode with Raft if requested
-            if cli.risingwave_ha {
-                let node_id = cli.risingwave_raft_node_id.unwrap_or_else(|| {
-                    tracing::warn!("No --risingwave-raft-node-id provided, using default 1");
-                    1
-                });
-                let peers: Vec<(u64, String)> = cli
-                    .risingwave_raft_peers
-                    .iter()
-                    .map(|&peer_id| (peer_id, format!("node-{}:5690", peer_id)))
-                    .collect();
-                config = config.with_ha(true).with_raft_peers(peers);
+        match nexora_risingwave::RisingWaveModule::start(config).await {
+            Ok(module) => {
                 tracing::info!(
-                    "   RisingWave: HA enabled (Raft node_id={}, peers={:?})",
-                    node_id,
-                    cli.risingwave_raft_peers
+                    "   RisingWave: started (meta={}, frontend={})",
+                    meta_addr,
+                    frontend_addr
                 );
+                Some(Arc::new(module))
             }
-
-            match nexora_risingwave::RisingWaveModule::start(config).await {
-                Ok(module) => {
-                    tracing::info!(
-                        "   RisingWave: started (meta={}, frontend={})",
-                        meta_addr,
-                        frontend_addr
-                    );
-                    Some(Arc::new(module))
-                }
-                Err(e) => {
-                    tracing::error!("Failed to start RisingWave module: {}", e);
-                    anyhow::bail!("RisingWave initialization failed: {}", e);
-                }
+            Err(e) => {
+                tracing::error!("Failed to start RisingWave module: {}", e);
+                anyhow::bail!("RisingWave initialization failed: {}", e);
             }
-        } else {
-            None
-        };
+        }
+    } else {
+        None
+    };
 
     let state = AppState {
         graph: graph.clone(),
@@ -2406,10 +2407,7 @@ async fn main() -> anyhow::Result<()> {
         )
         // Admin / Operations
         .route("/api/admin/status", get(handlers::admin_status))
-        .route(
-            "/api/admin/slow-queries",
-            get(handlers::admin_slow_queries),
-        )
+        .route("/api/admin/slow-queries", get(handlers::admin_slow_queries))
         .route("/api/admin/backup", post(handlers::admin_backup))
         .route("/api/admin/restore", post(handlers::admin_restore))
         .route("/api/admin/reindex", post(handlers::admin_reindex))
@@ -2431,10 +2429,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/recipes/{name}/execute",
             post(handlers::execute_recipe),
         )
-        .route(
-            "/api/recipes/{name}/runs",
-            get(handlers::get_recipe_runs),
-        )
+        .route("/api/recipes/{name}/runs", get(handlers::get_recipe_runs))
         // Storage
         .route("/api/storage/status", get(handlers::storage_status))
         .route("/api/storage/migrate", post(handlers::storage_migrate))
@@ -2498,10 +2493,7 @@ async fn main() -> anyhow::Result<()> {
             get(handlers::ontology::get_ontology).delete(handlers::ontology::delete_ontology),
         )
         // Query Optimizer
-        .route(
-            "/api/query/explain",
-            post(handlers::explain::explain_query),
-        )
+        .route("/api/query/explain", post(handlers::explain::explain_query))
         // RESTful alias routes (plural + kebab-case, for SDK/CLI friendliness)
         .route(
             "/api/nodes/{qid}/properties/{key}",
@@ -3266,7 +3258,12 @@ async fn reconcile_ontology(
     if let (Some(store), Some(router)) = (event_store, event_router) {
         for m in &pkg.mappings {
             if let Err(e) = store.ensure_table_from_domain(&m.source, &pkg).await {
-                tracing::warn!("reconcile '{}': ensure table '{}' failed: {}", domain, m.source, e);
+                tracing::warn!(
+                    "reconcile '{}': ensure table '{}' failed: {}",
+                    domain,
+                    m.source,
+                    e
+                );
             }
         }
         router.apply_domain_package(&pkg);
@@ -3285,9 +3282,7 @@ async fn reconcile_ontology(
 /// shutdown). Activation is idempotent so replays are safe.
 #[cfg(feature = "event-first")]
 async fn drain_ontology_activations(
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<
-        nexora_zenoh::control_raft_sm::OntologyActivation,
-    >,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<nexora_zenoh::control_raft_sm::OntologyActivation>,
     ontology_manager: Arc<nexora_core::ontology_manager::OntologyManager>,
     event_store: Option<Arc<nexora_eventlog::EventLogStore>>,
     event_router: Option<Arc<nexora_eventlog::TopicRouter>>,

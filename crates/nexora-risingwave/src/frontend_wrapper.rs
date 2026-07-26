@@ -136,7 +136,9 @@ impl FrontendNode {
 
         // Phase 3: Placeholder - just validate SQL is not empty
         if sql.trim().is_empty() {
-            return Err(RisingWaveError::DdlFailed("empty SQL statement".to_string()));
+            return Err(RisingWaveError::DdlFailed(
+                "empty SQL statement".to_string(),
+            ));
         }
 
         // Phase 4: Will execute actual DDL:

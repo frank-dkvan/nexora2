@@ -195,7 +195,9 @@ impl RisingWaveModule {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn list_materialized_views(&self) -> Result<Vec<crate::catalog::MaterializedViewInfo>> {
+    pub async fn list_materialized_views(
+        &self,
+    ) -> Result<Vec<crate::catalog::MaterializedViewInfo>> {
         let catalog = crate::catalog::CatalogClient::new(self.config.frontend_addr);
         catalog.list_materialized_views().await
     }
@@ -263,7 +265,9 @@ impl RisingWaveModule {
                     Ok(result_json) => {
                         // Phase 6: Parse JSON results and convert to Change events
                         // For now, we treat all results as Inserts (simplified)
-                        if let Ok(rows) = serde_json::from_str::<Vec<serde_json::Value>>(&result_json) {
+                        if let Ok(rows) =
+                            serde_json::from_str::<Vec<serde_json::Value>>(&result_json)
+                        {
                             let current_count = rows.len();
 
                             if current_count > last_row_count {
@@ -357,9 +361,7 @@ mod tests {
         let rw = RisingWaveModule::start(config).await.unwrap();
 
         // Execute DDL
-        let result = rw
-            .execute_ddl("CREATE SOURCE my_source WITH (...)")
-            .await;
+        let result = rw.execute_ddl("CREATE SOURCE my_source WITH (...)").await;
         assert!(result.is_ok());
 
         rw.shutdown().await.unwrap();

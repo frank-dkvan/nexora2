@@ -217,8 +217,10 @@ impl AppState {
         #[cfg(feature = "event-first")]
         {
             if let (Some(store), Some(router)) = (&self.event_store, &self.event_router) {
-                let graph_handler =
-                    Arc::new(nexora_stream::GraphIngestHandler::new(self.graph.clone(), durability));
+                let graph_handler = Arc::new(nexora_stream::GraphIngestHandler::new(
+                    self.graph.clone(),
+                    durability,
+                ));
                 return Arc::new(nexora_eventlog::EventFirstHandler::new(
                     store.clone(),
                     graph_handler,

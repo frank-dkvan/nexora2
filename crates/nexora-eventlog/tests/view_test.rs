@@ -179,7 +179,10 @@ async fn test_view_end_to_end_with_target_table() {
         view.target_table
     );
 
-    println!("✅ End-to-end: view aggregated and written to target table '{}'", view.target_table);
+    println!(
+        "✅ End-to-end: view aggregated and written to target table '{}'",
+        view.target_table
+    );
 }
 
 #[tokio::test]
@@ -206,7 +209,10 @@ async fn test_incremental_refresh() {
 
     // 增量刷新 (新事件)
     let new_events = vec![make_event("counter", "X", 5, 1_700_000_001_000_000)];
-    let row_count = refresher.incremental_refresh(&view, &new_events).await.unwrap();
+    let row_count = refresher
+        .incremental_refresh(&view, &new_events)
+        .await
+        .unwrap();
 
     // 增量刷新触发全量重算,应该有 1 个分组
     assert_eq!(row_count, 1);
@@ -322,11 +328,26 @@ async fn test_incremental_equals_full_all_agg_types() {
             "inc",
             vec!["device_id".into()],
             vec![
-                Aggregation::Count { field: "*".into(), alias: "cnt".into() },
-                Aggregation::Sum { field: "value".into(), alias: "sm".into() },
-                Aggregation::Max { field: "value".into(), alias: "mx".into() },
-                Aggregation::Min { field: "value".into(), alias: "mn".into() },
-                Aggregation::Avg { field: "value".into(), alias: "av".into() },
+                Aggregation::Count {
+                    field: "*".into(),
+                    alias: "cnt".into(),
+                },
+                Aggregation::Sum {
+                    field: "value".into(),
+                    alias: "sm".into(),
+                },
+                Aggregation::Max {
+                    field: "value".into(),
+                    alias: "mx".into(),
+                },
+                Aggregation::Min {
+                    field: "value".into(),
+                    alias: "mn".into(),
+                },
+                Aggregation::Avg {
+                    field: "value".into(),
+                    alias: "av".into(),
+                },
             ],
             RefreshMode::Push,
         )
@@ -338,9 +359,9 @@ async fn test_incremental_equals_full_all_agg_types() {
 
     // 第二批事件(含改变 max/min 的值 + 新分组 C)。
     let batch_b = vec![
-        make_event("inc", "A", 5, 1_700_000_003_000_000),   // A min 变 5
-        make_event("inc", "B", 90, 1_700_000_004_000_000),  // B max 变 90
-        make_event("inc", "C", 42, 1_700_000_005_000_000),  // 新分组 C
+        make_event("inc", "A", 5, 1_700_000_003_000_000), // A min 变 5
+        make_event("inc", "B", 90, 1_700_000_004_000_000), // B max 变 90
+        make_event("inc", "C", 42, 1_700_000_005_000_000), // 新分组 C
     ];
     store.append(&batch_b).await.unwrap();
 
@@ -362,11 +383,26 @@ async fn test_incremental_equals_full_all_agg_types() {
         "inc",
         vec!["device_id".into()],
         vec![
-            Aggregation::Count { field: "*".into(), alias: "cnt".into() },
-            Aggregation::Sum { field: "value".into(), alias: "sm".into() },
-            Aggregation::Max { field: "value".into(), alias: "mx".into() },
-            Aggregation::Min { field: "value".into(), alias: "mn".into() },
-            Aggregation::Avg { field: "value".into(), alias: "av".into() },
+            Aggregation::Count {
+                field: "*".into(),
+                alias: "cnt".into(),
+            },
+            Aggregation::Sum {
+                field: "value".into(),
+                alias: "sm".into(),
+            },
+            Aggregation::Max {
+                field: "value".into(),
+                alias: "mx".into(),
+            },
+            Aggregation::Min {
+                field: "value".into(),
+                alias: "mn".into(),
+            },
+            Aggregation::Avg {
+                field: "value".into(),
+                alias: "av".into(),
+            },
         ],
         RefreshMode::Pull { interval_secs: 60 },
     );
@@ -383,7 +419,9 @@ async fn test_incremental_equals_full_all_agg_types() {
             "metric {metric}: 分组数不一致 inc={inc:?} full={full:?}"
         );
         for (k, v) in &full {
-            let iv = inc.get(k).unwrap_or_else(|| panic!("metric {metric} 缺分组 {k}"));
+            let iv = inc
+                .get(k)
+                .unwrap_or_else(|| panic!("metric {metric} 缺分组 {k}"));
             assert!(
                 (iv - v).abs() < 1e-9,
                 "metric {metric} 分组 {k}: 增量 {iv} != 全量 {v}"
@@ -417,12 +455,15 @@ async fn test_incremental_noop_when_no_new_events() {
         "noop_v",
         "noop",
         vec!["device_id".into()],
-        vec![Aggregation::Sum { field: "value".into(), alias: "sm".into() }],
+        vec![Aggregation::Sum {
+            field: "value".into(),
+            alias: "sm".into(),
+        }],
         RefreshMode::Push,
     );
 
     refresher.refresh(&view).await.unwrap(); // 建初态
-    // 源表无新 append → 增量 no-op。
+                                             // 源表无新 append → 增量 no-op。
     let n = refresher.incremental_refresh(&view, &[]).await.unwrap();
     assert_eq!(n, 0, "无新事件应返回 0");
 

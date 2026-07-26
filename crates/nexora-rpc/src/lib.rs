@@ -53,6 +53,6 @@ pub mod server;
 pub mod tonic_impl;
 
 pub use client::RpcClient;
-pub use error::{RpcError, Result};
+pub use error::{Result, RpcError};
 pub use server::RpcServer;
 pub use tonic_impl::{TonicRpcClient, TonicRpcServer};

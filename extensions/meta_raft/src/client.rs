@@ -3,7 +3,7 @@
 //! This module implements the RisingWave `ElectionClient` trait using our Raft consensus layer.
 
 use crate::{Error, Result};
-use nexora_consensus::{ConsensusClient, RaftConsensusClient, RaftConfig};
+use nexora_consensus::{ConsensusClient, RaftConfig, RaftConsensusClient};
 use std::sync::Arc;
 use tokio::sync::watch::{self, Receiver, Sender};
 use tokio::sync::RwLock;
@@ -111,9 +111,10 @@ impl RaftElectionClient {
 
         // Add peers
         for peer_id in &config.peer_node_ids {
-            let peer_addr: std::net::SocketAddr = format!("127.0.0.1:{}", 5690 + peer_id)
-                .parse()
-                .map_err(|e| Error::config(format!("Invalid peer address: {}", e)))?;
+            let peer_addr: std::net::SocketAddr =
+                format!("127.0.0.1:{}", 5690 + peer_id)
+                    .parse()
+                    .map_err(|e| Error::config(format!("Invalid peer address: {}", e)))?;
             raft_config = raft_config.add_peer(*peer_id, peer_addr);
         }
 

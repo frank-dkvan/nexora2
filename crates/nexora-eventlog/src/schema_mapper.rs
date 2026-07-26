@@ -22,12 +22,8 @@ impl SchemaMapper {
         let mut fields = vec![
             // Provenance 列 (固定)
             NestedField::required(1, "_event_id", Type::Primitive(PrimitiveType::String)).into(),
-            NestedField::required(
-                2,
-                "_event_time",
-                Type::Primitive(PrimitiveType::Timestamp),
-            )
-            .into(),
+            NestedField::required(2, "_event_time", Type::Primitive(PrimitiveType::Timestamp))
+                .into(),
             NestedField::required(3, "_source", Type::Primitive(PrimitiveType::String)).into(),
             NestedField::required(4, "_topic", Type::Primitive(PrimitiveType::String)).into(),
         ];
@@ -46,8 +42,7 @@ impl SchemaMapper {
         // 如果没有任何业务字段,添加一个 _payload 列作为回退
         if fields.len() == 4 {
             fields.push(
-                NestedField::optional(5, "_payload", Type::Primitive(PrimitiveType::String))
-                    .into(),
+                NestedField::optional(5, "_payload", Type::Primitive(PrimitiveType::String)).into(),
             );
         }
 

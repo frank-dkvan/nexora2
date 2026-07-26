@@ -85,21 +85,21 @@ pub use event_first_handler::EventFirstHandler;
 #[cfg(feature = "olap")]
 pub use event_log_store::EventLogStore;
 #[cfg(feature = "olap")]
-pub use storage_config::StorageConfig;
-#[cfg(feature = "olap")]
 pub use materialized_view::{Aggregation, MaterializedView, RefreshMode, ViewTransform};
+#[cfg(feature = "olap")]
+pub use refresh_scheduler::RefreshScheduler;
+#[cfg(feature = "olap")]
+pub use retention::{RetentionManager, RetentionPolicy};
 #[cfg(feature = "olap")]
 pub use router::{Destination, TopicRouter};
 #[cfg(feature = "olap")]
 pub use schema_mapper::SchemaMapper;
 #[cfg(feature = "olap")]
+pub use storage_config::StorageConfig;
+#[cfg(feature = "olap")]
 pub use view_manager::ViewManager;
 #[cfg(feature = "olap")]
 pub use view_refresher::ViewRefresher;
-#[cfg(feature = "olap")]
-pub use refresh_scheduler::RefreshScheduler;
-#[cfg(feature = "olap")]
-pub use retention::{RetentionManager, RetentionPolicy};
 
 // Re-export DomainPackage from nexora_core for convenience
 #[cfg(feature = "olap")]

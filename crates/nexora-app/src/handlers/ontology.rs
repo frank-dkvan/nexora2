@@ -285,7 +285,11 @@ async fn broadcast_ontology_removal(state: &AppState, domain: &str) {
             domain: domain.to_string(),
         };
         match client.execute(&node_id, op).await {
-            Ok(_) => tracing::info!("Broadcast ontology removal '{}' to node {}", domain, node_id),
+            Ok(_) => tracing::info!(
+                "Broadcast ontology removal '{}' to node {}",
+                domain,
+                node_id
+            ),
             Err(e) => tracing::warn!(
                 "broadcast_ontology_removal: node {} failed to remove '{}': {}",
                 node_id,
@@ -332,15 +336,16 @@ pub(crate) async fn schedule_domain_views(
             }
         };
         let scheduled = match view.refresh_mode {
-            RefreshMode::Pull { interval_secs } => {
-                scheduler.schedule(view.clone(), interval_secs).await.map(|_| {
+            RefreshMode::Pull { interval_secs } => scheduler
+                .schedule(view.clone(), interval_secs)
+                .await
+                .map(|_| {
                     tracing::info!(
                         "Scheduled materialized view '{}' (full refresh every {}s)",
                         view.name,
                         interval_secs
                     );
-                })
-            }
+                }),
             RefreshMode::Hybrid {
                 push_enabled: false,
                 pull_interval_secs,
@@ -354,7 +359,10 @@ pub(crate) async fn schedule_domain_views(
                         pull_interval_secs
                     );
                 }),
-            RefreshMode::Push | RefreshMode::Hybrid { push_enabled: true, .. } => scheduler
+            RefreshMode::Push
+            | RefreshMode::Hybrid {
+                push_enabled: true, ..
+            } => scheduler
                 .schedule_incremental(view.clone(), PUSH_INTERVAL_SECS)
                 .await
                 .map(|_| {

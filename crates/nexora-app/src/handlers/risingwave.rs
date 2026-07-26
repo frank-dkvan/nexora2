@@ -155,7 +155,9 @@ pub async fn list_sources(
         .as_ref()
         .ok_or_else(|| ApiError::FeatureNotEnabled("risingwave".to_string()))?;
 
-    let sources = rw.list_sources().await
+    let sources = rw
+        .list_sources()
+        .await
         .map_err(|e| ApiError::Internal(format!("Failed to list sources: {}", e)))?;
 
     let response = sources
@@ -188,7 +190,9 @@ pub async fn list_materialized_views(
         .as_ref()
         .ok_or_else(|| ApiError::FeatureNotEnabled("risingwave".to_string()))?;
 
-    let mvs = rw.list_materialized_views().await
+    let mvs = rw
+        .list_materialized_views()
+        .await
         .map_err(|e| ApiError::Internal(format!("Failed to list materialized views: {}", e)))?;
 
     let response = mvs
@@ -213,9 +217,7 @@ pub async fn list_materialized_views(
 /// curl http://localhost:8080/api/risingwave/status
 /// ```
 #[cfg(feature = "risingwave")]
-pub async fn get_status(
-    State(state): State<AppState>,
-) -> Result<Json<RisingWaveStatus>, ApiError> {
+pub async fn get_status(State(state): State<AppState>) -> Result<Json<RisingWaveStatus>, ApiError> {
     let rw = state
         .risingwave
         .as_ref()

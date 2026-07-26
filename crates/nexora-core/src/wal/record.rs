@@ -53,9 +53,7 @@ pub enum WalOperation {
     /// sealed into a columnar event-table fragment (event-first ingestion). This
     /// is the pre-seal durability record: on recovery, un-sealed raw events are
     /// replayed from here; after a seal checkpoint they can be truncated.
-    RawEvent {
-        event: crate::raw_event::RawEvent,
-    },
+    RawEvent { event: crate::raw_event::RawEvent },
 }
 
 impl WalOperation {

@@ -99,9 +99,9 @@ async fn execute_event_query(
                     table: table_name.to_string(),
                 };
                 match client.execute(node_id, op).await {
-                    Ok(nexora_zenoh::GraphResult::Property(Some(
-                        serde_json::Value::String(hex_str),
-                    ))) => {
+                    Ok(nexora_zenoh::GraphResult::Property(Some(serde_json::Value::String(
+                        hex_str,
+                    )))) => {
                         if hex_str.is_empty() {
                             continue; // peer has no such table / no rows
                         }
@@ -169,9 +169,7 @@ async fn execute_event_query(
 
 /// Decode hex-encoded Arrow IPC stream bytes back into RecordBatches.
 #[cfg(feature = "event-first")]
-fn decode_ipc_batches(
-    hex_str: &str,
-) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
+fn decode_ipc_batches(hex_str: &str) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
     let bytes = hex::decode(hex_str).map_err(|e| format!("hex decode: {e}"))?;
     let reader = arrow::ipc::reader::StreamReader::try_new(std::io::Cursor::new(bytes), None)
         .map_err(|e| format!("IPC reader: {e}"))?;

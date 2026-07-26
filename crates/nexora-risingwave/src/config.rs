@@ -1,7 +1,7 @@
 //! RisingWave configuration.
 
-use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 
 /// Configuration for RisingWave module.
 #[derive(Debug, Clone, Serialize, Deserialize)]

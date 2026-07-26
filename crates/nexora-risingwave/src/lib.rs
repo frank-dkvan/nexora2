@@ -52,18 +52,18 @@
 //! # }
 //! ```
 
-pub mod config;
-pub mod error;
-pub mod meta_wrapper;
-pub mod frontend_wrapper;
-pub mod module;
-pub mod event_sink;
 pub mod catalog;
+pub mod config;
 pub mod ddl_parser;
+pub mod error;
+pub mod event_sink;
+pub mod frontend_wrapper;
+pub mod meta_wrapper;
+pub mod module;
 
+pub use catalog::{CatalogClient, ColumnInfo, MaterializedViewInfo, SourceInfo};
 pub use config::RisingWaveConfig;
-pub use error::{RisingWaveError, Result};
+pub use ddl_parser::{ColumnDef, DdlParser, ParsedSchema};
+pub use error::{Result, RisingWaveError};
+pub use event_sink::{Change, ColumnValue, EventLogSink, Row};
 pub use module::RisingWaveModule;
-pub use event_sink::{EventLogSink, Change, Row, ColumnValue};
-pub use catalog::{CatalogClient, SourceInfo, MaterializedViewInfo, ColumnInfo};
-pub use ddl_parser::{DdlParser, ParsedSchema, ColumnDef};

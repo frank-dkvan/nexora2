@@ -223,8 +223,7 @@ pub struct ClusterManager {
     /// reconciliation (a follower caught up by snapshot install has the committed
     /// `DomainDef` entries in the store but never saw the per-entry activation
     /// events). `Some` only when Raft is enabled.
-    control_plane_store:
-        Option<Arc<dyn nexora_core::control_plane_store::ControlPlaneStore>>,
+    control_plane_store: Option<Arc<dyn nexora_core::control_plane_store::ControlPlaneStore>>,
 }
 impl ClusterManager {
     /// Create a new cluster manager (does not start yet).
@@ -480,8 +479,7 @@ impl ClusterManager {
                         // Build the state machine over the unified control-plane store,
                         // wiring an ontology-activation channel so committed DomainDef
                         // changes emit to the app layer for table creation + routing.
-                        let (ontology_tx, ontology_rx) =
-                            tokio::sync::mpsc::unbounded_channel();
+                        let (ontology_tx, ontology_rx) = tokio::sync::mpsc::unbounded_channel();
                         let sm = crate::control_raft_sm::ControlStateMachine::new(cp_store.clone())
                             .with_ontology_activation(ontology_tx);
                         ontology_activation_rx = Some(ontology_rx);
@@ -1166,9 +1164,7 @@ impl ClusterManager {
     /// caught up via snapshot install has these entries in the store but never
     /// saw per-entry activation events, so the app layer calls this on startup
     /// to re-activate them. Returns empty when Raft is disabled.
-    pub fn committed_ontologies(
-        &self,
-    ) -> Vec<(String, Vec<u8>)> {
+    pub fn committed_ontologies(&self) -> Vec<(String, Vec<u8>)> {
         let Some(ref store) = self.control_plane_store else {
             return Vec::new();
         };
@@ -1186,7 +1182,9 @@ impl ClusterManager {
         domain: &str,
         pkg_json: Vec<u8>,
     ) -> Result<bool, crate::control::ControlError> {
-        self.control_plane.propose_domain_put(domain, pkg_json).await
+        self.control_plane
+            .propose_domain_put(domain, pkg_json)
+            .await
     }
 
     /// Propose an ontology removal via Raft. Returns `Ok(false)` when Raft is

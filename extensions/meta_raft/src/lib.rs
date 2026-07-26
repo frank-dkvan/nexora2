@@ -48,10 +48,10 @@
 
 mod client;
 mod error;
-mod storage;
 mod network;
+mod storage;
 
-pub use client::{RaftElectionClient, RaftElectionConfig, ElectionMember};
+pub use client::{ElectionMember, RaftElectionClient, RaftElectionConfig};
 pub use error::{Error, Result};
-pub use storage::{RaftStorage, RaftStorageConfig};
 pub use network::{RaftNetwork, RaftNetworkConfig};
+pub use storage::{RaftStorage, RaftStorageConfig};

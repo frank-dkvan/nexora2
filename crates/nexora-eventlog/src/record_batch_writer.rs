@@ -34,15 +34,9 @@ pub fn raw_events_to_record_batch(events: &[RawEvent]) -> Result<RecordBatch> {
     }
 
     // 提取 provenance 列
-    let event_ids: Vec<String> = events
-        .iter()
-        .map(|e| e.event_id.to_string())
-        .collect();
+    let event_ids: Vec<String> = events.iter().map(|e| e.event_id.to_string()).collect();
 
-    let event_times: Vec<i64> = events
-        .iter()
-        .map(|e| e.event_time_us as i64)
-        .collect();
+    let event_times: Vec<i64> = events.iter().map(|e| e.event_time_us as i64).collect();
 
     let sources: Vec<&str> = events.iter().map(|e| e.source.as_str()).collect();
 
@@ -100,10 +94,7 @@ fn extract_payload_columns(
 
         // Provenance 保护:冲突的字段跳过
         if RESERVED_FIELDS.contains(&key) {
-            tracing::warn!(
-                "Payload field '{}' collides with provenance, skipped",
-                key
-            );
+            tracing::warn!("Payload field '{}' collides with provenance, skipped", key);
             return None;
         }
 

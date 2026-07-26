@@ -72,8 +72,7 @@ impl DomainLoader {
 
     /// 从 TOML 字符串加载 DomainPackage (用于测试)
     pub fn load_from_str(toml_str: &str) -> Result<DomainPackage> {
-        let pkg: DomainPackage = toml::from_str(toml_str)
-            .context("Failed to parse TOML string")?;
+        let pkg: DomainPackage = toml::from_str(toml_str).context("Failed to parse TOML string")?;
         Ok(pkg)
     }
 }

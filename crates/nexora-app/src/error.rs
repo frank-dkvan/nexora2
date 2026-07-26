@@ -169,7 +169,10 @@ impl ApiError {
     pub fn feature_not_enabled(feature: String) -> Self {
         Self::new(
             ErrorCode::FeatureNotEnabled,
-            format!("Feature '{}' is not enabled. Compile with --features {} and enable at runtime.", feature, feature),
+            format!(
+                "Feature '{}' is not enabled. Compile with --features {} and enable at runtime.",
+                feature, feature
+            ),
         )
     }
 

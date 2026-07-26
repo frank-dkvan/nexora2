@@ -116,10 +116,7 @@ impl EventLogSink {
     /// ```
     #[cfg(feature = "event-first")]
     pub async fn start_sync(&self, mv_name: &str, topic: &str) -> Result<()> {
-        info!(
-            "Starting EventLogSink: {} → {}",
-            mv_name, topic
-        );
+        info!("Starting EventLogSink: {} → {}", mv_name, topic);
 
         let mut rx = self.risingwave.subscribe_mv(mv_name).await?;
         let mut processed = 0u64;
@@ -163,20 +160,18 @@ impl EventLogSink {
         match change {
             Change::Insert(row) => {
                 let event = self.row_to_event(row)?;
-                self.event_store
-                    .append(topic, event)
-                    .await
-                    .map_err(|e| RisingWaveError::Internal(format!("EventLogStore append failed: {}", e)))?;
+                self.event_store.append(topic, event).await.map_err(|e| {
+                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
+                })?;
                 debug!("Inserted event into topic: {}", topic);
             }
             Change::Update { old: _, new } => {
                 // For updates, we append the new state
                 // (EventLogStore is append-only, so we don't delete the old state)
                 let event = self.row_to_event(new)?;
-                self.event_store
-                    .append(topic, event)
-                    .await
-                    .map_err(|e| RisingWaveError::Internal(format!("EventLogStore append failed: {}", e)))?;
+                self.event_store.append(topic, event).await.map_err(|e| {
+                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
+                })?;
                 debug!("Updated event in topic: {}", topic);
             }
             Change::Delete(row) => {
@@ -193,10 +188,9 @@ impl EventLogSink {
                         json!(chrono::Utc::now().to_rfc3339()),
                     );
                 }
-                self.event_store
-                    .append(topic, event)
-                    .await
-                    .map_err(|e| RisingWaveError::Internal(format!("EventLogStore append failed: {}", e)))?;
+                self.event_store.append(topic, event).await.map_err(|e| {
+                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
+                })?;
                 debug!("Deleted event from topic: {}", topic);
             }
         }
@@ -249,7 +243,10 @@ mod tests {
             row.get("name"),
             Some(ColumnValue::String(s)) if s == "test"
         ));
-        assert!(matches!(row.get("active"), Some(ColumnValue::Boolean(true))));
+        assert!(matches!(
+            row.get("active"),
+            Some(ColumnValue::Boolean(true))
+        ));
         assert!(row.get("nonexistent").is_none());
     }
 
@@ -270,14 +267,21 @@ mod tests {
                 let config = crate::config::RisingWaveConfig::new()
                     .with_meta_addr("127.0.0.1:15690".parse().unwrap())
                     .with_frontend_addr("127.0.0.1:14566".parse().unwrap());
-                let rw = Arc::new(crate::module::RisingWaveModule::start(config).await.unwrap());
+                let rw = Arc::new(
+                    crate::module::RisingWaveModule::start(config)
+                        .await
+                        .unwrap(),
+                );
                 let sink = EventLogSink::new(event_store, rw);
 
                 let row = Row::new(vec![
                     ("int32".to_string(), ColumnValue::Int32(42)),
                     ("int64".to_string(), ColumnValue::Int64(1234567890)),
                     ("float32".to_string(), ColumnValue::Float32(3.14)),
-                    ("string".to_string(), ColumnValue::String("hello".to_string())),
+                    (
+                        "string".to_string(),
+                        ColumnValue::String("hello".to_string()),
+                    ),
                     ("bool".to_string(), ColumnValue::Boolean(true)),
                     ("null".to_string(), ColumnValue::Null),
                 ]);

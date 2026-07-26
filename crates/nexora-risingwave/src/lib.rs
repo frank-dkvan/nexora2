@@ -57,7 +57,13 @@ pub mod error;
 pub mod meta_wrapper;
 pub mod frontend_wrapper;
 pub mod module;
+pub mod event_sink;
+pub mod catalog;
+pub mod ddl_parser;
 
 pub use config::RisingWaveConfig;
 pub use error::{RisingWaveError, Result};
 pub use module::RisingWaveModule;
+pub use event_sink::{EventLogSink, Change, Row, ColumnValue};
+pub use catalog::{CatalogClient, SourceInfo, MaterializedViewInfo, ColumnInfo};
+pub use ddl_parser::{DdlParser, ParsedSchema, ColumnDef};

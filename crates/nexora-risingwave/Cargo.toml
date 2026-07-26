@@ -8,6 +8,8 @@ description = "RisingWave integration for advanced stream processing"
 # Internal dependencies
 nexora-consensus = { path = "../nexora-consensus" }
 nexora-rpc = { path = "../nexora-rpc" }
+nexora-eventlog = { path = "../nexora-eventlog", optional = true }
+nexora-core = { path = "../nexora-core", optional = true }
 
 # RisingWave components (Phase 3: simplified, full integration in Phase 4)
 # Note: These will be added in Phase 4 when we integrate with vendor/risingwave
@@ -20,9 +22,12 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
 
 [features]
 default = []
+event-first = ["nexora-eventlog", "nexora-core"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

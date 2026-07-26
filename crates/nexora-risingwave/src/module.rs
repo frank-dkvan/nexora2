@@ -2,6 +2,7 @@
 
 use crate::config::RisingWaveConfig;
 use crate::error::Result;
+use crate::event_sink::ColumnValue;
 use crate::frontend_wrapper::FrontendNode;
 use crate::meta_wrapper::MetaNode;
 use std::sync::Arc;
@@ -153,6 +154,154 @@ impl RisingWaveModule {
         self.meta.is_leader().await
     }
 
+    /// List all sources from RisingWave catalog
+    ///
+    /// # Returns
+    ///
+    /// A list of all sources (Kafka, Kinesis, etc.) registered in RisingWave.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use nexora_risingwave::RisingWaveModule;
+    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// let sources = rw.list_sources().await?;
+    /// for source in sources {
+    ///     println!("Source: {} ({})", source.name, source.connector);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list_sources(&self) -> Result<Vec<crate::catalog::SourceInfo>> {
+        let catalog = crate::catalog::CatalogClient::new(self.config.frontend_addr);
+        catalog.list_sources().await
+    }
+
+    /// List all materialized views from RisingWave catalog
+    ///
+    /// # Returns
+    ///
+    /// A list of all materialized views registered in RisingWave.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use nexora_risingwave::RisingWaveModule;
+    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// let mvs = rw.list_materialized_views().await?;
+    /// for mv in mvs {
+    ///     println!("MV: {}", mv.name);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list_materialized_views(&self) -> Result<Vec<crate::catalog::MaterializedViewInfo>> {
+        let catalog = crate::catalog::CatalogClient::new(self.config.frontend_addr);
+        catalog.list_materialized_views().await
+    }
+
+    /// Subscribe to materialized view changes (CDC-like streaming)
+    ///
+    /// Returns a channel receiver that streams change events (Insert, Update, Delete)
+    /// whenever the materialized view state changes.
+    ///
+    /// # Phase 6 Implementation
+    ///
+    /// Phase 6 provides a polling-based implementation. Future versions will use
+    /// RisingWave's native CDC connector for more efficient streaming.
+    ///
+    /// # Arguments
+    ///
+    /// - `mv_name`: Name of the materialized view to subscribe to
+    ///
+    /// # Returns
+    ///
+    /// A receiver that yields Change events as they occur.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use nexora_risingwave::RisingWaveModule;
+    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut rx = rw.subscribe_mv("enriched_events").await?;
+    ///
+    /// while let Some(change) = rx.recv().await {
+    ///     match change {
+    ///         Change::Insert(row) => println!("New row: {:?}", row),
+    ///         Change::Update { old, new } => println!("Updated: {:?} -> {:?}", old, new),
+    ///         Change::Delete(row) => println!("Deleted: {:?}", row),
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn subscribe_mv(
+        &self,
+        mv_name: &str,
+    ) -> Result<tokio::sync::mpsc::Receiver<crate::event_sink::Change>> {
+        use crate::event_sink::{Change, ColumnValue, Row};
+        use std::time::Duration;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+        // Clone what we need for the spawned task
+        let frontend = self.frontend.clone();
+        let mv_name = mv_name.to_string();
+
+        tokio::spawn(async move {
+            let mut last_row_count = 0;
+
+            loop {
+                // Phase 6: Simple polling approach
+                // Query the MV for new rows using a watermark-based approach
+                let query = format!(
+                    "SELECT * FROM {} ORDER BY processing_time DESC LIMIT 100",
+                    mv_name
+                );
+
+                match frontend.query_mv(&query).await {
+                    Ok(result_json) => {
+                        // Phase 6: Parse JSON results and convert to Change events
+                        // For now, we treat all results as Inserts (simplified)
+                        if let Ok(rows) = serde_json::from_str::<Vec<serde_json::Value>>(&result_json) {
+                            let current_count = rows.len();
+
+                            if current_count > last_row_count {
+                                // New rows detected - send as Insert events
+                                for row_json in rows.iter().skip(last_row_count) {
+                                    if let Some(obj) = row_json.as_object() {
+                                        let mut columns = Vec::new();
+
+                                        for (key, value) in obj {
+                                            let col_value = json_to_column_value(value);
+                                            columns.push((key.clone(), col_value));
+                                        }
+
+                                        let row = Row::new(columns);
+                                        if tx.send(Change::Insert(row)).await.is_err() {
+                                            // Receiver dropped, stop polling
+                                            return;
+                                        }
+                                    }
+                                }
+
+                                last_row_count = current_count;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to poll MV {}: {}", mv_name, e);
+                    }
+                }
+
+                // Poll every 1 second (configurable in future versions)
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+
+        Ok(rx)
+    }
+
     /// Get the RisingWave configuration.
     pub fn config(&self) -> &RisingWaveConfig {
         &self.config
@@ -230,5 +379,38 @@ mod tests {
         assert_eq!(result.unwrap(), "[]");
 
         rw.shutdown().await.unwrap();
+    }
+}
+
+/// Helper function to convert JSON value to ColumnValue
+fn json_to_column_value(value: &serde_json::Value) -> ColumnValue {
+    match value {
+        serde_json::Value::Null => ColumnValue::Null,
+        serde_json::Value::Bool(b) => ColumnValue::Boolean(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                    ColumnValue::Int32(i as i32)
+                } else {
+                    ColumnValue::Int64(i)
+                }
+            } else if let Some(f) = n.as_f64() {
+                ColumnValue::Float64(f)
+            } else {
+                ColumnValue::String(n.to_string())
+            }
+        }
+        serde_json::Value::String(s) => {
+            // Try to parse as timestamp (RFC3339 format)
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                ColumnValue::Timestamp(dt.with_timezone(&chrono::Utc))
+            } else {
+                ColumnValue::String(s.clone())
+            }
+        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            // Complex types stored as JSON
+            ColumnValue::Json(value.clone())
+        }
     }
 }

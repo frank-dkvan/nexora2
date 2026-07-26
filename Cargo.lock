@@ -5657,7 +5657,9 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "chrono",
  "nexora-consensus",
+ "nexora-eventlog",
  "nexora-rpc",
  "serde",
  "serde_json",

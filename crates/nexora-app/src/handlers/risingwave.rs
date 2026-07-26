@@ -150,14 +150,24 @@ pub async fn query_mv(
 pub async fn list_sources(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<RisingWaveSource>>, ApiError> {
-    let _rw = state
+    let rw = state
         .risingwave
         .as_ref()
         .ok_or_else(|| ApiError::FeatureNotEnabled("risingwave".to_string()))?;
 
-    // Phase 5: Return placeholder data
-    // Phase 6: Query RisingWave catalog for actual sources
-    Ok(Json(vec![]))
+    let sources = rw.list_sources().await
+        .map_err(|e| ApiError::Internal(format!("Failed to list sources: {}", e)))?;
+
+    let response = sources
+        .iter()
+        .map(|s| RisingWaveSource {
+            name: s.name.clone(),
+            connector: s.connector.clone(),
+            status: "active".to_string(),
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
 /// List RisingWave materialized views
@@ -173,14 +183,24 @@ pub async fn list_sources(
 pub async fn list_materialized_views(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<RisingWaveMaterializedView>>, ApiError> {
-    let _rw = state
+    let rw = state
         .risingwave
         .as_ref()
         .ok_or_else(|| ApiError::FeatureNotEnabled("risingwave".to_string()))?;
 
-    // Phase 5: Return placeholder data
-    // Phase 6: Query RisingWave catalog for actual MVs
-    Ok(Json(vec![]))
+    let mvs = rw.list_materialized_views().await
+        .map_err(|e| ApiError::Internal(format!("Failed to list materialized views: {}", e)))?;
+
+    let response = mvs
+        .iter()
+        .map(|mv| RisingWaveMaterializedView {
+            name: mv.name.clone(),
+            definition: mv.definition.clone(),
+            status: "active".to_string(),
+        })
+        .collect();
+
+    Ok(Json(response))
 }
 
 /// Get RisingWave cluster status

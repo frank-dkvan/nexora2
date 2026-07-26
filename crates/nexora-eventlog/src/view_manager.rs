@@ -81,7 +81,9 @@ impl ViewManager {
                         .schedule_incremental(view.clone(), DEFAULT_PUSH_INTERVAL_SECS)
                         .await?;
                 } else {
-                    self.scheduler.schedule(view.clone(), pull_interval_secs).await?;
+                    self.scheduler
+                        .schedule(view.clone(), pull_interval_secs)
+                        .await?;
                 }
             }
         }
@@ -148,7 +150,11 @@ impl ViewManager {
                     v.source_table == source_table
                         && matches!(
                             v.refresh_mode,
-                            RefreshMode::Push | RefreshMode::Hybrid { push_enabled: true, .. }
+                            RefreshMode::Push
+                                | RefreshMode::Hybrid {
+                                    push_enabled: true,
+                                    ..
+                                }
                         )
                 })
                 .cloned()
@@ -158,7 +164,9 @@ impl ViewManager {
         // 对每个视图执行增量刷新
         for view in views_to_update {
             tracing::debug!("Triggering incremental update for view '{}'", view.name);
-            self.refresher.incremental_refresh(&view, new_events).await?;
+            self.refresher
+                .incremental_refresh(&view, new_events)
+                .await?;
         }
 
         Ok(())
@@ -258,13 +266,8 @@ mod tests {
 
         let manager = ViewManager::new(store);
 
-        let view = MaterializedView::aggregate(
-            "test_view",
-            "sensors",
-            vec![],
-            vec![],
-            RefreshMode::Push,
-        );
+        let view =
+            MaterializedView::aggregate("test_view", "sensors", vec![], vec![], RefreshMode::Push);
 
         manager.create_view(view).await.unwrap();
         manager.drop_view("test_view").await.unwrap();

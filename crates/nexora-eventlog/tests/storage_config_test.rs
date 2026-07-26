@@ -71,7 +71,10 @@ fn test_s3_config_construction() {
     );
 
     assert!(config.is_s3());
-    assert_eq!(config.warehouse_location(), "s3://test-bucket/events/warehouse");
+    assert_eq!(
+        config.warehouse_location(),
+        "s3://test-bucket/events/warehouse"
+    );
 
     let props = config.catalog_props();
     assert_eq!(props.get("s3.endpoint").unwrap(), "http://localhost:9000");

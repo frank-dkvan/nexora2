@@ -89,7 +89,10 @@ async fn test_ensure_table_from_domain() {
         "Should have partition fields"
     );
 
-    println!("✅ Table created from domain with {} fields", field_names.len());
+    println!(
+        "✅ Table created from domain with {} fields",
+        field_names.len()
+    );
 }
 
 #[tokio::test]

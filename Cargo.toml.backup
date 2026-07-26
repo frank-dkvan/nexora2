@@ -1,0 +1,75 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nexora-fragment",
+    "crates/nexora-sql",
+    "crates/nexora-udf",
+    "crates/nexora-storage",
+    "crates/nexora-zenoh",
+    "crates/nexora-barrier",
+    "crates/nexora-fixpoint",
+    "crates/nexora-hnsw",
+    "crates/nexora-id",
+    "crates/nexora-value",
+    "crates/nexora-serialization",
+    "crates/nexora-language",
+    "crates/nexora-cypher",
+    "crates/nexora-core",
+    "crates/nexora-persistor-rocksdb",
+    "crates/nexora-standing-query",
+    "crates/nexora-output",
+    "crates/nexora-recipe",
+    "crates/nexora-app",
+    "crates/nexora-raft",
+    "crates/nexora-stream",
+    "crates/nexora-bench",
+    "crates/nexora-client",
+    "crates/nexora-cli",
+    "crates/nexora-mcp",
+    "crates/nexora-pgwire", "crates/nexora-etl",
+    "crates/nexora-eventlog",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/frank-dkvan/nexora"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+flatbuffers = "25"
+byteorder = "1"
+rmp-serde = "1"
+
+# Hashing & crypto
+sha2 = "0.10"
+hmac = "0.12"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+base64 = "0.22"
+crc32fast = "1.5"
+
+# Utilities
+bytes = "1"
+dashmap = "6"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+hex = "0.4"
+sqlparser = "0.53"
+rust-rocksdb = "0.50"
+
+# Testing
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+

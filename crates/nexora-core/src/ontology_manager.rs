@@ -47,9 +47,9 @@ impl OntologyManager {
         let mut loader = DomainLoader::new();
 
         // 从存储恢复已有本体定义 (ControlPlaneStore 方法是同步的)
-        let entries = store.list(Namespace::DomainDef).map_err(|e| {
-            OntologyError::Storage(format!("failed to list domains: {}", e))
-        })?;
+        let entries = store
+            .list(Namespace::DomainDef)
+            .map_err(|e| OntologyError::Storage(format!("failed to list domains: {}", e)))?;
 
         for (domain, bytes) in entries {
             match serde_json::from_slice::<DomainPackage>(&bytes) {
@@ -84,9 +84,7 @@ impl OntologyManager {
         // 1. 校验
         {
             let loader = self.loader.read().await;
-            loader
-                .validate(&pkg)
-                .map_err(OntologyError::Validation)?;
+            loader.validate(&pkg).map_err(OntologyError::Validation)?;
         }
 
         // 2. 持久化 (先持久化再更新内存,保证一致性)

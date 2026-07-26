@@ -236,11 +236,9 @@ impl RemoteGraphClient for LocalGraphClient {
                 // In-process client (single-node/tests) has no separate event
                 // store to scan; return an empty (hex) payload so callers get a
                 // well-formed "no rows from this node" response.
-                GraphOperation::ScanEventTable { .. } => {
-                    Ok(GraphResult::Property(Some(serde_json::Value::String(
-                        String::new(),
-                    ))))
-                }
+                GraphOperation::ScanEventTable { .. } => Ok(GraphResult::Property(Some(
+                    serde_json::Value::String(String::new()),
+                ))),
                 // In-process client (single-node/tests): no peers to broadcast
                 // to, so applying/removing an ontology is a local no-op ack.
                 GraphOperation::ApplyOntology { .. } => Ok(GraphResult::Status {

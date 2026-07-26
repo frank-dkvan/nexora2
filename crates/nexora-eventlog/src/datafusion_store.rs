@@ -36,7 +36,9 @@ impl DataFusionEventStore {
     pub async fn register_table(&self, _table_name: &str) -> Result<()> {
         // TODO: 实现直接注册 Iceberg 表
         // 当前问题: IcebergTableProvider::try_new() 是 pub(crate)
-        anyhow::bail!("Direct table registration not yet implemented - waiting for iceberg-datafusion API")
+        anyhow::bail!(
+            "Direct table registration not yet implemented - waiting for iceberg-datafusion API"
+        )
     }
 
     /// 自动注册所有表
@@ -62,10 +64,7 @@ impl DataFusionEventStore {
             .await
             .context("Failed to parse SQL")?;
 
-        let batches = df
-            .collect()
-            .await
-            .context("Failed to execute query")?;
+        let batches = df.collect().await.context("Failed to execute query")?;
 
         tracing::debug!("Query returned {} batches", batches.len());
         Ok(batches)

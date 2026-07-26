@@ -194,7 +194,10 @@ impl StorageConfig {
                 props.insert("s3.region".to_string(), s3_region.clone());
                 props.insert("s3.access-key-id".to_string(), s3_access_key.clone());
                 props.insert("s3.secret-access-key".to_string(), s3_secret_key.clone());
-                props.insert("s3.path-style-access".to_string(), s3_path_style.to_string());
+                props.insert(
+                    "s3.path-style-access".to_string(),
+                    s3_path_style.to_string(),
+                );
             }
             Self::LocalFs { .. } => {}
         }
@@ -279,7 +282,10 @@ mod tests {
         );
 
         // 默认前缀为 "eventlog"
-        assert_eq!(config.warehouse_location(), "s3://bucket/eventlog/warehouse");
+        assert_eq!(
+            config.warehouse_location(),
+            "s3://bucket/eventlog/warehouse"
+        );
     }
 
     #[test]

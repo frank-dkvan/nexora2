@@ -91,7 +91,10 @@ async fn test_scheduler_background_refresh() {
 
     // 验证目标表已被后台任务创建
     let target_exists = store.load_table(&view.target_table).await.is_ok();
-    assert!(target_exists, "Target table should be created by scheduled refresh");
+    assert!(
+        target_exists,
+        "Target table should be created by scheduled refresh"
+    );
 
     // 清理
     scheduler.cancel_all().await;
@@ -132,7 +135,10 @@ async fn test_domain_mv_sql_refresh_end_to_end() {
 
     // 执行刷新(此前 refresh_sql 是 stub,现在真跑 DataFusion)
     let refresher = ViewRefresher::new(store.clone());
-    let rows = refresher.refresh(&view).await.expect("SQL refresh should succeed");
+    let rows = refresher
+        .refresh(&view)
+        .await
+        .expect("SQL refresh should succeed");
 
     // 两个分组(A、B)→ 2 行
     assert_eq!(rows, 2, "GROUP BY device_id over 3 events → 2 groups");
@@ -141,5 +147,8 @@ async fn test_domain_mv_sql_refresh_end_to_end() {
     let target_exists = store.load_table(&view.target_table).await.is_ok();
     assert!(target_exists, "SQL view must write its target table");
 
-    println!("✅ DomainMV SQL refresh end-to-end works - {} rows written", rows);
+    println!(
+        "✅ DomainMV SQL refresh end-to-end works - {} rows written",
+        rows
+    );
 }

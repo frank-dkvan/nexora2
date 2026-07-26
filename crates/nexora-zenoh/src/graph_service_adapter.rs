@@ -60,10 +60,7 @@ impl GraphServiceAdapter {
     /// Attach an event-table scanner so this node can serve `ScanEventTable`
     /// requests for cross-node event queries. Builder-style; chains onto any
     /// constructor. `None` scanner leaves event scans returning empty.
-    pub fn with_event_scanner(
-        mut self,
-        scanner: Arc<dyn crate::EventTableScanner>,
-    ) -> Self {
+    pub fn with_event_scanner(mut self, scanner: Arc<dyn crate::EventTableScanner>) -> Self {
         self.event_scanner = Some(scanner);
         self
     }
@@ -71,10 +68,7 @@ impl GraphServiceAdapter {
     /// Attach an ontology applier so this node can register ontologies broadcast
     /// by a peer (`ApplyOntology`). Builder-style. `None` leaves `ApplyOntology`
     /// a no-op.
-    pub fn with_ontology_applier(
-        mut self,
-        applier: Arc<dyn crate::OntologyApplier>,
-    ) -> Self {
+    pub fn with_ontology_applier(mut self, applier: Arc<dyn crate::OntologyApplier>) -> Self {
         self.ontology_applier = Some(applier);
         self
     }

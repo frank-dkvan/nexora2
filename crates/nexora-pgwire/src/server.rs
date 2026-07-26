@@ -146,8 +146,7 @@ pub async fn spawn_pg_server_with_router(
     router: Option<Arc<nexora_zenoh::router::HybridRouter>>,
     replication_progress: Option<Arc<nexora_zenoh::ReplicationProgress>>,
     query_pool: Arc<nexora_core::query_pool::QueryPool>,
-    #[cfg(feature = "event-first")]
-    event_store: Option<Arc<nexora_eventlog::EventLogStore>>,
+    #[cfg(feature = "event-first")] event_store: Option<Arc<nexora_eventlog::EventLogStore>>,
     config: PgConfig,
 ) -> Result<PgServerHandle, PgServerError> {
     config.validate()?;

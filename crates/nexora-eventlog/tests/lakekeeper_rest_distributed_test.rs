@@ -96,7 +96,10 @@ mod lakekeeper_rest_tests {
                 .iter()
                 .map(|b| b.num_rows())
                 .sum();
-            assert_eq!(rows, 10, "{name} should see 10 rows via REST catalog, got {rows}");
+            assert_eq!(
+                rows, 10,
+                "{name} should see 10 rows via REST catalog, got {rows}"
+            );
             eprintln!("✓ {name} reads {rows} rows (no shared local catalog!)");
         }
         eprintln!("✅ test_rest_basic_cross_node_read passed");

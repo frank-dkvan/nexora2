@@ -107,5 +107,4 @@ impl IngestHandler for EventFirstHandler {
     }
 }
 
-
 // 单元测试见 tests/view_test.rs 等集成测试

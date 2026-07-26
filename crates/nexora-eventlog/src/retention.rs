@@ -21,8 +21,8 @@ pub struct RetentionPolicy {
 impl Default for RetentionPolicy {
     fn default() -> Self {
         Self {
-            retain_days: 90,   // 默认保留 90 天
-            min_snapshots: 1,  // 至少保留 1 个 (当前快照)
+            retain_days: 90,  // 默认保留 90 天
+            min_snapshots: 1, // 至少保留 1 个 (当前快照)
         }
     }
 }

@@ -10,10 +10,12 @@ use crate::record_batch_writer::raw_events_to_record_batch;
 use anyhow::{Context, Result};
 use arrow::record_batch::RecordBatch;
 use arrow_schema::{DataType, Field, TimeUnit};
-use iceberg::spec::{NestedField, PartitionSpec, PrimitiveType, Schema as IcebergSchema, Transform, Type};
+use iceberg::io::{Storage, StorageConfig, StorageFactory};
+use iceberg::spec::{
+    NestedField, PartitionSpec, PrimitiveType, Schema as IcebergSchema, Transform, Type,
+};
 use iceberg::table::Table;
 use iceberg::{Catalog, CatalogBuilder, NamespaceIdent, TableCreation, TableIdent};
-use iceberg::io::{Storage, StorageConfig, StorageFactory};
 use iceberg_catalog_sql::SqlCatalogBuilder;
 use iceberg_storage_opendal::OpenDalStorageFactory;
 use nexora_core::{DomainPackage, RawEvent};
@@ -103,9 +105,7 @@ impl EventLogStore {
     /// 创建 EventLogStore,使用指定的存储配置 (阶段 5 Phase 1)
     ///
     /// 支持本地文件系统和 S3 兼容对象存储。
-    pub async fn new_with_config(
-        config: crate::storage_config::StorageConfig,
-    ) -> Result<Self> {
+    pub async fn new_with_config(config: crate::storage_config::StorageConfig) -> Result<Self> {
         use crate::storage_config::StorageConfig;
 
         // 本地 FS 需要预创建目录
@@ -340,10 +340,7 @@ impl EventLogStore {
                 .await
                 .context("Failed to write RecordBatch")?;
 
-            let data_files = writer
-                .close()
-                .await
-                .context("Failed to close writer")?;
+            let data_files = writer.close().await.context("Failed to close writer")?;
 
             Ok(data_files)
         }
@@ -381,11 +378,7 @@ impl EventLogStore {
     ///
     /// 用于物化视图等场景,直接写入已计算的 RecordBatch。
     /// 如果表不存在,根据 RecordBatch 的 Arrow schema 自动创建。
-    pub async fn write_batch(
-        &self,
-        table_name: &str,
-        batch: RecordBatch,
-    ) -> Result<u64> {
+    pub async fn write_batch(&self, table_name: &str, batch: RecordBatch) -> Result<u64> {
         let row_count = batch.num_rows() as u64;
         if row_count == 0 {
             return Ok(0);
@@ -402,11 +395,7 @@ impl EventLogStore {
         // 提交事务
         self.commit_data_files(&table, data_files).await?;
 
-        tracing::info!(
-            "Wrote {} rows to table '{}'",
-            row_count,
-            table_name
-        );
+        tracing::info!("Wrote {} rows to table '{}'", row_count, table_name);
 
         Ok(row_count)
     }
@@ -477,7 +466,8 @@ impl EventLogStore {
             false,
         )));
         columns.push(Arc::new(Int64Array::from(vec![
-            src_snapshot_id.unwrap_or(-1);
+            src_snapshot_id
+                .unwrap_or(-1);
             n
         ])));
 
@@ -546,7 +536,9 @@ impl EventLogStore {
                     .write(batch)
                     .context("Failed to write batch to Arrow IPC")?;
             }
-            writer.finish().context("Failed to finish Arrow IPC stream")?;
+            writer
+                .finish()
+                .context("Failed to finish Arrow IPC stream")?;
         }
         Ok(buf)
     }
@@ -573,7 +565,11 @@ impl EventLogStore {
 
         // 校验 snapshot 有效性(过期则让调用方回退全量)。
         if table.metadata().snapshot_by_id(to_snapshot).is_none() {
-            anyhow::bail!("to_snapshot {} not found in table '{}'", to_snapshot, table_name);
+            anyhow::bail!(
+                "to_snapshot {} not found in table '{}'",
+                to_snapshot,
+                table_name
+            );
         }
         if let Some(from) = from_snapshot {
             if table.metadata().snapshot_by_id(from).is_none() {
@@ -652,18 +648,26 @@ impl EventLogStore {
                     .partition_spec(partition_spec)
                     .build();
 
-                match self.catalog.create_table(&self.namespace, table_creation).await {
+                match self
+                    .catalog
+                    .create_table(&self.namespace, table_creation)
+                    .await
+                {
                     Ok(table) => Ok(table),
                     Err(ref e) if is_already_exists_error(&format!("{e:?}")) => {
                         tracing::debug!(
-                            "Table '{}' created concurrently, loading instead", table_name
+                            "Table '{}' created concurrently, loading instead",
+                            table_name
                         );
                         self.catalog
                             .load_table(&table_ident)
                             .await
-                            .with_context(|| format!("Failed to load '{}' after concurrent create", table_name))
+                            .with_context(|| {
+                                format!("Failed to load '{}' after concurrent create", table_name)
+                            })
                     }
-                    Err(e) => Err(e).with_context(|| format!("Failed to create target table '{}'", table_name)),
+                    Err(e) => Err(e)
+                        .with_context(|| format!("Failed to create target table '{}'", table_name)),
                 }
             }
         }
@@ -725,13 +729,13 @@ impl EventLogStore {
                     Ok(table) => Ok(table),
                     // Concurrent creation race: another node won, just load.
                     Err(ref e) if is_already_exists_error(&format!("{e:?}")) => {
-                        tracing::debug!(
-                            "Table '{}' created concurrently, loading instead", topic
-                        );
+                        tracing::debug!("Table '{}' created concurrently, loading instead", topic);
                         self.catalog
                             .load_table(&table_ident)
                             .await
-                            .with_context(|| format!("Failed to load table '{}' after concurrent create", topic))
+                            .with_context(|| {
+                                format!("Failed to load table '{}' after concurrent create", topic)
+                            })
                     }
                     Err(e) => Err(e),
                 }
@@ -763,13 +767,13 @@ impl EventLogStore {
                 match self.create_table_from_domain(topic, pkg).await {
                     Ok(table) => Ok(table),
                     Err(ref e) if is_already_exists_error(&format!("{e:?}")) => {
-                        tracing::debug!(
-                            "Table '{}' created concurrently, loading instead", topic
-                        );
+                        tracing::debug!("Table '{}' created concurrently, loading instead", topic);
                         self.catalog
                             .load_table(&table_ident)
                             .await
-                            .with_context(|| format!("Failed to load '{}' after concurrent create", topic))
+                            .with_context(|| {
+                                format!("Failed to load '{}' after concurrent create", topic)
+                            })
                     }
                     Err(e) => Err(e),
                 }
@@ -778,11 +782,7 @@ impl EventLogStore {
     }
 
     /// 根据 DomainPackage 创建表 (阶段 2)
-    async fn create_table_from_domain(
-        &self,
-        topic: &str,
-        pkg: &DomainPackage,
-    ) -> Result<Table> {
+    async fn create_table_from_domain(&self, topic: &str, pkg: &DomainPackage) -> Result<Table> {
         use crate::schema_mapper::SchemaMapper;
 
         let schema = SchemaMapper::map_domain_to_schema(pkg)?;
@@ -886,7 +886,8 @@ impl EventLogStore {
         // Provenance 列(固定)
         let mut fields = vec![
             NestedField::required(1, "_event_id", Type::Primitive(PrimitiveType::String)).into(),
-            NestedField::required(2, "_event_time", Type::Primitive(PrimitiveType::Timestamp)).into(),
+            NestedField::required(2, "_event_time", Type::Primitive(PrimitiveType::Timestamp))
+                .into(),
             NestedField::required(3, "_source", Type::Primitive(PrimitiveType::String)).into(),
             NestedField::required(4, "_topic", Type::Primitive(PrimitiveType::String)).into(),
         ];
@@ -1081,7 +1082,7 @@ mod tests {
         let schema = EventLogStore::infer_schema_from_raw_event(&event).unwrap();
 
         // _event_id 不应该被 payload 覆盖,只有 provenance + data
-        assert_eq!(schema.as_struct().fields().len(), 5);  // 4 provenance + 1 data
+        assert_eq!(schema.as_struct().fields().len(), 5); // 4 provenance + 1 data
         assert!(schema.field_by_name("data").is_some());
     }
 }

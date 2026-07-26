@@ -1,0 +1,81 @@
+groups:
+  - name: nexora_recording_rules
+    interval: 30s
+    rules:
+      # Pre-compute failover success rate (last 1 hour)
+      - record: nexora:failover_success_rate:1h
+        expr: |
+          rate(deepstreaming_failover_success_total[1h])
+          /
+          rate(deepstreaming_failover_total[1h])
+
+      # Pre-compute failover success rate (last 24 hours)
+      - record: nexora:failover_success_rate:24h
+        expr: |
+          rate(deepstreaming_failover_success_total[24h])
+          /
+          rate(deepstreaming_failover_total[24h])
+
+      # Pre-compute query error rate (last 5 minutes)
+      - record: nexora:query_error_rate:5m
+        expr: |
+          rate(deepstreaming_errors_total[5m])
+          /
+          rate(deepstreaming_queries_total[5m])
+
+      # Pre-compute average query latency (milliseconds)
+      - record: nexora:query_latency_avg_ms:5m
+        expr: |
+          rate(deepstreaming_query_duration_sum_us[5m])
+          /
+          rate(deepstreaming_queries_total[5m])
+          / 1000
+
+      # Pre-compute WAL append latency (milliseconds)
+      - record: nexora:wal_append_latency_avg_ms:5m
+        expr: deepstreaming_wal_append_avg_us / 1000
+
+      # Pre-compute events ingested per second
+      - record: nexora:events_rate:5m
+        expr: rate(deepstreaming_events_total[5m])
+
+      # Pre-compute SQ match rate
+      - record: nexora:sq_match_rate:5m
+        expr: rate(deepstreaming_sq_matches_total[5m])
+
+      # Pre-compute slow query rate
+      - record: nexora:slow_query_rate:5m
+        expr: rate(deepstreaming_slow_queries_total[5m])
+
+      # Aggregate replication lag across all instances (max)
+      - record: nexora:replication_lag_max_ms
+        expr: max(deepstreaming_replication_lag_ms)
+
+      # Aggregate replication lag across all instances (avg)
+      - record: nexora:replication_lag_avg_ms
+        expr: avg(deepstreaming_replication_lag_ms)
+
+      # Total cluster-wide active nodes
+      - record: nexora:cluster_active_nodes_total
+        expr: sum(deepstreaming_active_nodes)
+
+      # Total cluster-wide standing queries
+      - record: nexora:cluster_standing_queries_total
+        expr: sum(deepstreaming_standing_queries)
+
+      # Cluster-wide failover count (last 1 hour)
+      - record: nexora:cluster_failovers:1h
+        expr: sum(increase(deepstreaming_failover_total[1h]))
+
+      # Cluster health score (0-100)
+      # Based on: error rate, replication lag, failover success rate
+      - record: nexora:cluster_health_score
+        expr: |
+          100
+          - (min(100, nexora:query_error_rate:5m * 1000))
+          - (min(100, nexora:replication_lag_max_ms / 100))
+          - (min(100, (1 - nexora:failover_success_rate:1h) * 100))
+
+      # Catch-up operations in progress (cluster-wide)
+      - record: nexora:cluster_catchup_in_progress
+        expr: sum(deepstreaming_catch_up_in_progress)

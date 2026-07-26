@@ -27,8 +27,8 @@ pub mod materialized_view;
 pub mod ontology_manager;
 pub mod persistor;
 pub mod query_optimizer;
-pub mod raw_event;
 pub mod query_pool;
+pub mod raw_event;
 pub mod snapshot_manifest;
 pub mod wal;
 
@@ -55,8 +55,8 @@ pub use graph::{
 pub use index::{IndexConfig, IndexError, IndexStats, PropertyIndex};
 pub use label_index::{LabelIndex, LabelIndexStats};
 pub use persistor::{InMemoryPersistor, NamespacedPersistenceAgent};
-pub use raw_event::RawEvent;
 pub use query_optimizer::{ExecutionPlan, FilterPredicate, IndexStatistics, QueryOptimizer};
+pub use raw_event::RawEvent;
 pub use snapshot_manifest::{ChecksumKind, SnapshotKind, SnapshotManifest};
 
 #[cfg(feature = "encrypt")]

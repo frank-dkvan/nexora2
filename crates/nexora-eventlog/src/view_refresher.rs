@@ -94,10 +94,9 @@ impl ViewRefresher {
             ViewTransform::Aggregate { aggregations, .. } => aggregations
                 .iter()
                 .filter_map(|a| match a {
-                    Aggregation::Avg { alias, .. } => Some((
-                        format!("{}__sum", alias),
-                        format!("{}__count", alias),
-                    )),
+                    Aggregation::Avg { alias, .. } => {
+                        Some((format!("{}__sum", alias), format!("{}__count", alias)))
+                    }
                     _ => None,
                 })
                 .collect(),
@@ -152,7 +151,10 @@ impl ViewRefresher {
     async fn latest_generation(&self, target_table: &str) -> Result<Option<Generation>> {
         use arrow::array::Int64Array;
 
-        let batches = self.event_log_store.read_table_batches(target_table).await?;
+        let batches = self
+            .event_log_store
+            .read_table_batches(target_table)
+            .await?;
         if batches.iter().all(|b| b.num_rows() == 0) {
             return Ok(None);
         }
@@ -217,7 +219,10 @@ impl ViewRefresher {
 
         batches
             .iter()
-            .map(|b| b.project(&keep).context("Failed to project out MV internal columns"))
+            .map(|b| {
+                b.project(&keep)
+                    .context("Failed to project out MV internal columns")
+            })
             .collect()
     }
 
@@ -240,10 +245,7 @@ impl ViewRefresher {
 
         // 2. 注册为 DataFusion 内存表
         let schema = source_batches[0].schema();
-        let mem_table = datafusion::datasource::MemTable::try_new(
-            schema,
-            vec![source_batches],
-        )?;
+        let mem_table = datafusion::datasource::MemTable::try_new(schema, vec![source_batches])?;
         ctx.register_table("source", Arc::new(mem_table))?;
 
         // 3. 构造部分聚合 SQL(存储形态:AVG 拆 sum+count,与增量一致)
@@ -251,7 +253,10 @@ impl ViewRefresher {
         tracing::debug!("Aggregate SQL: {}", sql);
 
         // 4. 执行查询
-        let df = ctx.sql(&sql).await.context("Failed to execute aggregate SQL")?;
+        let df = ctx
+            .sql(&sql)
+            .await
+            .context("Failed to execute aggregate SQL")?;
         let result_batches = df.collect().await.context("Failed to collect results")?;
 
         let row_count: u64 = result_batches.iter().map(|b| b.num_rows() as u64).sum();
@@ -332,7 +337,10 @@ impl ViewRefresher {
             .sql(sql)
             .await
             .with_context(|| format!("Failed to execute SQL for view '{}'", view.name))?;
-        let result_batches = df.collect().await.context("Failed to collect SQL results")?;
+        let result_batches = df
+            .collect()
+            .await
+            .context("Failed to collect SQL results")?;
 
         let row_count: u64 = result_batches.iter().map(|b| b.num_rows() as u64).sum();
 
@@ -346,7 +354,10 @@ impl ViewRefresher {
                 .write_versioned_batch(&view.target_table, combined, next_version, src_snapshot)
                 .await
                 .with_context(|| {
-                    format!("Failed to write SQL view to target table '{}'", view.target_table)
+                    format!(
+                        "Failed to write SQL view to target table '{}'",
+                        view.target_table
+                    )
                 })?;
         }
 
@@ -412,7 +423,11 @@ impl ViewRefresher {
 
         // 2. 水位相同 ⇒ 无新事件,真 no-op(不写新版本)。
         if last_snapshot == Some(current) {
-            tracing::debug!("View '{}' already up-to-date (snapshot {})", view.name, current);
+            tracing::debug!(
+                "View '{}' already up-to-date (snapshot {})",
+                view.name,
+                current
+            );
             return Ok(0);
         }
 
@@ -445,7 +460,8 @@ impl ViewRefresher {
 
         // 4. delta 部分聚合(存储形态)。
         let delta_schema = delta_batches[0].schema();
-        let delta_mem = datafusion::datasource::MemTable::try_new(delta_schema, vec![delta_batches])?;
+        let delta_mem =
+            datafusion::datasource::MemTable::try_new(delta_schema, vec![delta_batches])?;
         ctx.register_table("delta_src", Arc::new(delta_mem))?;
         let partial_sql = Self::build_partial_sql(group_by, aggregations, filter, "delta_src");
         let delta_partial = ctx
@@ -495,7 +511,10 @@ impl ViewRefresher {
                 .write_versioned_batch(&view.target_table, combined, next_version, Some(current))
                 .await
                 .with_context(|| {
-                    format!("Failed to write incremental result to '{}'", view.target_table)
+                    format!(
+                        "Failed to write incremental result to '{}'",
+                        view.target_table
+                    )
                 })?;
             tracing::info!(
                 "View '{}' incrementally updated to snapshot {} ({} groups, version {})",
@@ -523,10 +542,7 @@ impl ViewRefresher {
             .with_context(|| format!("Failed to load source table '{}'", table_name))?;
 
         // 使用 Iceberg scan API 读取数据
-        let scan = table
-            .scan()
-            .build()
-            .context("Failed to build table scan")?;
+        let scan = table.scan().build().context("Failed to build table scan")?;
 
         let stream = scan
             .to_arrow()
@@ -767,7 +783,10 @@ mod mv_from_domain_tests {
         .unwrap();
         assert_eq!(mv.source_table, "orders");
         assert_eq!(mv.target_table, "orders_by_region_mv");
-        assert!(matches!(mv.refresh_mode, RefreshMode::Pull { interval_secs: 30 }));
+        assert!(matches!(
+            mv.refresh_mode,
+            RefreshMode::Pull { interval_secs: 30 }
+        ));
         assert!(matches!(mv.transform, ViewTransform::Sql(_)));
     }
 
@@ -781,7 +800,10 @@ mod mv_from_domain_tests {
         .unwrap();
         assert_eq!(mv.source_table, "orders");
         // 空 refresh_mode → Pull 默认 60s
-        assert!(matches!(mv.refresh_mode, RefreshMode::Pull { interval_secs: 60 }));
+        assert!(matches!(
+            mv.refresh_mode,
+            RefreshMode::Pull { interval_secs: 60 }
+        ));
     }
 
     #[test]

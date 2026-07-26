@@ -1,0 +1,134 @@
+# Nexora 2.0 Documentation Validation
+
+This GitHub Action validates that documentation stays in sync with code.
+
+name: Validate Documentation
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'QUICKSTART.md'
+      - 'crates/nexora-app/src/main.rs'
+      - 'crates/nexora-app/Cargo.toml'
+  push:
+    branches:
+      - main
+
+jobs:
+  validate-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for deprecated /api/v2/ paths
+        run: |
+          echo "Checking for deprecated /api/v2/ paths..."
+          if grep -r "api/v2" . --include="*.md" | grep -v ".git"; then
+            echo "❌ Found deprecated /api/v2/ paths in documentation"
+            echo "Please update to /api/ (without v2)"
+            exit 1
+          else
+            echo "✅ No deprecated paths found"
+          fi
+
+      - name: Validate API endpoint consistency
+        run: |
+          echo "Extracting API routes from main.rs..."
+          ROUTES=$(grep -o '\.route("[^"]*"' crates/nexora-app/src/main.rs | sed 's/\.route("//; s/"$//' | sort -u)
+          echo "Found $(echo "$ROUTES" | wc -l) routes"
+
+          echo "Checking documented endpoints..."
+          DOCS_ROUTES=$(grep -rho '/api/[a-zA-Z0-9/_\-{}]*' docs README.md --include="*.md" | grep -E '^/api/' | sort -u)
+          echo "Found $(echo "$DOCS_ROUTES" | wc -l) documented endpoints"
+
+          # Basic sanity check: ensure major endpoints are documented
+          REQUIRED_ENDPOINTS=(
+            "/api/query/cypher"
+            "/api/query/sql"
+            "/api/health"
+            "/api/standing-query"
+          )
+
+          for endpoint in "${REQUIRED_ENDPOINTS[@]}"; do
+            if ! echo "$DOCS_ROUTES" | grep -q "$endpoint"; then
+              echo "❌ Required endpoint $endpoint not found in documentation"
+              exit 1
+            fi
+          done
+
+          echo "✅ Core endpoints are documented"
+
+      - name: Validate CLI parameter consistency
+        run: |
+          echo "Checking CLI parameters..."
+
+          # Extract from main.rs
+          CODE_PARAMS=$(grep '#\[arg(long' crates/nexora-app/src/main.rs -A 1 | \
+            grep -E '^[[:space:]]*[a-z_]+:' | \
+            sed 's/^[[:space:]]*//; s/:.*$//' | sort -u)
+
+          echo "Code defines $(echo "$CODE_PARAMS" | wc -l) parameters"
+
+          # Check that major params are in README
+          REQUIRED_PARAMS=(
+            "host"
+            "port"
+            "event_store_backend"
+            "storage_backend"
+          )
+
+          for param in "${REQUIRED_PARAMS[@]}"; do
+            param_dash=$(echo "$param" | tr '_' '-')
+            if ! grep -q -- "--$param_dash" README.md; then
+              echo "❌ Required parameter --$param_dash not found in README.md"
+              exit 1
+            fi
+          done
+
+          echo "✅ Core CLI parameters are documented"
+
+      - name: Validate Rust version consistency
+        run: |
+          echo "Checking Rust version consistency..."
+
+          # Extract from Cargo.toml
+          CARGO_VERSION=$(grep 'rust-version' Cargo.toml | head -1 | sed 's/.*= *"\([^"]*\)".*/\1/')
+          echo "Cargo.toml specifies: $CARGO_VERSION"
+
+          # Check README
+          if ! grep -q "rust-$CARGO_VERSION" README.md; then
+            echo "❌ Rust version mismatch between Cargo.toml and README.md"
+            echo "Cargo.toml: $CARGO_VERSION"
+            grep "rust-1\." README.md | head -3
+            exit 1
+          fi
+
+          echo "✅ Rust version is consistent"
+
+      - name: Validate feature flags consistency
+        run: |
+          echo "Checking feature flags..."
+
+          # Extract features from Cargo.toml
+          FEATURES=$(grep -A 20 '^\[features\]' crates/nexora-app/Cargo.toml | \
+            grep '^[a-z]' | cut -d' ' -f1 | grep -v '^\[' || true)
+
+          echo "Defined features: $FEATURES"
+
+          # Check that event-first is mentioned in README
+          if ! grep -q "event-first" README.md; then
+            echo "❌ event-first feature not mentioned in README"
+            exit 1
+          fi
+
+          echo "✅ Feature flags are documented"
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "=================================================="
+          echo "✅ All documentation validation checks passed!"
+          echo "=================================================="

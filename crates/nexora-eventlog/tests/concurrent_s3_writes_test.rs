@@ -77,10 +77,8 @@ mod concurrent_s3_writes {
             .collect();
 
         // 并发写入
-        let (result_a, result_b) = tokio::join!(
-            store_a.append(&events_a),
-            store_b.append(&events_b),
-        );
+        let (result_a, result_b) =
+            tokio::join!(store_a.append(&events_a), store_b.append(&events_b),);
 
         // 验证：两次写入都成功
         assert!(result_a.is_ok(), "Node A write failed: {:?}", result_a);
@@ -261,7 +259,11 @@ mod concurrent_s3_writes {
         let config = StorageConfig::local_fs(data_dir.to_str().unwrap());
 
         // 两个 store 实例共享同一个本地目录（模拟两个节点访问共享 NFS）
-        let store_a = Arc::new(EventLogStore::new_with_config(config.clone()).await.unwrap());
+        let store_a = Arc::new(
+            EventLogStore::new_with_config(config.clone())
+                .await
+                .unwrap(),
+        );
         let store_b = Arc::new(EventLogStore::new_with_config(config).await.unwrap());
 
         // 先通过 store_a 创建表（避免并发创建冲突）
@@ -323,7 +325,10 @@ mod concurrent_s3_writes {
         // 验证
         let batches = store_a.read_table_batches("local_test").await.unwrap();
         let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-        assert_eq!(total_rows, 21, "Expected 21 rows (1 init + 10 from A + 10 from B)");
+        assert_eq!(
+            total_rows, 21,
+            "Expected 21 rows (1 init + 10 from A + 10 from B)"
+        );
 
         println!("✅ Local FS concurrent write test passed");
     }

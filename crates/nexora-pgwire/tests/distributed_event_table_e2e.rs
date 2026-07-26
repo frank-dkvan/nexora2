@@ -299,11 +299,10 @@ async fn pgwire_insert_distributes_to_graph_across_owners() {
     }
 
     // Global COUNT via PG-wire
-    let rows = c
-        .pg
-        .simple_query("SELECT COUNT(*) FROM User")
-        .await
-        .unwrap();
+    let rows =
+        c.pg.simple_query("SELECT COUNT(*) FROM User")
+            .await
+            .unwrap();
     let count_val = rows
         .iter()
         .find_map(|m| match m {
@@ -356,11 +355,10 @@ async fn pgwire_insert_writes_to_event_table_and_read_merges_across_nodes() {
     // (1) scan this node's local event table
     // (2) fan ScanEventTable to every other node
     // (3) merge all RecordBatches and run the SQL over the union
-    let rows = c
-        .pg
-        .simple_query("SELECT COUNT(*) FROM user_events")
-        .await
-        .unwrap();
+    let rows =
+        c.pg.simple_query("SELECT COUNT(*) FROM user_events")
+            .await
+            .unwrap();
     let count_val = rows
         .iter()
         .find_map(|m| match m {
@@ -407,11 +405,10 @@ async fn pgwire_insert_writes_to_event_table_and_read_merges_across_nodes() {
     );
 
     // Filtered read from event table
-    let filtered = c
-        .pg
-        .simple_query("SELECT event_id, action FROM user_events WHERE action = 'login'")
-        .await
-        .unwrap();
+    let filtered =
+        c.pg.simple_query("SELECT event_id, action FROM user_events WHERE action = 'login'")
+            .await
+            .unwrap();
     let login_count = filtered
         .iter()
         .filter(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(_)))
@@ -436,16 +433,17 @@ async fn pgwire_graph_and_event_table_coexist_in_same_session() {
         .unwrap();
 
     // Write to event table
-    c.pg.simple_query("INSERT INTO user_events (event_id, user_id, action) VALUES ('e1', 'u1', 'purchase')")
-        .await
-        .unwrap();
+    c.pg.simple_query(
+        "INSERT INTO user_events (event_id, user_id, action) VALUES ('e1', 'u1', 'purchase')",
+    )
+    .await
+    .unwrap();
 
     // Read from graph table
-    let graph_rows = c
-        .pg
-        .simple_query("SELECT COUNT(*) FROM Product")
-        .await
-        .unwrap();
+    let graph_rows =
+        c.pg.simple_query("SELECT COUNT(*) FROM Product")
+            .await
+            .unwrap();
     let graph_count = graph_rows
         .iter()
         .find_map(|m| match m {
@@ -456,11 +454,10 @@ async fn pgwire_graph_and_event_table_coexist_in_same_session() {
     assert_eq!(graph_count, "1", "graph table must have 1 product");
 
     // Read from event table
-    let event_rows = c
-        .pg
-        .simple_query("SELECT COUNT(*) FROM user_events")
-        .await
-        .unwrap();
+    let event_rows =
+        c.pg.simple_query("SELECT COUNT(*) FROM user_events")
+            .await
+            .unwrap();
     let event_count = event_rows
         .iter()
         .find_map(|m| match m {

@@ -200,12 +200,12 @@ impl IngestionSource for FileSource {
                     let raw_event = nexora_core::RawEvent::new(
                         event_time_us,
                         chrono::Utc::now().timestamp_micros() as u64, // ingest_time_us
-                        "file",                                        // source
-                        self.config.topic.clone(),                     // topic
-                        None,                                          // partition
-                        Some(line_idx as i64),                         // offset
-                        None,                                          // subject
-                        json_value.clone(),                            // payload
+                        "file",                                       // source
+                        self.config.topic.clone(),                    // topic
+                        None,                                         // partition
+                        Some(line_idx as i64),                        // offset
+                        None,                                         // subject
+                        json_value.clone(),                           // payload
                     );
                     raw_events.push(raw_event);
 

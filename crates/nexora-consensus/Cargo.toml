@@ -9,11 +9,15 @@ tokio = { workspace = true }
 async-trait = "0.1"
 bytes = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+anyhow = { workspace = true }
 
-# Raft implementation (will be added in Phase 2)
-# openraft = "0.9"
+# Raft implementation (Phase 2)
+openraft = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
+tempfile = "3"

@@ -1,0 +1,56 @@
+statement ok
+create table dt (a date, b varchar);
+
+statement ok
+insert into dt values (date('2020-01-23'), '1990-12-19');
+
+query TT
+select
+    date(b)
+from
+dt
+except
+select
+    cast(b as date)
+from dt
+except
+select
+    b::date
+from dt;
+----
+
+statement ok
+drop table dt;
+
+query T
+select date('2030-03-30');
+----
+2030-03-30
+
+query error
+select date('2000-13-03');
+
+query error
+select date('00-00-33');
+
+query error cannot cast type "integer" to "date" in Explicit context
+select date(1);
+
+query error unexpected arguments number
+select date();
+
+query ?
+select cast('a' as char(1));
+----
+a
+
+# since we don't support char type, cast to char(2) will be the same as cast to varchar, so its behavior is the same as cast to varchar and not the same as postgresql.
+query ?
+select 'a'::char(2) = 'a '::char(2);
+----
+f
+
+query ?
+select 'a'::varchar = 'a '::varchar;
+----
+f

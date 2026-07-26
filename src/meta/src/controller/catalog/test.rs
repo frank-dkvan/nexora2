@@ -1,0 +1,565 @@
+// Copyright 2024 RisingWave Labs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#[cfg(test)]
+mod tests {
+    use risingwave_meta_model::table::HandleConflictBehavior;
+    use risingwave_pb::catalog::StreamSourceInfo;
+    use risingwave_pb::catalog::subscription::SubscriptionState;
+    use tokio::sync::oneshot;
+
+    use crate::controller::catalog::*;
+
+    const TEST_DATABASE_ID: DatabaseId = DatabaseId::new(1);
+    const TEST_SCHEMA_ID: SchemaId = SchemaId::new(2);
+    const TEST_OWNER_ID: UserId = UserId::new(1);
+
+    async fn insert_test_table(
+        txn: &DatabaseTransaction,
+        table_id: TableId,
+        name: &str,
+        table_type: TableType,
+        belongs_to_job_id: Option<JobId>,
+        definition: &str,
+    ) -> MetaResult<()> {
+        table::ActiveModel {
+            table_id: Set(table_id),
+            name: Set(name.to_owned()),
+            optional_associated_source_id: Set(None),
+            table_type: Set(table_type),
+            belongs_to_job_id: Set(belongs_to_job_id),
+            columns: Set(vec![].into()),
+            pk: Set(vec![].into()),
+            distribution_key: Set(Vec::<i32>::new().into()),
+            stream_key: Set(Vec::<i32>::new().into()),
+            append_only: Set(false),
+            fragment_id: Set(None),
+            vnode_col_index: Set(None),
+            row_id_index: Set(None),
+            value_indices: Set(Vec::<i32>::new().into()),
+            definition: Set(definition.to_owned()),
+            handle_pk_conflict_behavior: Set(HandleConflictBehavior::NoCheck),
+            version_column_indices: Set(None),
+            read_prefix_len_hint: Set(0),
+            watermark_indices: Set(Vec::<i32>::new().into()),
+            dist_key_in_pk: Set(Vec::<i32>::new().into()),
+            dml_fragment_id: Set(None),
+            cardinality: Set(None),
+            cleaned_by_watermark: Set(false),
+            description: Set(None),
+            version: Set(None),
+            retention_seconds: Set(None),
+            cdc_table_id: Set(None),
+            vnode_count: Set(1),
+            webhook_info: Set(None),
+            engine: Set(None),
+            clean_watermark_index_in_pk: Set(None),
+            clean_watermark_indices: Set(None),
+            refreshable: Set(false),
+            vector_index_info: Set(None),
+            cdc_table_type: Set(None),
+        }
+        .insert(txn)
+        .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_database_func() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+        let pb_database = PbDatabase {
+            name: "db1".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            ..Default::default()
+        };
+        mgr.create_database(pb_database).await?;
+
+        let database_id: DatabaseId = Database::find()
+            .select_only()
+            .column(database::Column::DatabaseId)
+            .filter(database::Column::Name.eq("db1"))
+            .into_tuple()
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+
+        mgr.alter_name(ObjectType::Database, database_id, "db2")
+            .await?;
+        let database = Database::find_by_id(database_id)
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+        assert_eq!(database.name, "db2");
+
+        mgr.drop_object(ObjectType::Database, database_id, DropMode::Cascade)
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_schema_func() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+        let pb_schema = PbSchema {
+            database_id: TEST_DATABASE_ID,
+            name: "schema1".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            ..Default::default()
+        };
+        mgr.create_schema(pb_schema.clone()).await?;
+        assert!(mgr.create_schema(pb_schema).await.is_err());
+
+        let schema_id: SchemaId = Schema::find()
+            .select_only()
+            .column(schema::Column::SchemaId)
+            .filter(schema::Column::Name.eq("schema1"))
+            .into_tuple()
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+
+        mgr.alter_name(ObjectType::Schema, schema_id, "schema2")
+            .await?;
+        let schema = Schema::find_by_id(schema_id)
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+        assert_eq!(schema.name, "schema2");
+        mgr.drop_object(ObjectType::Schema, schema_id, DropMode::Restrict)
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_view() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+        let pb_view = PbView {
+            schema_id: TEST_SCHEMA_ID,
+            database_id: TEST_DATABASE_ID,
+            name: "view".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            sql: "CREATE VIEW view AS SELECT 1".to_owned(),
+            ..Default::default()
+        };
+        mgr.create_view(pb_view.clone(), HashSet::new()).await?;
+        assert!(mgr.create_view(pb_view, HashSet::new()).await.is_err());
+
+        let view = View::find().one(&mgr.inner.read().await.db).await?.unwrap();
+        mgr.drop_object(ObjectType::View, view.view_id, DropMode::Cascade)
+            .await?;
+        assert!(
+            View::find_by_id(view.view_id)
+                .one(&mgr.inner.read().await.db)
+                .await?
+                .is_none()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_create_function() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+        let test_data_type = risingwave_pb::data::DataType {
+            type_name: risingwave_pb::data::data_type::TypeName::Int32 as _,
+            ..Default::default()
+        };
+        let arg_types = vec![test_data_type.clone()];
+        let pb_function = PbFunction {
+            schema_id: TEST_SCHEMA_ID,
+            database_id: TEST_DATABASE_ID,
+            name: "test_function".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            arg_types,
+            return_type: Some(test_data_type.clone()),
+            language: "python".to_owned(),
+            kind: Some(risingwave_pb::catalog::function::Kind::Scalar(
+                Default::default(),
+            )),
+            ..Default::default()
+        };
+        mgr.create_function(pb_function.clone()).await?;
+        assert!(mgr.create_function(pb_function).await.is_err());
+
+        let function = Function::find()
+            .inner_join(Object)
+            .filter(
+                object::Column::DatabaseId
+                    .eq(TEST_DATABASE_ID)
+                    .and(object::Column::SchemaId.eq(TEST_SCHEMA_ID))
+                    .add(function::Column::Name.eq("test_function")),
+            )
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+        assert_eq!(function.return_type.to_protobuf(), test_data_type);
+        assert_eq!(function.arg_types.to_protobuf().len(), 1);
+        assert_eq!(function.language, "python");
+
+        mgr.drop_object(
+            ObjectType::Function,
+            function.function_id,
+            DropMode::Restrict,
+        )
+        .await?;
+        assert!(
+            Object::find_by_id(function.function_id)
+                .one(&mgr.inner.read().await.db)
+                .await?
+                .is_none()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_alter_relation_rename() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+        let pb_source = PbSource {
+            schema_id: TEST_SCHEMA_ID,
+            database_id: TEST_DATABASE_ID,
+            name: "s1".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            definition: r#"CREATE SOURCE s1 (v1 int) with (
+  connector = 'kafka',
+  topic = 'kafka_alter',
+  properties.bootstrap.server = 'message_queue:29092',
+  scan.startup.mode = 'earliest'
+) FORMAT PLAIN ENCODE JSON"#
+                .to_owned(),
+            info: Some(StreamSourceInfo {
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        mgr.create_source(pb_source).await?;
+        let source_id: SourceId = Source::find()
+            .select_only()
+            .column(source::Column::SourceId)
+            .filter(source::Column::Name.eq("s1"))
+            .into_tuple()
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+
+        let pb_view = PbView {
+            schema_id: TEST_SCHEMA_ID,
+            database_id: TEST_DATABASE_ID,
+            name: "view_1".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            sql: "CREATE VIEW view_1 AS SELECT v1 FROM s1".to_owned(),
+            ..Default::default()
+        };
+        mgr.create_view(pb_view, HashSet::from([source_id.as_object_id()]))
+            .await?;
+        let view_id: ViewId = View::find()
+            .select_only()
+            .column(view::Column::ViewId)
+            .filter(view::Column::Name.eq("view_1"))
+            .into_tuple()
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+
+        mgr.alter_name(ObjectType::Source, source_id, "s2").await?;
+        let source = Source::find_by_id(source_id)
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+        assert_eq!(source.name, "s2");
+        assert_eq!(
+            source.definition,
+            "CREATE SOURCE s2 (v1 INT) WITH (\
+  connector = 'kafka', \
+  topic = 'kafka_alter', \
+  properties.bootstrap.server = 'message_queue:29092', \
+  scan.startup.mode = 'earliest'\
+) FORMAT PLAIN ENCODE JSON"
+        );
+
+        let view = View::find_by_id(view_id)
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+        assert_eq!(
+            view.definition,
+            "CREATE VIEW view_1 AS SELECT v1 FROM s2 AS s1"
+        );
+
+        mgr.drop_object(ObjectType::Source, source_id, DropMode::Cascade)
+            .await?;
+        assert!(
+            View::find_by_id(view_id)
+                .one(&mgr.inner.read().await.db)
+                .await?
+                .is_none()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_abort_initial_materialized_view_reports_cancellation() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+
+        let mut inner = mgr.inner.write().await;
+        let txn = inner.db.begin().await?;
+        let obj = CatalogController::create_object(
+            &txn,
+            ObjectType::Table,
+            TEST_OWNER_ID,
+            Some(TEST_DATABASE_ID),
+            Some(TEST_SCHEMA_ID),
+        )
+        .await?;
+        let job_id = obj.oid.as_job_id();
+
+        table::ActiveModel {
+            table_id: Set(obj.oid.as_table_id()),
+            name: Set("mv_abort_initial".to_owned()),
+            optional_associated_source_id: Set(None),
+            table_type: Set(TableType::MaterializedView),
+            belongs_to_job_id: Set(None),
+            columns: Set(vec![].into()),
+            pk: Set(vec![].into()),
+            distribution_key: Set(Vec::<i32>::new().into()),
+            stream_key: Set(Vec::<i32>::new().into()),
+            append_only: Set(false),
+            fragment_id: Set(None),
+            vnode_col_index: Set(None),
+            row_id_index: Set(None),
+            value_indices: Set(Vec::<i32>::new().into()),
+            definition: Set("CREATE MATERIALIZED VIEW mv_abort_initial AS SELECT 1".to_owned()),
+            handle_pk_conflict_behavior: Set(HandleConflictBehavior::NoCheck),
+            version_column_indices: Set(None),
+            read_prefix_len_hint: Set(0),
+            watermark_indices: Set(Vec::<i32>::new().into()),
+            dist_key_in_pk: Set(Vec::<i32>::new().into()),
+            dml_fragment_id: Set(None),
+            cardinality: Set(None),
+            cleaned_by_watermark: Set(false),
+            description: Set(None),
+            version: Set(None),
+            retention_seconds: Set(None),
+            cdc_table_id: Set(None),
+            vnode_count: Set(1),
+            webhook_info: Set(None),
+            engine: Set(None),
+            clean_watermark_index_in_pk: Set(None),
+            clean_watermark_indices: Set(None),
+            refreshable: Set(false),
+            vector_index_info: Set(None),
+            cdc_table_type: Set(None),
+        }
+        .insert(&txn)
+        .await?;
+
+        streaming_job::ActiveModel {
+            job_id: Set(job_id),
+            job_status: Set(JobStatus::Initial),
+            create_type: Set(CreateType::Foreground),
+            timezone: Set(None),
+            config_override: Set(None),
+            adaptive_parallelism_strategy: Set(None),
+            parallelism: Set(StreamingParallelism::Adaptive),
+            backfill_parallelism: Set(None),
+            backfill_adaptive_parallelism_strategy: Set(None),
+            backfill_orders: Set(None),
+            max_parallelism: Set(1),
+            specific_resource_group: Set(None),
+            is_serverless_backfill: Set(false),
+        }
+        .insert(&txn)
+        .await?;
+
+        let (tx, rx) = oneshot::channel();
+        inner.register_finish_notifier(TEST_DATABASE_ID, job_id, tx);
+        txn.commit().await?;
+        drop(inner);
+
+        let abort_result = mgr.try_abort_creating_streaming_job(job_id, true).await?;
+        assert!(abort_result.aborted);
+        assert_eq!(abort_result.database_id, Some(TEST_DATABASE_ID));
+
+        let err = rx
+            .await
+            .expect("finish notifier should be notified")
+            .expect_err("initial job drop should cancel the create wait");
+        assert!(err.contains("cancelled"));
+
+        let db = &mgr.inner.read().await.db;
+        assert!(Object::find_by_id(job_id).one(db).await?.is_none());
+        assert!(StreamingJob::find_by_id(job_id).one(db).await?.is_none());
+        assert!(
+            Table::find_by_id(job_id.as_mv_table_id())
+                .one(db)
+                .await?
+                .is_none()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_clean_dirty_creating_jobs_records_dropped_tables_for_per_db_recovery()
+    -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+
+        let inner = mgr.inner.write().await;
+        let txn = inner.db.begin().await?;
+        let mv_obj = CatalogController::create_object(
+            &txn,
+            ObjectType::Table,
+            TEST_OWNER_ID,
+            Some(TEST_DATABASE_ID),
+            Some(TEST_SCHEMA_ID),
+        )
+        .await?;
+        let job_id = mv_obj.oid.as_job_id();
+        let mv_table_id = job_id.as_mv_table_id();
+        insert_test_table(
+            &txn,
+            mv_table_id,
+            "mv_dirty",
+            TableType::MaterializedView,
+            None,
+            "CREATE MATERIALIZED VIEW mv_dirty AS SELECT 1",
+        )
+        .await?;
+
+        let internal_obj = CatalogController::create_object(
+            &txn,
+            ObjectType::Table,
+            TEST_OWNER_ID,
+            Some(TEST_DATABASE_ID),
+            Some(TEST_SCHEMA_ID),
+        )
+        .await?;
+        let internal_table_id = internal_obj.oid.as_table_id();
+        insert_test_table(
+            &txn,
+            internal_table_id,
+            "__internal_mv_dirty",
+            TableType::Internal,
+            Some(job_id),
+            "",
+        )
+        .await?;
+
+        streaming_job::ActiveModel {
+            job_id: Set(job_id),
+            job_status: Set(JobStatus::Creating),
+            create_type: Set(CreateType::Foreground),
+            timezone: Set(None),
+            config_override: Set(None),
+            adaptive_parallelism_strategy: Set(None),
+            parallelism: Set(StreamingParallelism::Adaptive),
+            backfill_parallelism: Set(None),
+            backfill_adaptive_parallelism_strategy: Set(None),
+            backfill_orders: Set(None),
+            max_parallelism: Set(1),
+            specific_resource_group: Set(None),
+            is_serverless_backfill: Set(false),
+        }
+        .insert(&txn)
+        .await?;
+        txn.commit().await?;
+        drop(inner);
+
+        let cleaned = mgr
+            .clean_dirty_creating_jobs(Some(TEST_DATABASE_ID))
+            .await?;
+        assert_eq!(cleaned.streaming_job_ids, vec![job_id]);
+        assert!(cleaned.source_ids.is_empty());
+        let mut dropped_table_ids = cleaned.dropped_table_ids;
+        dropped_table_ids.sort_unstable();
+        assert_eq!(dropped_table_ids, vec![mv_table_id, internal_table_id]);
+
+        let inner = mgr.inner.read().await;
+        assert!(inner.dropped_tables.contains_key(&mv_table_id));
+        assert!(inner.dropped_tables.contains_key(&internal_table_id));
+        assert!(Object::find_by_id(job_id).one(&inner.db).await?.is_none());
+        assert!(
+            StreamingJob::find_by_id(job_id)
+                .one(&inner.db)
+                .await?
+                .is_none()
+        );
+        assert!(
+            Table::find_by_id(mv_table_id)
+                .one(&inner.db)
+                .await?
+                .is_none()
+        );
+        assert!(
+            Table::find_by_id(internal_table_id)
+                .one(&inner.db)
+                .await?
+                .is_none()
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_abort_creating_subscription_commits_delete() -> MetaResult<()> {
+        let mgr = CatalogController::new(MetaSrvEnv::for_test().await).await?;
+        let pb_view = PbView {
+            schema_id: TEST_SCHEMA_ID,
+            database_id: TEST_DATABASE_ID,
+            name: "subscription_dep_view".to_owned(),
+            owner: TEST_OWNER_ID as _,
+            sql: "CREATE VIEW subscription_dep_view AS SELECT 1".to_owned(),
+            ..Default::default()
+        };
+        mgr.create_view(pb_view, HashSet::new()).await?;
+
+        let view_id: ViewId = View::find()
+            .select_only()
+            .column(view::Column::ViewId)
+            .filter(view::Column::Name.eq("subscription_dep_view"))
+            .into_tuple()
+            .one(&mgr.inner.read().await.db)
+            .await?
+            .unwrap();
+
+        let mut pb_subscription = PbSubscription {
+            name: "subscription_to_abort".to_owned(),
+            definition: "CREATE SUBSCRIPTION subscription_to_abort FROM subscription_dep_view"
+                .to_owned(),
+            retention_seconds: 86400,
+            database_id: TEST_DATABASE_ID,
+            schema_id: TEST_SCHEMA_ID,
+            dependent_table_id: view_id.as_object_id().as_table_id(),
+            owner: TEST_OWNER_ID as _,
+            subscription_state: SubscriptionState::Init as _,
+            ..Default::default()
+        };
+        mgr.create_subscription_catalog(&mut pb_subscription)
+            .await?;
+
+        mgr.try_abort_creating_subscription(pb_subscription.id)
+            .await?;
+
+        assert!(
+            Subscription::find_by_id(pb_subscription.id)
+                .one(&mgr.inner.read().await.db)
+                .await?
+                .is_none()
+        );
+
+        Ok(())
+    }
+}

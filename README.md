@@ -25,6 +25,54 @@ Nexora 2.0 introduces a complete architectural evolution with **event-first desi
 
 ---
 
+## 🔄 What's New in Nexora 2.1?
+
+Nexora 2.1 introduces **optional RisingWave integration** for advanced SQL-based stream processing.
+
+### Dual Event Processing Paths
+
+**Path A - Simple** (default, always available):
+```
+Kafka → nexora-stream → EventLogStore → Graph
+```
+
+**Path B - Advanced** (optional with `--features risingwave`):
+```
+Kafka → RisingWave SQL MV → EventLogStore → Graph
+         ↑ Complex SQL transformations, joins, aggregations
+```
+
+### When to Use RisingWave
+
+Use RisingWave integration when you need:
+- ✅ Complex SQL transformations (JOINs, window functions, aggregations)
+- ✅ Multi-stream temporal joins
+- ✅ Real-time data enrichment before graph ingestion
+- ✅ Existing SQL expertise in your team
+
+Use the direct path when:
+- ✅ Simple event-to-graph mapping
+- ✅ Memory-constrained environment (<2GB available)
+- ✅ Sub-10ms latency requirement
+- ✅ No SQL transformation needed
+
+### RisingWave Quick Start
+
+```bash
+# Build with RisingWave support
+cargo build --release --features event-first,risingwave
+
+# Run with RisingWave enabled
+cargo run --release --features event-first,risingwave -- \
+  --enable-risingwave \
+  --risingwave-meta-addr 127.0.0.1:5690 \
+  --risingwave-frontend-addr 127.0.0.1:4566
+```
+
+See [RisingWave Integration Plan](docs/RISINGWAVE_INTEGRATION_PLAN.md) for complete documentation.
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -142,7 +190,12 @@ nexora2/
 │   ├── nexora-storage/       # S3/MinIO integration (NEW)
 │   ├── nexora-pgwire/        # PostgreSQL wire protocol
 │   ├── nexora-app/           # HTTP API server
-│   └── nexora-bench/         # Performance benchmarks
+│   ├── nexora-bench/         # Performance benchmarks
+│   ├── nexora-risingwave/    # RisingWave integration (v2.1)
+│   ├── nexora-consensus/     # Raft abstraction layer (v2.1)
+│   └── nexora-rpc/           # gRPC communication (v2.1)
+├── extensions/
+│   └── meta_raft/            # RisingWave Raft HA (v2.1)
 ├── docs/                     # Documentation
 │   ├── architecture/         # Design documents
 │   ├── production-planning/  # Roadmap & production readiness

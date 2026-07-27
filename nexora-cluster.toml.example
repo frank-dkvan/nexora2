@@ -1,0 +1,67 @@
+# Nexora 2.0 配置文件 - 事件流集群模式
+# Phase 8: 3 节点 HA 配置示例
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[graph]
+num_shards = 256
+max_nodes_per_shard = 10000
+
+[storage]
+backend = "rocksdb"
+rocksdb_path = "./nexora-data"
+
+# 事件流（Event Streams）分布式集群配置
+[event_streams]
+enabled = true
+embedded = true
+cluster_mode = true  # 启用 3 节点 HA 模式
+
+# 数据目录
+data_dir = "./nexora-data/event-streams-cluster"
+
+# 启动/关闭超时
+startup_timeout_secs = 90
+shutdown_timeout_secs = 30
+
+# Meta 节点配置（3 节点 Raft 集群）
+[[event_streams.meta_nodes]]
+node_id = 1
+listen_addr = "127.0.0.1:5690"
+advertise_addr = "127.0.0.1:5690"
+dashboard_addr = "127.0.0.1:5691"
+
+[[event_streams.meta_nodes]]
+node_id = 2
+listen_addr = "127.0.0.1:5692"
+advertise_addr = "127.0.0.1:5692"
+dashboard_addr = "127.0.0.1:5693"
+
+[[event_streams.meta_nodes]]
+node_id = 3
+listen_addr = "127.0.0.1:5694"
+advertise_addr = "127.0.0.1:5694"
+dashboard_addr = "127.0.0.1:5695"
+
+# Frontend 节点配置（连接到 Meta 集群）
+# frontend_addr 字段在集群模式下定义 Frontend 监听地址
+frontend_addr = "127.0.0.1:4566"
+
+# Compute 节点配置
+[[event_streams.compute_nodes]]
+listen_addr = "127.0.0.1:5688"
+parallelism = 4
+
+# 可选：添加更多 Compute 节点实现水平扩展
+# [[event_streams.compute_nodes]]
+# listen_addr = "127.0.0.1:5689"
+# parallelism = 4
+
+[logging]
+level = "info"
+format = "pretty"
+
+[metrics]
+enabled = true

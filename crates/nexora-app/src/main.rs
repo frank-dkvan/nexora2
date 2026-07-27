@@ -8,6 +8,7 @@
 mod auth;
 mod compat;
 mod config;
+mod config_loader;
 mod drain;
 mod error;
 mod handlers;
@@ -28,6 +29,7 @@ use axum::{
     Router,
 };
 
+use anyhow::Context;
 use clap::Parser;
 use handlers::{publish_sq_event, AppConfig, AppState};
 use nexora_core::{GraphService, GraphServiceConfig, InMemoryPersistor};
@@ -138,6 +140,10 @@ impl nexora_zenoh::OntologyApplier for AppOntologyApplier {
 #[derive(Parser, Debug)]
 #[command(name = "nexora-app", version, about)]
 struct Cli {
+    /// Path to configuration file (default: ./nexora.toml)
+    #[arg(long)]
+    config: Option<PathBuf>,
+
     /// HTTP listen address. Defaults to loopback so a bare run is not exposed
     /// to the network; pass --host 0.0.0.0 to expose it (containers already do).
     #[arg(long, default_value = "127.0.0.1")]
@@ -382,37 +388,48 @@ struct Cli {
     ws_url: Option<String>,
 
     // ============================================================
-    // RisingWave integration (opt-in)
+    // Event Streams integration (opt-in, SQL-based stream processing)
     // ============================================================
-    /// Enable RisingWave integration (requires --features risingwave)
+    /// Enable SQL-based event stream processing (requires --features risingwave)
     #[cfg(feature = "risingwave")]
     #[arg(long)]
-    enable_risingwave: bool,
+    enable_event_streams: bool,
 
-    /// RisingWave Meta node address (e.g., "127.0.0.1:5690")
-    #[cfg(feature = "risingwave")]
-    #[arg(long, requires = "enable_risingwave")]
-    risingwave_meta_addr: Option<String>,
+    /// Run event stream engine as embedded subprocess
+    #[cfg(all(feature = "risingwave", feature = "embedded"))]
+    #[arg(long, requires = "enable_event_streams")]
+    embedded_event_streams: bool,
 
-    /// RisingWave Frontend node address (e.g., "127.0.0.1:4566")
+    /// Event streams Meta node address (e.g., "127.0.0.1:5690")
     #[cfg(feature = "risingwave")]
-    #[arg(long, requires = "enable_risingwave")]
-    risingwave_frontend_addr: Option<String>,
+    #[arg(long, requires = "enable_event_streams")]
+    event_streams_meta_addr: Option<String>,
 
-    /// Enable RisingWave Meta HA with Raft
+    /// Event streams Frontend node address (e.g., "127.0.0.1:4566")
     #[cfg(feature = "risingwave")]
-    #[arg(long, requires = "enable_risingwave")]
-    risingwave_ha: bool,
+    #[arg(long, requires = "enable_event_streams")]
+    event_streams_frontend_addr: Option<String>,
 
-    /// RisingWave Raft node ID (for HA mode)
+    /// Enable event streams Meta HA with Raft
     #[cfg(feature = "risingwave")]
-    #[arg(long, requires = "risingwave_ha")]
-    risingwave_raft_node_id: Option<u64>,
+    #[arg(long, requires = "enable_event_streams")]
+    event_streams_ha: bool,
 
-    /// RisingWave Raft peer node IDs (e.g., "2,3" for a 3-node cluster)
+    /// Enable event streams cluster mode (3-node HA)
+    #[cfg(all(feature = "risingwave", feature = "embedded"))]
+    #[arg(long, requires = "embedded_event_streams")]
+    event_streams_cluster: bool,
+
+
+    /// Event streams Raft node ID (for HA mode)
     #[cfg(feature = "risingwave")]
-    #[arg(long, requires = "risingwave_ha", value_delimiter = ',')]
-    risingwave_raft_peers: Vec<u64>,
+    #[arg(long, requires = "event_streams_ha")]
+    event_streams_raft_node_id: Option<u64>,
+
+    /// Event streams Raft peer node IDs (e.g., "2,3" for a 3-node cluster)
+    #[cfg(feature = "risingwave")]
+    #[arg(long, requires = "event_streams_ha", value_delimiter = ',')]
+    event_streams_raft_peers: Vec<u64>,
 
     // ============================================================
     // Kinesis
@@ -729,6 +746,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🚀 Starting DeepStreaming...");
     tracing::info!("   Mode:   {mode}");
     tracing::info!("   Build:  {}", env!("CARGO_PKG_VERSION"));
+
+    // Load configuration file (optional)
+    let config_file = config_loader::load_config(cli.config.as_deref())
+        .context("Failed to load configuration file")?;
 
     // Graph configuration
     let graph_config = GraphServiceConfig {
@@ -1721,72 +1742,258 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ============================================================
-    // RisingWave integration (opt-in via --enable-risingwave)
+    // Event Streams integration (opt-in via --enable-event-streams)
     // ============================================================
     #[cfg(feature = "risingwave")]
-    let risingwave_module: Option<Arc<nexora_risingwave::RisingWaveModule>> = if cli
-        .enable_risingwave
-    {
-        let meta_addr = cli.risingwave_meta_addr.clone().unwrap_or_else(|| {
-            tracing::warn!("No --risingwave-meta-addr provided, using default 127.0.0.1:5690");
-            "127.0.0.1:5690".to_string()
-        });
-        let frontend_addr = cli.risingwave_frontend_addr.clone().unwrap_or_else(|| {
-            tracing::warn!("No --risingwave-frontend-addr provided, using default 127.0.0.1:4566");
-            "127.0.0.1:4566".to_string()
-        });
+    let (risingwave_module, embedded_risingwave, distributed_risingwave): (
+        Option<Arc<nexora_risingwave::RisingWaveModule>>,
+        Option<nexora_risingwave::EmbeddedRisingWave>,
+        Option<nexora_risingwave::DistributedEmbeddedRisingWave>,
+    ) = {
+        // Merge config file and CLI args (CLI takes precedence)
+        let rw_config = config_file.event_streams.as_ref();
+        let enabled = cli.enable_event_streams || rw_config.map_or(false, |c| c.enabled);
 
-        let meta_socket: std::net::SocketAddr = meta_addr.parse().map_err(|e| {
-            anyhow::anyhow!("Invalid --risingwave-meta-addr '{}': {}", meta_addr, e)
-        })?;
-        let frontend_socket: std::net::SocketAddr = frontend_addr.parse().map_err(|e| {
-            anyhow::anyhow!(
-                "Invalid --risingwave-frontend-addr '{}': {}",
-                frontend_addr,
-                e
-            )
-        })?;
+        if enabled {
+            // Phase 8: Check for cluster mode first
+            #[cfg(feature = "embedded")]
+            let cluster_mode = cli.event_streams_cluster
+                || rw_config.map_or(false, |c| c.cluster_mode);
 
-        let mut config = nexora_risingwave::RisingWaveConfig::new()
-            .with_meta_addr(meta_socket)
-            .with_frontend_addr(frontend_socket);
+            #[cfg(not(feature = "embedded"))]
+            let cluster_mode = false;
 
-        // Enable HA mode with Raft if requested
-        if cli.risingwave_ha {
-            let node_id = cli.risingwave_raft_node_id.unwrap_or_else(|| {
-                tracing::warn!("No --risingwave-raft-node-id provided, using default 1");
-                1
-            });
-            let peers: Vec<(u64, String)> = cli
-                .risingwave_raft_peers
-                .iter()
-                .map(|&peer_id| (peer_id, format!("node-{}:5690", peer_id)))
-                .collect();
-            config = config.with_ha(true).with_raft_peers(peers);
-            tracing::info!(
-                "   RisingWave: HA enabled (Raft node_id={}, peers={:?})",
-                node_id,
-                cli.risingwave_raft_peers
-            );
-        }
+            if cluster_mode {
+                // Phase 8: Distributed embedded mode (3-node HA)
+                #[cfg(feature = "embedded")]
+                {
+                    tracing::info!("   Event Streams: starting distributed cluster (3 nodes)...");
 
-        match nexora_risingwave::RisingWaveModule::start(config).await {
-            Ok(module) => {
-                tracing::info!(
-                    "   RisingWave: started (meta={}, frontend={})",
-                    meta_addr,
-                    frontend_addr
-                );
-                Some(Arc::new(module))
+                    let data_dir = rw_config
+                        .and_then(|c| Some(std::path::PathBuf::from(&c.data_dir)))
+                        .unwrap_or_else(|| cli.rocksdb_path.join("risingwave-cluster"));
+
+                    let binary_path = rw_config
+                        .and_then(|c| c.binary_path.as_ref().map(std::path::PathBuf::from));
+
+                    let startup_timeout = rw_config.map_or(60, |c| c.startup_timeout_secs);
+                    let shutdown_timeout = rw_config.map_or(30, |c| c.shutdown_timeout_secs);
+
+                    // Build distributed config from TOML or defaults
+                    let dist_config = if let Some(rw) = rw_config {
+                        if let Some(meta_nodes_cfg) = &rw.meta_nodes {
+                            // Use custom config from TOML
+                            let meta_nodes = meta_nodes_cfg.iter().map(|m| {
+                                nexora_risingwave::MetaNodeConfig {
+                                    node_id: m.node_id,
+                                    listen_addr: m.listen_addr.clone(),
+                                    advertise_addr: m.advertise_addr.clone(),
+                                    dashboard_addr: m.dashboard_addr.clone(),
+                                }
+                            }).collect();
+
+                            let frontend = nexora_risingwave::FrontendNodeConfig {
+                                listen_addr: rw.frontend_addr.clone(),
+                            };
+
+                            let compute_nodes = if let Some(compute_cfg) = &rw.compute_nodes {
+                                compute_cfg.iter().map(|c| {
+                                    nexora_risingwave::ComputeNodeConfig {
+                                        listen_addr: c.listen_addr.clone(),
+                                        parallelism: c.parallelism,
+                                    }
+                                }).collect()
+                            } else {
+                                vec![nexora_risingwave::ComputeNodeConfig {
+                                    listen_addr: "127.0.0.1:5688".to_string(),
+                                    parallelism: num_cpus::get(),
+                                }]
+                            };
+
+                            nexora_risingwave::DistributedConfig {
+                                binary_path: binary_path.clone(),
+                                data_dir: data_dir.clone(),
+                                meta_nodes,
+                                frontend,
+                                compute_nodes,
+                                startup_timeout_secs: startup_timeout,
+                                shutdown_timeout_secs: shutdown_timeout,
+                            }
+                        } else {
+                            // Use defaults
+                            let mut cfg = nexora_risingwave::DistributedConfig::default();
+                            cfg.binary_path = binary_path.clone();
+                            cfg.data_dir = data_dir.clone();
+                            cfg.startup_timeout_secs = startup_timeout;
+                            cfg.shutdown_timeout_secs = shutdown_timeout;
+                            cfg
+                        }
+                    } else {
+                        // No config file, use defaults
+                        let mut cfg = nexora_risingwave::DistributedConfig::default();
+                        cfg.binary_path = binary_path;
+                        cfg.data_dir = data_dir;
+                        cfg
+                    };
+
+                    match nexora_risingwave::DistributedEmbeddedRisingWave::start(dist_config).await {
+                        Ok(instance) => {
+                            tracing::info!("   Event Streams: distributed cluster started");
+                            (None, None, Some(instance))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to start distributed event streams cluster: {}", e);
+                            anyhow::bail!("Distributed event streams initialization failed: {}", e);
+                        }
+                    }
+                }
+                #[cfg(not(feature = "embedded"))]
+                {
+                    tracing::error!("Cluster mode requires 'embedded' feature");
+                    anyhow::bail!("Cluster mode not available without embedded feature");
+                }
+            } else {
+                // Phase 7.5: Embedded RisingWave support (single node)
+                #[cfg(feature = "embedded")]
+                let embedded_instance = {
+                    let use_embedded = cli.embedded_event_streams
+                        || rw_config.map_or(false, |c| c.embedded);
+
+                    if use_embedded {
+                        tracing::info!("   Event Streams: starting embedded process...");
+
+                        // CLI args override config file
+                        let meta_addr = cli.event_streams_meta_addr.clone()
+                            .or_else(|| rw_config.and_then(|c| Some(c.meta_addr.clone())))
+                            .unwrap_or_else(|| "127.0.0.1:5690".to_string());
+                        let frontend_addr = cli.event_streams_frontend_addr.clone()
+                            .or_else(|| rw_config.and_then(|c| Some(c.frontend_addr.clone())))
+                            .unwrap_or_else(|| "127.0.0.1:4566".to_string());
+
+                        let data_dir = rw_config
+                            .and_then(|c| Some(std::path::PathBuf::from(&c.data_dir)))
+                            .unwrap_or_else(|| cli.rocksdb_path.join("risingwave"));
+
+                        let binary_path = rw_config
+                            .and_then(|c| c.binary_path.as_ref().map(std::path::PathBuf::from));
+
+                        let startup_timeout = rw_config
+                            .map_or(60, |c| c.startup_timeout_secs);
+                        let shutdown_timeout = rw_config
+                            .map_or(30, |c| c.shutdown_timeout_secs);
+
+                        let parallelism = rw_config
+                            .and_then(|c| c.parallelism)
+                            .unwrap_or_else(num_cpus::get);
+
+                        let embedded_config = nexora_risingwave::EmbeddedConfig {
+                            binary_path,
+                            data_dir,
+                            meta: nexora_risingwave::MetaConfig {
+                                listen_addr: meta_addr.clone(),
+                                backend: nexora_risingwave::MetaBackend::Memory,
+                            },
+                            frontend: nexora_risingwave::FrontendConfig {
+                                listen_addr: frontend_addr.clone(),
+                            },
+                            compute: nexora_risingwave::ComputeConfig {
+                                parallelism,
+                            },
+                            startup_timeout_secs: startup_timeout,
+                            shutdown_timeout_secs: shutdown_timeout,
+                        };
+
+                        match nexora_risingwave::EmbeddedRisingWave::start(embedded_config).await {
+                            Ok(instance) => {
+                                tracing::info!("   Event Streams: embedded process started (PID: {})", instance.pid());
+                                Some(instance)
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to start embedded event streams: {}", e);
+                                anyhow::bail!("Embedded event streams initialization failed: {}", e);
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                };
+
+                #[cfg(not(feature = "embedded"))]
+                let embedded_instance: Option<nexora_risingwave::EmbeddedRisingWave> = None;
+
+                let meta_addr = cli.event_streams_meta_addr.clone()
+                    .or_else(|| rw_config.map(|c| c.meta_addr.clone()))
+                    .unwrap_or_else(|| {
+                        tracing::warn!("No --event-streams-meta-addr provided, using default 127.0.0.1:5690");
+                        "127.0.0.1:5690".to_string()
+                    });
+                let frontend_addr = cli.event_streams_frontend_addr.clone()
+                    .or_else(|| rw_config.map(|c| c.frontend_addr.clone()))
+                    .unwrap_or_else(|| {
+                        tracing::warn!("No --event-streams-frontend-addr provided, using default 127.0.0.1:4566");
+                        "127.0.0.1:4566".to_string()
+                    });
+
+                let meta_socket: std::net::SocketAddr = meta_addr.parse().map_err(|e| {
+                    anyhow::anyhow!("Invalid --event-streams-meta-addr '{}': {}", meta_addr, e)
+                })?;
+                let frontend_socket: std::net::SocketAddr = frontend_addr.parse().map_err(|e| {
+                    anyhow::anyhow!(
+                        "Invalid --event-streams-frontend-addr '{}': {}",
+                        frontend_addr,
+                        e
+                    )
+                })?;
+
+                let mut config = nexora_risingwave::RisingWaveConfig::new()
+                    .with_meta_addr(meta_socket)
+                    .with_frontend_addr(frontend_socket);
+
+                // Enable HA mode with Raft if requested
+                if cli.event_streams_ha {
+                    let node_id = cli.event_streams_raft_node_id.unwrap_or_else(|| {
+                        tracing::warn!("No --event-streams-raft-node-id provided, using default 1");
+                        1
+                    });
+                    let peers: Vec<(u64, String)> = cli
+                        .event_streams_raft_peers
+                        .iter()
+                        .map(|&peer_id| (peer_id, format!("node-{}:5690", peer_id)))
+                        .collect();
+                    config = config.with_ha(true).with_raft_peers(peers);
+                    tracing::info!(
+                        "   Event Streams: HA enabled (Raft node_id={}, peers={:?})",
+                        node_id,
+                        cli.event_streams_raft_peers
+                    );
+                }
+
+                match nexora_risingwave::RisingWaveModule::start(config).await {
+                    Ok(module) => {
+                        tracing::info!(
+                            "   RisingWave: started (meta={}, frontend={})",
+                            meta_addr,
+                            frontend_addr
+                        );
+                        (Some(Arc::new(module)), embedded_instance, None)
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start RisingWave module: {}", e);
+                        anyhow::bail!("RisingWave initialization failed: {}", e);
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!("Failed to start RisingWave module: {}", e);
-                anyhow::bail!("RisingWave initialization failed: {}", e);
-            }
+        } else {
+            (None, None, None)
         }
-    } else {
-        None
     };
+
+    #[cfg(not(feature = "risingwave"))]
+    let (risingwave_module, embedded_risingwave, distributed_risingwave): (
+        Option<Arc<nexora_risingwave::RisingWaveModule>>,
+        Option<nexora_risingwave::EmbeddedRisingWave>,
+        Option<nexora_risingwave::DistributedEmbeddedRisingWave>,
+    ) = (None, None, None);
 
     let state = AppState {
         graph: graph.clone(),
@@ -1842,7 +2049,9 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(64),
         )),
         #[cfg(feature = "risingwave")]
-        risingwave: risingwave_module,
+        risingwave: risingwave_module.as_ref().map(|m| m.clone()),
+        #[cfg(all(feature = "risingwave", feature = "embedded"))]
+        distributed_risingwave: distributed_risingwave.map(Arc::new),
     };
 
     // ============================================================
@@ -2346,6 +2555,46 @@ async fn main() -> anyhow::Result<()> {
             }),
         );
 
+    // Phase 7.5: RisingWave health check endpoint
+    #[cfg(feature = "risingwave")]
+    let public_routes = {
+        #[cfg(feature = "embedded")]
+        let embedded_state = embedded_risingwave.as_ref().map(|e| {
+            serde_json::json!({
+                "embedded": true,
+                "pid": e.pid(),
+                "state": format!("{:?}", e.state()),
+            })
+        });
+
+        #[cfg(not(feature = "embedded"))]
+        let embedded_state: Option<serde_json::Value> = None;
+
+        let rw_module = risingwave_module.as_ref().map(|m| m.clone());
+        public_routes.route(
+            "/api/health/risingwave",
+            get(move || {
+                let module = rw_module.clone();
+                let embedded = embedded_state.clone();
+                async move {
+                    let status = if module.is_some() {
+                        serde_json::json!({
+                            "enabled": true,
+                            "connected": true,
+                            "embedded_info": embedded,
+                        })
+                    } else {
+                        serde_json::json!({
+                            "enabled": false,
+                            "connected": false,
+                        })
+                    };
+                    axum::Json(status)
+                }
+            }),
+        )
+    };
+
     let admin_routes = Router::new()
         // Auth token generation (admin only - prevents arbitrary token generation)
         .route("/api/auth/token", post(handlers::generate_token))
@@ -2544,6 +2793,12 @@ async fn main() -> anyhow::Result<()> {
             "/api/risingwave/status",
             get(handlers::risingwave::get_status),
         );
+
+    #[cfg(all(feature = "risingwave", feature = "embedded"))]
+    let operator_routes = operator_routes.route(
+        "/api/risingwave/cluster",
+        get(handlers::risingwave::get_cluster_status),
+    );
 
     let mut app = Router::new().merge(public_routes);
 
@@ -2824,6 +3079,17 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref rh) = raft_handler {
         rh.shutdown();
         tracing::info!("Raft handler shut down");
+    }
+
+    // Shutdown embedded RisingWave if active
+    #[cfg(all(feature = "risingwave", feature = "embedded"))]
+    if let Some(embedded) = embedded_risingwave {
+        tracing::info!("Shutting down embedded RisingWave...");
+        if let Err(e) = embedded.shutdown().await {
+            tracing::error!("Failed to shutdown embedded RisingWave: {}", e);
+        } else {
+            tracing::info!("Embedded RisingWave shut down");
+        }
     }
 
     tracing::info!("🛑 DeepStreaming shutdown complete");

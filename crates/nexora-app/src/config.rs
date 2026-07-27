@@ -66,6 +66,10 @@ pub struct AppTomlConfig {
 
     #[serde(default)]
     pub metrics: MetricsConfig,
+
+    #[cfg(feature = "risingwave")]
+    #[serde(default)]
+    pub event_streams: Option<EventStreamsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,6 +220,84 @@ pub struct MetricsConfig {
     pub enabled: bool,
 }
 
+#[cfg(feature = "risingwave")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename = "event_streams")]
+pub struct EventStreamsConfig {
+    /// Enable SQL-based event stream processing
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Enable embedded mode (starts event stream engine as subprocess)
+    #[cfg(feature = "embedded")]
+    #[serde(default)]
+    pub embedded: bool,
+
+    /// Enable cluster mode (3-node HA with Raft)
+    #[cfg(feature = "embedded")]
+    #[serde(default)]
+    pub cluster_mode: bool,
+
+    /// Meta node address (default: 127.0.0.1:5690)
+    #[serde(default = "default_event_streams_meta_addr")]
+    pub meta_addr: String,
+
+    /// Frontend node address (default: 127.0.0.1:4566)
+    #[serde(default = "default_event_streams_frontend_addr")]
+    pub frontend_addr: String,
+
+    /// Path to event stream engine binary (for embedded mode)
+    #[cfg(feature = "embedded")]
+    #[serde(default)]
+    pub binary_path: Option<String>,
+
+    /// Data directory (for embedded mode)
+    #[cfg(feature = "embedded")]
+    #[serde(default = "default_event_streams_data_dir")]
+    pub data_dir: String,
+
+    /// Startup timeout in seconds (for embedded mode)
+    #[cfg(feature = "embedded")]
+    #[serde(default = "default_event_streams_startup_timeout")]
+    pub startup_timeout_secs: u64,
+
+    /// Shutdown timeout in seconds (for embedded mode)
+    #[cfg(feature = "embedded")]
+    #[serde(default = "default_event_streams_shutdown_timeout")]
+    pub shutdown_timeout_secs: u64,
+
+    /// Compute node parallelism (for embedded mode, default: CPU cores)
+    #[cfg(feature = "embedded")]
+    #[serde(default)]
+    pub parallelism: Option<usize>,
+
+    /// Meta nodes configuration (for cluster mode)
+    #[cfg(feature = "embedded")]
+    #[serde(default)]
+    pub meta_nodes: Option<Vec<MetaNodeTomlConfig>>,
+
+    /// Compute nodes configuration (for cluster mode)
+    #[cfg(feature = "embedded")]
+    #[serde(default)]
+    pub compute_nodes: Option<Vec<ComputeNodeTomlConfig>>,
+}
+
+#[cfg(all(feature = "risingwave", feature = "embedded"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetaNodeTomlConfig {
+    pub node_id: u32,
+    pub listen_addr: String,
+    pub advertise_addr: String,
+    pub dashboard_addr: String,
+}
+
+#[cfg(all(feature = "risingwave", feature = "embedded"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputeNodeTomlConfig {
+    pub listen_addr: String,
+    pub parallelism: usize,
+}
+
 // ---- Default values ----
 
 fn default_host() -> String {
@@ -277,6 +359,27 @@ fn default_log_format() -> String {
 }
 fn default_true() -> bool {
     true
+}
+
+#[cfg(feature = "risingwave")]
+fn default_event_streams_meta_addr() -> String {
+    "127.0.0.1:5690".into()
+}
+#[cfg(feature = "risingwave")]
+fn default_event_streams_frontend_addr() -> String {
+    "127.0.0.1:4566".into()
+}
+#[cfg(all(feature = "risingwave", feature = "embedded"))]
+fn default_event_streams_data_dir() -> String {
+    "./nexora-data/event-streams".into()
+}
+#[cfg(all(feature = "risingwave", feature = "embedded"))]
+fn default_event_streams_startup_timeout() -> u64 {
+    60
+}
+#[cfg(all(feature = "risingwave", feature = "embedded"))]
+fn default_event_streams_shutdown_timeout() -> u64 {
+    30
 }
 
 impl Default for ServerConfig {

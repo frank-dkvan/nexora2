@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(coverage_attribute)]
-#![feature(iterator_try_collect)]
+// #![feature(coverage_attribute)]
+// #![feature(iterator_try_collect)]
 
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -41,7 +41,8 @@ fn produce(ast: &DeriveInput) -> Result<TokenStream2> {
 
     // Is it a struct?
     let struct_get = if let syn::Data::Struct(DataStruct { ref fields, .. }) = ast.data {
-        let generated: Vec<_> = fields.iter().map(generate::implement).try_collect()?;
+        let generated: std::result::Result<Vec<_>, _> = fields.iter().map(generate::implement).collect();
+        let generated = generated?;
         quote! {
             impl #name {
                 #(#generated)*

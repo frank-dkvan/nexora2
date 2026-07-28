@@ -20,10 +20,10 @@
 //! The crate is also re-exported in `risingwave_common::error` for easy
 //! access if `risingwave_common` is already a dependency.
 
-#![feature(error_generic_member_access)]
-#![feature(register_tool)]
-#![register_tool(rw)]
-#![feature(trait_alias)]
+// #![feature(error_generic_member_access)]
+// #![feature(register_tool)]
+// #![register_tool(rw)]
+// #![feature(trait_alias)]
 
 pub mod anyhow;
 pub mod code;
@@ -37,12 +37,16 @@ pub use thiserror_ext;
 pub use thiserror_ext::*;
 
 /// An error type that is [`Send`], [`Sync`], and `'static`.
-pub trait Error = std::error::Error + Send + Sync + 'static;
+/// Changed from trait alias to regular trait for stable Rust compatibility
+pub trait Error: std::error::Error + Send + Sync + 'static {}
+impl<T: std::error::Error + Send + Sync + 'static> Error for T {}
 
 /// A boxed error type that is [`Send`], [`Sync`], and `'static`.
 pub type BoxedError = Box<dyn Error>;
 
 /// Request a copiable value from the error, trying both `request_value` and `request_ref`.
-pub fn error_request_copy<T: Copy + 'static>(err: &(impl std::error::Error + ?Sized)) -> Option<T> {
-    std::error::request_value(err).or_else(|| std::error::request_ref(err).copied())
+pub fn error_request_copy<T: Copy + 'static>(_err: &(impl std::error::Error + ?Sized)) -> Option<T> {
+    // std::error::request_value(err).or_else(|| std::error::request_ref(err).copied())
+    // Disabled: requires nightly feature error_generic_member_access
+    None
 }

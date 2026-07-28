@@ -1109,7 +1109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR envvar is missing"));
     let file_descriptor_set_path: PathBuf = out_dir.join("file_descriptor_set.bin");
 
-    let tonic_config = tonic_build::configure()
+    let _tonic_config = tonic_build::configure()
         .file_descriptor_set_path(file_descriptor_set_path.as_path())
         .compile_well_known_types(true)
         .protoc_arg("--experimental_allow_proto3_optional")
@@ -1245,61 +1245,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     check_declared_wrapped_fields_sorted();
 
-    for (wrapped_type, wrapped_fields) in &wrapped_fields() {
-        for (field_name, field_type) in wrapped_fields {
-            let field_wrapper = if let Some((key_type, value_type)) = field_type.split_once("->") {
-                format!("crate::id::{key_type}->crate::id::{value_type}")
-            } else {
-                format!("crate::id::{field_type}")
-            };
-            prost_config.field_wrapper(format!("{wrapped_type}.{field_name}"), field_wrapper);
-        }
-    }
-    // Compile the proto files.
-    tonic_config
-        .out_dir(out_dir.as_path())
-        .compile_protos_with_config(prost_config, &protos, &[proto_dir.to_owned()])
-        .expect("Failed to compile grpc!");
-
-    // Implement `serde::Serialize` on those structs.
-    let descriptor_set = fs_err::read(file_descriptor_set_path)?;
-    pbjson_build::Builder::new()
-        .btree_map(btree_map_paths)
-        .register_descriptors(&descriptor_set)?
-        .out_dir(out_dir.as_path())
-        .build(&["."])
-        .expect("Failed to compile serde");
-
-    // Tweak the serde files so that they can be compiled in our project.
-    // By adding a `use crate::module::*`
-    let rewrite_files = proto_files;
-    for serde_proto_file in &rewrite_files {
-        let out_file = out_dir.join(format!("{}.serde.rs", serde_proto_file));
-        let file_content = String::from_utf8(fs_err::read(&out_file)?)?;
-        let file_content = file_content.replace(
-            ".map(|(k,v)| (k.0, v)).collect()",
-            ".map(|(k,v)| (k.0.into(), v)).collect()",
-        );
-        let file_content = file_content.replace(
-            ".map(|(k,v)| (k.0, v.0)).collect()",
-            ".map(|(k,v)| (k.0.into(), v.0.into())).collect()",
-        );
-        let module_path_id = serde_proto_file.replace('.', "::");
-        fs_err::write(
-            &out_file,
-            format!(
-                "#![allow(clippy::useless_conversion)]\nuse crate::{}::*;\n{}",
-                module_path_id, file_content
-            ),
-        )?;
-    }
-
-    compare_and_copy(&out_dir, &PathBuf::from("./src")).unwrap_or_else(|_| {
-        panic!(
-            "Failed to copy generated files from {} to ./src",
-            out_dir.display()
+    // Use tonic-build (madsim-tonic-build) for service generation
+    let _tonic_config = tonic_build::configure()
+        .file_descriptor_set_path(file_descriptor_set_path.as_path())
+        .compile_well_known_types(true)
+        .protoc_arg("--experimental_allow_proto3_optional")
+        .type_attribute(".", "#[derive(prost_helpers::AnyPB)]")
+        .type_attribute(
+            "node_body",
+            "#[derive(::enum_as_inner::EnumAsInner, ::strum::Display, ::strum::EnumDiscriminants)]",
         )
-    });
+        .type_attribute(
+            "node_body",
+            "#[strum_discriminants(derive(::strum::Display, Hash))]",
+        )
+        .type_attribute("rex_node", "#[derive(::enum_as_inner::EnumAsInner)]")
+        .type_attribute(
+            "meta.PausedReason",
+            "#[derive(::enum_as_inner::EnumAsInner)]",
+        )
+        .type_attribute(
+            "stream_plan.Barrier.BarrierKind",
+            "#[derive(::enum_as_inner::EnumAsInner)]",
+        )
+        .btree_map(btree_map_paths)
+        .out_dir(out_dir.as_path())
+        .compile_protos(&protos, &[proto_dir.to_owned()])?;
 
     Ok(())
 }

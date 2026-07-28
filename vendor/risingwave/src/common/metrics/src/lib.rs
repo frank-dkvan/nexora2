@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(type_alias_impl_trait)]
-#![feature(impl_trait_in_assoc_type)]
-#![feature(trait_alias)]
+// #![feature(type_alias_impl_trait)]
+// #![feature(impl_trait_in_assoc_type)]
+// #![feature(trait_alias)]
 
 use std::ops::Deref;
 use std::sync::LazyLock;

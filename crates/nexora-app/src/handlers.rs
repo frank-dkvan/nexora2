@@ -12,6 +12,8 @@ pub mod ontology;
 pub mod query_mgmt;
 #[cfg(feature = "event-streaming")]
 pub mod event_streaming;
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+pub mod distributed_cluster;
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
@@ -200,6 +202,13 @@ pub struct AppState {
     /// Distributed event streaming engine cluster instance (Phase 8, optional)
     #[cfg(all(feature = "event-streaming", feature = "embedded"))]
     pub distributed_event_streaming: Option<Arc<nexora_risingwave::DistributedEmbeddedEventStreaming>>,
+    /// Distributed library mode cluster (Phase 2)
+    #[cfg(all(feature = "event-streaming", feature = "library"))]
+    pub distributed_library: Option<Arc<(
+        nexora_risingwave::DistributedMetaCluster,
+        nexora_risingwave::DistributedFrontendPool,
+        nexora_risingwave::DistributedComputeCluster,
+    )>>,
 }
 
 impl AppState {

@@ -4,9 +4,9 @@
 //! runs one Meta node in-process, and they coordinate via Raft for catalog
 //! consistency.
 
-use crate::distributed_library_config::{DistributedLibraryConfig, MetaBackend};
+use crate::distributed_library_config::DistributedLibraryConfig;
 use crate::error::{EventStreamingError, Result};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -30,21 +30,19 @@ pub enum MetaClusterState {
 /// internal Raft coordination or use openraft for external election.
 #[derive(Debug)]
 pub struct RaftState {
-    current_term: AtomicU64,
+    current_term: std::sync::atomic::AtomicU64,
     voted_for: RwLock<Option<String>>,
-    commit_index: AtomicU64,
-    last_applied: AtomicU64,
+    commit_index: std::sync::atomic::AtomicU64,
+    last_applied: std::sync::atomic::AtomicU64,
 }
-
-use std::sync::atomic::AtomicU64;
 
 impl RaftState {
     fn new() -> Self {
         Self {
-            current_term: AtomicU64::new(1),
+            current_term: std::sync::atomic::AtomicU64::new(1),
             voted_for: RwLock::new(None),
-            commit_index: AtomicU64::new(0),
-            last_applied: AtomicU64::new(0),
+            commit_index: std::sync::atomic::AtomicU64::new(0),
+            last_applied: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -84,6 +82,7 @@ impl RaftState {
 ///
 /// ```rust,no_run
 /// use nexora_risingwave::{DistributedMetaCluster, DistributedLibraryConfig};
+/// use std::time::Duration;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let config = DistributedLibraryConfig::test_3node_memory("meta-1", 5690);
@@ -246,12 +245,25 @@ impl DistributedMetaCluster {
 
     /// Convert string node ID to numeric Raft ID.
     ///
-    /// Uses a simple hash for now; production should use stable mapping.
+    /// Maps node IDs to small sequential numbers suitable for port allocation.
+    /// The Raft client constructs ports as `5690 + raft_node_id`, so IDs must be < 60000.
     fn node_id_to_raft_id(node_id: &str) -> u64 {
-        // Simple hash: sum of byte values modulo large prime
-        node_id
-            .bytes()
-            .fold(0u64, |acc, b| (acc.wrapping_mul(31).wrapping_add(b as u64)) % 1_000_000_007)
+        // For standard test node IDs, use sequential mapping
+        match node_id {
+            "meta-1" => 1,
+            "meta-2" => 2,
+            "meta-3" => 3,
+            "node-1" => 1,
+            "node-2" => 2,
+            "node-3" => 3,
+            // For other IDs, hash to a small range (0-999)
+            _ => {
+                let hash = node_id
+                    .bytes()
+                    .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+                (hash % 1000) + 1
+            }
+        }
     }
 
     /// Check if this node is currently the Raft leader.

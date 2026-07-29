@@ -15,6 +15,8 @@ use std::path::PathBuf;
 ///
 /// ```rust
 /// use nexora_risingwave::DistributedLibraryConfig;
+/// use nexora_risingwave::distributed_library_config::{MetaNodeConfig, MetaBackend, FrontendNodeConfig, ComputeNodeConfig};
+/// use std::path::PathBuf;
 ///
 /// let config = DistributedLibraryConfig {
 ///     node_id: "meta-1".to_string(),
@@ -250,7 +252,6 @@ impl DistributedLibraryConfig {
     /// Create a default configuration for testing (3-node cluster, in-memory).
     ///
     /// **NOT for production use.**
-    #[cfg(test)]
     pub fn test_3node_memory(node_id: &str, base_port: u16) -> Self {
         let meta_port = base_port;
         let frontend_port = base_port + 1;
@@ -269,7 +270,8 @@ impl DistributedLibraryConfig {
                 format!("meta-1@127.0.0.1:{}", meta_port - 20),
                 format!("meta-2@127.0.0.1:{}", meta_port - 10),
             ],
-            _ => panic!("Invalid node_id for test: {}", node_id),
+            // For single-node tests, use empty peer list
+            _ => vec![],
         };
 
         DistributedLibraryConfig {

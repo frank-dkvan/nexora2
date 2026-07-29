@@ -9975,6 +9975,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "extensions-meta-raft",
  "nexora-consensus",
  "nexora-core",
  "nexora-eventlog",

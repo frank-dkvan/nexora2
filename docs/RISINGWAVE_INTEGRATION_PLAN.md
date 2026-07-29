@@ -611,37 +611,48 @@ vim nexora.toml
 
 ## Success Criteria
 
-### Phase 1-2 Success
-- [ ] RisingWave v3.0.2 added as Git Subtree
+### Phase 1: Library Mode (Complete ✅)
+- [x] RisingWave compiles as Rust library without C++ dependencies
+- [x] EmbeddedLibrary can start Meta+Frontend+Compute in-process
+- [x] Basic DDL execution (CREATE SOURCE, CREATE MV)
+- [x] nexora-app integration with --features library
+- [x] All existing tests still pass
+
+### Phase 2: Distributed Library Mode (Complete ✅)
+- [x] Multi-node cluster configuration via TOML
+- [x] Raft-based Meta cluster with leader election
+- [x] Frontend pool with health checks and load balancing
+- [x] Compute cluster with heartbeat and fragment scheduling
+- [x] HTTP endpoints for cluster status and node listing
+- [x] Integration tests covering all cluster components
+- [x] nexora-app startup with distributed library cluster
+
+### Phase 3-4: Raft HA Extension (Pending ⏳)
 - [ ] `nexora-consensus` and `nexora-rpc` crates functional
-- [ ] All existing tests still pass
-
-### Phase 3-4 Success
-- [ ] `nexora-risingwave` wrapper can start Meta+Frontend
 - [ ] 3-node Raft HA cluster works without external dependencies
-- [ ] Can execute basic DDL (CREATE SOURCE, CREATE MV)
+- [ ] Minimal patches (<100 lines total) to RisingWave
 
-### Phase 5-6 Success
-- [ ] RisingWave integrated into `nexora-app` via feature flag
+### Phase 5-6: Event Pipeline (Pending ⏳)
 - [ ] Events flow: Kafka → RisingWave → EventLog → Graph
+- [ ] EventLogSink implementation
 - [ ] End-to-end test passes
 
 ### Overall Success
-- [ ] Build without `--features event-streaming`: All existing features work
-- [ ] Build with `--features event-streaming`: Advanced SQL processing available
+- [x] Build without `--features event-streaming`: All existing features work
+- [x] Build with `--features library`: In-process RisingWave available
 - [ ] Performance: <10% overhead for non-RisingWave code paths
-- [ ] Documentation: README updated with RisingWave usage examples
+- [x] Documentation: Configuration examples and HTTP API reference
 
 ## Timeline
 
-| Week | Phase | Deliverables |
-|------|-------|-------------|
-| 1 | Repository Setup | Git Subtree, scripts, Cargo config |
-| 2 | Shared Infrastructure | nexora-consensus, nexora-rpc |
-| 3 | RisingWave Wrapper | nexora-risingwave crate |
-| 4 | Raft HA Extension | extensions/meta_raft, patches |
-| 5 | App Integration | HTTP endpoints, feature gate |
-| 6 | Event Pipeline | EventLogSink, E2E test |
+| Week | Phase | Deliverables | Status |
+|------|-------|-------------|--------|
+| 1 | Repository Setup | Git Subtree, scripts, Cargo config | ✅ Complete |
+| 2 | Library Mode (Phase 1) | Stable Rust compilation of RisingWave | ✅ Complete |
+| 3 | Distributed Library (Phase 2) | Multi-node in-process cluster | ✅ Complete |
+| 4 | Shared Infrastructure | nexora-consensus, nexora-rpc | ⏳ Pending |
+| 5 | Raft HA Extension | extensions/meta_raft, patches | ⏳ Pending |
+| 6 | Event Pipeline | EventLogSink, E2E test | ⏳ Pending |
 
 ## Next Steps
 

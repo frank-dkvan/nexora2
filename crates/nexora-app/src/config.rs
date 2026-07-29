@@ -280,6 +280,11 @@ pub struct EventStreamingConfig {
     #[cfg(feature = "embedded")]
     #[serde(default)]
     pub compute_nodes: Option<Vec<ComputeNodeTomlConfig>>,
+
+    /// Distributed library mode configuration (Phase 2)
+    #[cfg(feature = "library")]
+    #[serde(default)]
+    pub distributed: Option<DistributedLibraryTomlConfig>,
 }
 
 #[cfg(all(feature = "event-streaming", feature = "embedded"))]
@@ -296,6 +301,89 @@ pub struct MetaNodeTomlConfig {
 pub struct ComputeNodeTomlConfig {
     pub listen_addr: String,
     pub parallelism: usize,
+}
+
+/// Distributed library mode configuration (Phase 2)
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributedLibraryTomlConfig {
+    /// Enable distributed library mode
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Node ID (e.g., "meta-1", "meta-2", "meta-3")
+    pub node_id: String,
+
+    /// Meta node configuration
+    pub meta: MetaNodeLibraryConfig,
+
+    /// Frontend node configuration
+    #[serde(default)]
+    pub frontend: Option<FrontendNodeLibraryConfig>,
+
+    /// Compute node configuration
+    #[serde(default)]
+    pub compute: Option<ComputeNodeLibraryConfig>,
+
+    /// Data directory for persistent storage
+    #[serde(default = "default_distributed_data_dir")]
+    pub data_dir: String,
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetaNodeLibraryConfig {
+    /// Address to bind Meta service (e.g., "0.0.0.0:5690")
+    pub listen_addr: String,
+
+    /// Address other nodes use to reach this Meta node (e.g., "node1.local:5690")
+    pub advertise_addr: String,
+
+    /// Peer Meta nodes for Raft cluster (format: "node_id@advertise_addr")
+    #[serde(default)]
+    pub raft_peers: Vec<String>,
+
+    /// Meta backend storage type ("etcd", "sqlite", or "memory")
+    #[serde(default = "default_meta_backend")]
+    pub backend: String,
+
+    /// Etcd endpoints (only for "etcd" backend)
+    #[serde(default)]
+    pub etcd_endpoints: Option<Vec<String>>,
+
+    /// SQLite path (only for "sqlite" backend)
+    #[serde(default)]
+    pub sqlite_path: Option<String>,
+
+    /// Raft election timeout in milliseconds (default: 3000)
+    #[serde(default = "default_election_timeout")]
+    pub election_timeout_ms: u64,
+
+    /// Raft heartbeat interval in milliseconds (default: 1000)
+    #[serde(default = "default_heartbeat_interval")]
+    pub heartbeat_interval_ms: u64,
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendNodeLibraryConfig {
+    /// Address to bind PostgreSQL wire protocol listener
+    pub listen_addr: String,
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputeNodeLibraryConfig {
+    /// Address to bind Compute service
+    pub listen_addr: String,
+
+    /// Number of parallel workers (default: CPU cores)
+    #[serde(default)]
+    pub parallelism: Option<usize>,
+
+    /// Internal RPC address (default: use listen_addr)
+    #[serde(default)]
+    pub internal_rpc_addr: Option<String>,
 }
 
 // ---- Default values ----
@@ -380,6 +468,23 @@ fn default_event_streaming_startup_timeout() -> u64 {
 #[cfg(all(feature = "event-streaming", feature = "embedded"))]
 fn default_event_streaming_shutdown_timeout() -> u64 {
     30
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_distributed_data_dir() -> String {
+    "./nexora-data/event-streaming-distributed".into()
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_meta_backend() -> String {
+    "sqlite".into()
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_election_timeout() -> u64 {
+    3000
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_heartbeat_interval() -> u64 {
+    1000
 }
 
 impl Default for ServerConfig {

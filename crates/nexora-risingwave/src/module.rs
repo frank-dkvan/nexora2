@@ -4,7 +4,7 @@ use crate::config::EventStreamingConfig;
 use crate::error::Result;
 use crate::event_sink::ColumnValue;
 use crate::event_streaming_trait::EventStreamingOperations;
-use crate::frontend_wrapper::FrontendNode;
+use crate::frontend_wrapper::FrontendWrapper;
 use crate::meta_wrapper::MetaNode;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -37,7 +37,7 @@ use tracing::info;
 /// ```
 pub struct EventStreamingModule {
     meta: Arc<MetaNode>,
-    frontend: Arc<FrontendNode>,
+    frontend: Arc<FrontendWrapper>,
     config: EventStreamingConfig,
 }
 
@@ -67,7 +67,7 @@ impl EventStreamingModule {
         let meta = Arc::new(MetaNode::new(config.meta_addr));
         meta.start().await?;
 
-        let frontend = Arc::new(FrontendNode::new(config.frontend_addr, config.meta_addr));
+        let frontend = Arc::new(FrontendWrapper::new(config.frontend_addr, config.meta_addr));
         frontend.start().await?;
 
         // Phase 4: Will also start Compute node if configured

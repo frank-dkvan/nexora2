@@ -11,6 +11,9 @@ nexora-rpc = { path = "../nexora-rpc" }
 nexora-eventlog = { path = "../nexora-eventlog", optional = true }
 nexora-core = { path = "../nexora-core", optional = true }
 
+# Extensions for distributed library mode
+extensions-meta-raft = { path = "../../extensions/meta_raft", optional = true }
+
 # RisingWave library integration (Phase 8 - embedded library mode)
 risingwave_cmd_all = { path = "../../vendor/risingwave/src/cmd_all", optional = true }
 risingwave_common = { path = "../../vendor/risingwave/src/common", optional = true }
@@ -62,7 +65,8 @@ library = [
     "risingwave_compute",
     "risingwave_variables",
     "rustls",
-    "clap"
+    "clap",
+    "extensions-meta-raft"
 ]
 
 [dev-dependencies]

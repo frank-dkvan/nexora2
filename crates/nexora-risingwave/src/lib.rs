@@ -79,6 +79,12 @@ pub mod distributed_library_config;
 #[cfg(feature = "library")]
 pub mod distributed_library_meta;
 
+#[cfg(feature = "library")]
+pub mod distributed_library_frontend;
+
+#[cfg(feature = "library")]
+pub mod distributed_library_compute;
+
 // Phase 7: Embedded RisingWave (process-based)
 #[cfg(feature = "embedded")]
 pub mod embedded_process;
@@ -113,6 +119,50 @@ pub use distributed_library_config::{
 
 #[cfg(feature = "library")]
 pub use distributed_library_meta::{DistributedMetaCluster, MetaClusterState, RaftState};
+
+#[cfg(feature = "library")]
+pub use distributed_library_frontend::{DistributedFrontendPool, FrontendNode, FrontendHealth};
+
+#[cfg(feature = "library")]
+pub use distributed_library_compute::{
+    DistributedComputeCluster, ComputeNode, ComputeHealth,
+    FragmentAssignment, FragmentScheduler,
+};
+
+// Re-export simplified names for nexora-app
+#[cfg(feature = "library")]
+pub use distributed_library_config::{
+    MetaNodeConfig,
+    FrontendNodeConfig,
+    ComputeNodeConfig,
+    MetaBackend,
+};
+
+/// Start a distributed library mode cluster.
+///
+/// Returns (Meta cluster, Frontend pool, Compute cluster).
+#[cfg(feature = "library")]
+pub async fn start_distributed_library_cluster(
+    config: DistributedLibraryConfig,
+) -> Result<(DistributedMetaCluster, DistributedFrontendPool, DistributedComputeCluster)> {
+    use std::sync::Arc;
+
+    // Start Meta cluster
+    let meta = DistributedMetaCluster::start(config.clone()).await?;
+
+    // Start Frontend pool
+    let frontend = DistributedFrontendPool::new(config.clone()).await?;
+
+    // Start Compute cluster
+    let compute = Arc::new(DistributedComputeCluster::new(config).await?);
+    compute.register_compute_node().await?;
+
+    // Start background tasks
+    let _frontend_health = frontend.start_health_check();
+    let _compute_heartbeat = compute.start_heartbeat();
+
+    Ok((meta, frontend, Arc::try_unwrap(compute).unwrap_or_else(|arc| (*arc).clone())))
+}
 
 #[cfg(feature = "embedded")]
 pub use embedded_process::{

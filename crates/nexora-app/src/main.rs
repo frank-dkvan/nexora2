@@ -2108,6 +2108,124 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
     let library_event_streaming_client: Option<()> = None;
 
+    // ============================================================
+    // Distributed library mode: multi-node in-process cluster
+    // ============================================================
+    #[cfg(all(feature = "event-streaming", feature = "library"))]
+    let distributed_library_cluster: Option<
+        Arc<(
+            nexora_risingwave::DistributedMetaCluster,
+            nexora_risingwave::DistributedFrontendPool,
+            nexora_risingwave::DistributedComputeCluster,
+        )>,
+    > = {
+        if let Some(ref rw_config) = config_file.event_streaming {
+            if let Some(ref dist_config) = rw_config.distributed {
+                if dist_config.enabled {
+                    tracing::info!(
+                        "   Event Streaming: starting distributed library mode (node_id={})",
+                        dist_config.node_id
+                    );
+
+                    use nexora_risingwave::{
+                        DistributedLibraryConfig, MetaNodeConfig, FrontendNodeConfig,
+                        ComputeNodeConfig, MetaBackend,
+                    };
+                    use std::path::PathBuf;
+
+                    // Parse backend configuration
+                    let backend = match dist_config.meta.backend.as_str() {
+                        "etcd" => {
+                            let endpoints = dist_config
+                                .meta
+                                .etcd_endpoints
+                                .clone()
+                                .ok_or_else(|| anyhow::anyhow!("etcd backend requires etcd_endpoints"))?;
+                            MetaBackend::Etcd { endpoints }
+                        }
+                        "sqlite" => {
+                            let path = dist_config
+                                .meta
+                                .sqlite_path
+                                .as_ref()
+                                .map(PathBuf::from)
+                                .unwrap_or_else(|| PathBuf::from(format!("./nexora-data/meta-{}.db", dist_config.node_id)));
+                            MetaBackend::Sqlite { path }
+                        }
+                        "memory" => MetaBackend::Memory,
+                        other => anyhow::bail!("Unknown meta backend: {}", other),
+                    };
+
+                    let meta_listen: std::net::SocketAddr = dist_config.meta.listen_addr.parse()?;
+
+                    let frontend_config = dist_config
+                        .frontend
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("distributed mode requires frontend configuration"))?;
+                    let frontend_listen: std::net::SocketAddr = frontend_config.listen_addr.parse()?;
+
+                    let compute_config = dist_config
+                        .compute
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("distributed mode requires compute configuration"))?;
+                    let compute_listen: std::net::SocketAddr = compute_config.listen_addr.parse()?;
+                    let compute_internal_rpc: Option<std::net::SocketAddr> = compute_config
+                        .internal_rpc_addr
+                        .as_ref()
+                        .map(|s| s.parse())
+                        .transpose()?;
+
+                    let lib_dist_config = DistributedLibraryConfig {
+                        node_id: dist_config.node_id.clone(),
+                        meta: MetaNodeConfig {
+                            listen_addr: meta_listen,
+                            advertise_addr: dist_config.meta.advertise_addr.clone(),
+                            raft_peers: dist_config.meta.raft_peers.clone(),
+                            backend,
+                            election_timeout_ms: dist_config.meta.election_timeout_ms,
+                            heartbeat_interval_ms: dist_config.meta.heartbeat_interval_ms,
+                        },
+                        frontend: FrontendNodeConfig {
+                            listen_addr: frontend_listen,
+                        },
+                        compute: ComputeNodeConfig {
+                            listen_addr: compute_listen,
+                            parallelism: compute_config.parallelism,
+                            internal_rpc_addr: compute_internal_rpc,
+                        },
+                        data_dir: PathBuf::from(&dist_config.data_dir),
+                    };
+
+                    // Validate configuration
+                    lib_dist_config.validate().map_err(|e| {
+                        anyhow::anyhow!("Invalid distributed library configuration: {}", e)
+                    })?;
+
+                    // Start cluster components
+                    match nexora_risingwave::start_distributed_library_cluster(lib_dist_config).await {
+                        Ok((meta, frontend, compute)) => {
+                            tracing::info!("   Event Streaming: distributed library cluster started");
+                            Some(Arc::new((meta, frontend, compute)))
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to start distributed library cluster: {}", e);
+                            anyhow::bail!("Distributed library cluster initialization failed: {}", e);
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    #[cfg(not(all(feature = "event-streaming", feature = "library")))]
+    let distributed_library_cluster: Option<()> = None;
+
     let state = AppState {
         graph: graph.clone(),
         sq_manager: sq_manager.clone(),
@@ -2166,6 +2284,8 @@ async fn main() -> anyhow::Result<()> {
             .or_else(|| event_streaming_module.as_ref().map(|m| m.clone() as Arc<dyn nexora_risingwave::EventStreamingOperations>)),
         #[cfg(all(feature = "event-streaming", feature = "embedded"))]
         distributed_event_streaming: distributed_event_streaming.map(Arc::new),
+        #[cfg(all(feature = "event-streaming", feature = "library"))]
+        distributed_library: distributed_library_cluster,
     };
 
     // ============================================================
@@ -2913,6 +3033,17 @@ async fn main() -> anyhow::Result<()> {
         "/api/event-streaming/cluster",
         get(handlers::event_streaming::get_cluster_status),
     );
+
+    #[cfg(all(feature = "event-streaming", feature = "library"))]
+    let operator_routes = operator_routes
+        .route(
+            "/api/event-streaming/cluster/status",
+            get(handlers::distributed_cluster::get_cluster_status),
+        )
+        .route(
+            "/api/event-streaming/cluster/nodes",
+            get(handlers::distributed_cluster::list_cluster_nodes),
+        );
 
     let mut app = Router::new().merge(public_routes);
 

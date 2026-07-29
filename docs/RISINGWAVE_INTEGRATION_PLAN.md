@@ -634,24 +634,31 @@ vim nexora.toml
 
 ### Phase 4: Event Pipeline (In Progress 🚀)
 
-**Architecture Decision**: Use RisingWave as unified Iceberg REST catalog (Option 1)
+**Architecture Decision**: Use external Lakekeeper as Iceberg REST catalog (Option 2 - REQUIRED)
+
+**Critical Finding**: RisingWave does NOT provide an Iceberg REST catalog HTTP endpoint. All RisingWave e2e tests use external Lakekeeper at port 8181.
 
 **Tasks**:
-- [ ] Task 1: Locate REST catalog endpoint (1 hour)
-- [ ] Task 2: Validate Iceberg REST spec compliance (2 hours)
-- [ ] Task 3: Integrate nexora-eventlog with RisingWave catalog (3 hours)
-- [ ] Task 4: End-to-end pipeline test: Kafka → RisingWave → Graph (4 hours)
-- [ ] Task 5: Documentation updates (2 hours)
+- [x] Task 1: Investigate REST catalog endpoint (1.5 hours) - **COMPLETED**
+- [x] Architecture decision revised based on findings
+- [ ] Task 2: Deploy Lakekeeper stack (PostgreSQL + Lakekeeper + MinIO) (3 hours)
+- [ ] Task 3: Integrate nexora-eventlog with Lakekeeper (3 hours)
+- [ ] Task 4: Configure RisingWave sink to Lakekeeper (2 hours)
+- [ ] Task 5: End-to-end pipeline test: Kafka → RisingWave → Lakekeeper → Graph (4 hours)
+- [ ] Task 6: Documentation updates (2 hours)
 
-**Total Estimated Time**: 12 hours (~1.5 days)
+**Total Estimated Time**: 15.5 hours (~2 days)
 
 **Key Discoveries**:
 1. RisingWave has built-in Iceberg sink at `vendor/risingwave/src/connector/src/sink/iceberg/`
-2. RisingWave Meta **hosts its own Iceberg REST catalog** (no Lakekeeper needed)
-3. Single catalog server for both nexora-eventlog and RisingWave sinks
-4. Architecture simplified from 6 services to 4 services (-33%)
+2. RisingWave Meta manages Iceberg table metadata internally (compaction, maintenance)
+3. RisingWave connects TO external REST catalogs (does not provide one)
+4. HostedIcebergCatalogService is gRPC for internal ops, not HTTP REST catalog
+5. External Lakekeeper is REQUIRED (6 services total, cannot reduce)
 
-**Reference**: [Phase 4 Architecture Decision](PHASE4_ARCHITECTURE_DECISION.md)
+**Reference**: 
+- [Phase 4 Architecture Decision](PHASE4_ARCHITECTURE_DECISION.md)
+- [Task 1 Findings](PHASE4_TASK1_FINDINGS.md)
 
 ### Overall Success
 - [x] Build without `--features event-streaming`: All existing features work

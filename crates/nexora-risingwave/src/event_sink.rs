@@ -6,8 +6,8 @@
 
 use crate::error::Result;
 #[cfg(feature = "event-first")]
-use crate::error::RisingWaveError;
-use crate::module::RisingWaveModule;
+use crate::error::EventStreamingError;
+use crate::module::EventStreamingModule;
 use serde_json::json;
 use std::sync::Arc;
 #[cfg(feature = "event-first")]
@@ -78,7 +78,7 @@ pub struct EventLogSink {
     #[cfg(feature = "event-first")]
     event_store: Arc<nexora_eventlog::EventLogStore>,
     #[allow(dead_code)]
-    risingwave: Arc<RisingWaveModule>,
+    risingwave: Arc<EventStreamingModule>,
 }
 
 impl EventLogSink {
@@ -91,7 +91,7 @@ impl EventLogSink {
     #[cfg(feature = "event-first")]
     pub fn new(
         event_store: Arc<nexora_eventlog::EventLogStore>,
-        risingwave: Arc<RisingWaveModule>,
+        risingwave: Arc<EventStreamingModule>,
     ) -> Self {
         Self {
             event_store,
@@ -166,7 +166,7 @@ impl EventLogSink {
             Change::Insert(row) => {
                 let event = self.row_to_event(row)?;
                 self.event_store.append(topic, event).await.map_err(|e| {
-                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
+                    EventStreamingError::Internal(format!("EventLogStore append failed: {}", e))
                 })?;
                 debug!("Inserted event into topic: {}", topic);
             }
@@ -175,7 +175,7 @@ impl EventLogSink {
                 // (EventLogStore is append-only, so we don't delete the old state)
                 let event = self.row_to_event(new)?;
                 self.event_store.append(topic, event).await.map_err(|e| {
-                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
+                    EventStreamingError::Internal(format!("EventLogStore append failed: {}", e))
                 })?;
                 debug!("Updated event in topic: {}", topic);
             }
@@ -194,7 +194,7 @@ impl EventLogSink {
                     );
                 }
                 self.event_store.append(topic, event).await.map_err(|e| {
-                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
+                    EventStreamingError::Internal(format!("EventLogStore append failed: {}", e))
                 })?;
                 debug!("Deleted event from topic: {}", topic);
             }
@@ -271,11 +271,11 @@ mod tests {
                         .await
                         .unwrap(),
                 );
-                let config = crate::config::RisingWaveConfig::new()
+                let config = crate::config::EventStreamingConfig::new()
                     .with_meta_addr("127.0.0.1:15690".parse().unwrap())
                     .with_frontend_addr("127.0.0.1:14566".parse().unwrap());
                 let rw = Arc::new(
-                    crate::module::RisingWaveModule::start(config)
+                    crate::module::EventStreamingModule::start(config)
                         .await
                         .unwrap(),
                 );

@@ -3,7 +3,7 @@
 //! Phase 3: Simplified implementation with placeholder logic.
 //! Phase 4: Full integration with vendor/risingwave Frontend node.
 
-use crate::error::{Result, RisingWaveError};
+use crate::error::{Result, EventStreamingError};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -66,7 +66,7 @@ impl FrontendNode {
     pub async fn start(&self) -> Result<()> {
         let mut state = self.state.write().await;
         if state.running {
-            return Err(RisingWaveError::FrontendStartFailed(
+            return Err(EventStreamingError::FrontendStartFailed(
                 "frontend node already running".to_string(),
             ));
         }
@@ -127,7 +127,7 @@ impl FrontendNode {
     pub async fn execute_ddl(&self, sql: &str) -> Result<()> {
         let state = self.state.read().await;
         if !state.running {
-            return Err(RisingWaveError::DdlFailed(
+            return Err(EventStreamingError::DdlFailed(
                 "frontend node not running".to_string(),
             ));
         }
@@ -136,7 +136,7 @@ impl FrontendNode {
 
         // Phase 3: Placeholder - just validate SQL is not empty
         if sql.trim().is_empty() {
-            return Err(RisingWaveError::DdlFailed(
+            return Err(EventStreamingError::DdlFailed(
                 "empty SQL statement".to_string(),
             ));
         }
@@ -174,7 +174,7 @@ impl FrontendNode {
     pub async fn query_mv(&self, sql: &str) -> Result<String> {
         let state = self.state.read().await;
         if !state.running {
-            return Err(RisingWaveError::QueryFailed(
+            return Err(EventStreamingError::QueryFailed(
                 "frontend node not running".to_string(),
             ));
         }
@@ -183,7 +183,7 @@ impl FrontendNode {
 
         // Phase 3: Placeholder - return empty result set
         if sql.trim().is_empty() {
-            return Err(RisingWaveError::QueryFailed(
+            return Err(EventStreamingError::QueryFailed(
                 "empty SQL statement".to_string(),
             ));
         }

@@ -10,8 +10,8 @@ pub mod materialized_view;
 pub mod ontology;
 #[allow(dead_code)]
 pub mod query_mgmt;
-#[cfg(feature = "risingwave")]
-pub mod risingwave;
+#[cfg(feature = "event-streaming")]
+pub mod event_streaming;
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
@@ -194,9 +194,12 @@ pub struct AppState {
     pub drain: DrainState,
     /// D6: Query execution pool for bounded concurrency + backpressure.
     pub query_pool: Arc<nexora_core::query_pool::QueryPool>,
-    /// RisingWave module for advanced stream processing (optional, feature-gated)
-    #[cfg(feature = "risingwave")]
-    pub risingwave: Option<Arc<nexora_risingwave::RisingWaveModule>>,
+    /// Event streaming engine for advanced SQL-based stream processing (optional, feature-gated)
+    #[cfg(feature = "event-streaming")]
+    pub event_streaming: Option<Arc<dyn nexora_risingwave::EventStreamingOperations>>,
+    /// Distributed event streaming engine cluster instance (Phase 8, optional)
+    #[cfg(all(feature = "event-streaming", feature = "embedded"))]
+    pub distributed_event_streaming: Option<Arc<nexora_risingwave::DistributedEmbeddedEventStreaming>>,
 }
 
 impl AppState {
@@ -1872,6 +1875,10 @@ mod tests {
             drain: crate::drain::DrainState::default(),
             query_pool: Arc::new(nexora_core::query_pool::QueryPool::new(4)),
             cluster_manager: None,
+            #[cfg(feature = "event-streaming")]
+            event_streaming: None,
+            #[cfg(all(feature = "event-streaming", feature = "embedded"))]
+            distributed_event_streaming: None,
         }
     }
 
@@ -4906,6 +4913,10 @@ mod e7_f4_tests {
             drain: crate::drain::DrainState::default(),
             query_pool: Arc::new(nexora_core::query_pool::QueryPool::new(4)),
             cluster_manager: None,
+            #[cfg(feature = "event-streaming")]
+            event_streaming: None,
+            #[cfg(all(feature = "event-streaming", feature = "embedded"))]
+            distributed_event_streaming: None,
         }
     }
 

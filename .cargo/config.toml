@@ -1,0 +1,48 @@
+# Nexora workspace cargo config.
+#
+# Since library mode links RisingWave crates into the Nexora build graph, the
+# whole workspace must build with RisingWave's required rustflags. These are
+# replicated verbatim from vendor/risingwave/.cargo/config.toml so a `cargo
+# build` invoked from the Nexora root produces the same flags RisingWave needs.
+#
+# RisingWave cannot compile without SIMD (#7259). For some targets a SIMD
+# feature is on by default; for others it must be enabled manually.
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-Ctarget-feature=+avx2"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-Ctarget-feature=+neon"]
+
+# Extra flags for Linux targets.
+[target.'cfg(target_os = "linux")']
+rustflags = [
+    "-Clink-arg=-fuse-ld=lld",       #2781
+    "-Clink-arg=-Wl,--no-rosegment", #4574
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-Ctarget-feature=+sse4.2", # generally available feature, not for production
+    "-Clink-arg=-fuse-ld=lld",
+]
+
+[target.aarch64-apple-darwin]
+rustflags = [
+    # neon is enabled by default.
+    # No `-fuse-ld=lld` here: on Apple Silicon the default system linker
+    # (ld-prime) links the binary faster than lld.
+]
+
+# Flags for all targets. tokio_unstable + higher-ranked-assumptions are
+# required by RisingWave and now apply workspace-wide.
+[target.'cfg(all())']
+rustflags = ["--cfg", "tokio_unstable", "-Zhigher-ranked-assumptions"]
+
+[build]
+rustdocflags = ["-Zhigher-ranked-assumptions"]
+
+# Large git dependencies clone faster with shallow settings.
+[unstable.git]
+shallow_index = true
+shallow_deps = true

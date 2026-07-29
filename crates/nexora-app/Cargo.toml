@@ -48,6 +48,7 @@ base64 = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
+num_cpus = "1"
 async-trait = "0.1"
 tower = { version = "0.5", features = ["util"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
@@ -91,7 +92,11 @@ kinesis = ["nexora-stream/kinesis", "rocksdb-offsets"]
 rocksdb-offsets = ["nexora-stream/rocksdb-offsets"]
 zenoh = ["nexora-stream/zenoh"]
 event-first = ["dep:nexora-eventlog", "nexora-eventlog/olap", "nexora-pgwire/event-first"]
-risingwave = ["dep:nexora-risingwave", "nexora-risingwave/default"]
+# Event streaming engine (SQL-based stream processing; backed by RisingWave).
+event-streaming = ["dep:nexora-risingwave", "nexora-risingwave/default"]
+embedded = ["event-streaming", "nexora-risingwave/embedded"]
+# Library mode: event streaming engine compiled in-process (single-node), no external binary.
+library = ["event-streaming", "nexora-risingwave/library"]
 encrypt = ["nexora-core/encrypt"]
 wasm = ["nexora-udf/wasm"]
 # Distributed tracing export via OpenTelemetry OTLP (gRPC).

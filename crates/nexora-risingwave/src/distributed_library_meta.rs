@@ -6,7 +6,7 @@
 
 use crate::distributed_library_config::{DistributedLibraryConfig, MetaBackend};
 use crate::error::{EventStreamingError, Result};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -151,12 +151,8 @@ impl DistributedMetaCluster {
         let is_leader = Arc::new(AtomicBool::new(false));
         let state = Arc::new(RwLock::new(MetaClusterState::Starting));
 
-        // TODO (Day 2): Initialize RisingWave Meta node with Raft
-        // - Create Meta service handle
-        // - Configure backend (etcd/SQLite)
-        // - Join Raft cluster (connect to peers)
-        // - Start election timer
-        // - Wait for quorum
+        // Day 2: Initialize Raft election client
+        let raft_client = Self::init_raft_client(&config, raft_state.clone()).await?;
 
         let cluster = Self {
             node_id: config.node_id.clone(),
@@ -165,6 +161,11 @@ impl DistributedMetaCluster {
             state,
             config,
         };
+
+        // Start Raft election
+        raft_client.init().await.map_err(|e| {
+            EventStreamingError::Internal(format!("Raft init failed: {}", e))
+        })?;
 
         // Transition to Follower state (will become Leader after election)
         *cluster.state.write().await = MetaClusterState::Follower;
@@ -175,6 +176,82 @@ impl DistributedMetaCluster {
         );
 
         Ok(cluster)
+    }
+
+    /// Initialize Raft election client using extensions-meta-raft.
+    ///
+    /// Connects this Meta node to the Raft cluster for leader election.
+    async fn init_raft_client(
+        config: &DistributedLibraryConfig,
+        raft_state: Arc<RaftState>,
+    ) -> Result<Arc<extensions_meta_raft::RaftElectionClient>> {
+        use extensions_meta_raft::{RaftElectionClient, RaftElectionConfig};
+
+        // Parse node ID as numeric Raft ID (use hash or sequential mapping)
+        let raft_node_id = Self::node_id_to_raft_id(&config.node_id);
+
+        // Parse peer IDs from "node_id@addr" format
+        let peer_node_ids: Vec<u64> = config
+            .meta
+            .raft_peers
+            .iter()
+            .filter_map(|peer| {
+                peer.split('@')
+                    .next()
+                    .map(|id| Self::node_id_to_raft_id(id))
+            })
+            .collect();
+
+        let raft_config = RaftElectionConfig {
+            node_id: config.node_id.clone(),
+            raft_node_id,
+            peer_node_ids,
+            heartbeat_interval_secs: config.meta.heartbeat_interval_ms / 1000,
+            election_timeout_secs: config.meta.election_timeout_ms / 1000,
+        };
+
+        let client = RaftElectionClient::new(raft_config).await.map_err(|e| {
+            EventStreamingError::Internal(format!("Raft client creation failed: {}", e))
+        })?;
+
+        // Spawn background task to monitor leadership
+        let is_leader = Arc::new(AtomicBool::new(false));
+        let is_leader_clone = is_leader.clone();
+        let raft_state_clone = raft_state.clone();
+        let mut rx = client.subscribe();
+
+        tokio::spawn(async move {
+            loop {
+                if rx.changed().await.is_err() {
+                    break;
+                }
+                let leader = *rx.borrow();
+                is_leader_clone.store(leader, Ordering::SeqCst);
+
+                if leader {
+                    // Update term when becoming leader
+                    let current = raft_state_clone.current_term();
+                    raft_state_clone.current_term.fetch_add(1, Ordering::SeqCst);
+                    tracing::info!(
+                        "Node became leader, term: {} -> {}",
+                        current,
+                        current + 1
+                    );
+                }
+            }
+        });
+
+        Ok(Arc::new(client))
+    }
+
+    /// Convert string node ID to numeric Raft ID.
+    ///
+    /// Uses a simple hash for now; production should use stable mapping.
+    fn node_id_to_raft_id(node_id: &str) -> u64 {
+        // Simple hash: sum of byte values modulo large prime
+        node_id
+            .bytes()
+            .fold(0u64, |acc, b| (acc.wrapping_mul(31).wrapping_add(b as u64)) % 1_000_000_007)
     }
 
     /// Check if this node is currently the Raft leader.

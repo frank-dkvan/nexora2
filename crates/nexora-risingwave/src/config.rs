@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 
 /// Configuration for RisingWave module.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RisingWaveConfig {
+pub struct EventStreamingConfig {
     /// Meta node address.
     pub meta_addr: SocketAddr,
 
@@ -23,15 +23,15 @@ pub struct RisingWaveConfig {
     pub raft_peers: Vec<(u64, String)>,
 }
 
-impl RisingWaveConfig {
+impl EventStreamingConfig {
     /// Create a new configuration with default values.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use nexora_risingwave::RisingWaveConfig;
+    /// use nexora_risingwave::EventStreamingConfig;
     ///
-    /// let config = RisingWaveConfig::new()
+    /// let config = EventStreamingConfig::new()
     ///     .with_meta_addr("127.0.0.1:5690".parse().unwrap())
     ///     .with_frontend_addr("127.0.0.1:4566".parse().unwrap());
     /// ```
@@ -76,7 +76,7 @@ impl RisingWaveConfig {
     }
 }
 
-impl Default for RisingWaveConfig {
+impl Default for EventStreamingConfig {
     fn default() -> Self {
         Self::new()
     }
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        let config = RisingWaveConfig::default();
+        let config = EventStreamingConfig::default();
         assert_eq!(config.meta_addr.port(), 5690);
         assert_eq!(config.frontend_addr.port(), 4566);
         assert!(config.compute_addr.is_none());
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_builder_pattern() {
-        let config = RisingWaveConfig::new()
+        let config = EventStreamingConfig::new()
             .with_meta_addr("0.0.0.0:5690".parse().unwrap())
             .with_frontend_addr("0.0.0.0:4566".parse().unwrap())
             .with_compute_addr("0.0.0.0:5688".parse().unwrap())

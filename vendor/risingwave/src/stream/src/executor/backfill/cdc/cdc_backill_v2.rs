@@ -33,7 +33,6 @@ use rw_futures_util::pausable;
 use thiserror_ext::AsReport;
 use tracing::Instrument;
 
-use crate::executor::UpdateMutation;
 use crate::executor::backfill::cdc::cdc_backfill::{
     build_reader_and_poll_upstream, get_cdc_json_parse_handling_from_properties, transform_upstream,
 };
@@ -416,23 +415,18 @@ impl<S: StateStore> ParallelizedCdcBackfillExecutor<S> {
                                                     self.rate_limit_rps = entry.rate_limit;
                                                 }
                                             }
-                                            Mutation::Update(UpdateMutation {
-                                                dropped_actors,
-                                                ..
-                                            }) => {
-                                                if dropped_actors.contains(&self.actor_ctx.id) {
-                                                    tracing::info!(
-                                                        %table_id,
-                                                        upstream_table_name,
-                                                        "CdcBackfill has been dropped due to config change"
-                                                    );
-                                                    for chunk in upstream_chunk_buffer.drain(..) {
-                                                        yield Message::Chunk(chunk);
-                                                    }
-                                                    yield Message::Barrier(barrier);
-                                                    let () = futures::future::pending().await;
-                                                    unreachable!();
+                                            mutation if mutation.is_stop(self.actor_ctx.id) => {
+                                                tracing::info!(
+                                                    %table_id,
+                                                    upstream_table_name,
+                                                    "CdcBackfill has been dropped due to config change"
+                                                );
+                                                for chunk in upstream_chunk_buffer.drain(..) {
+                                                    yield Message::Chunk(chunk);
                                                 }
+                                                yield Message::Barrier(barrier);
+                                                let () = futures::future::pending().await;
+                                                unreachable!();
                                             }
                                             _ => (),
                                         }

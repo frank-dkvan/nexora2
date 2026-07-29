@@ -67,9 +67,9 @@ pub struct AppTomlConfig {
     #[serde(default)]
     pub metrics: MetricsConfig,
 
-    #[cfg(feature = "risingwave")]
+    #[cfg(feature = "event-streaming")]
     #[serde(default)]
-    pub event_streams: Option<EventStreamsConfig>,
+    pub event_streaming: Option<EventStreamingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,10 +220,10 @@ pub struct MetricsConfig {
     pub enabled: bool,
 }
 
-#[cfg(feature = "risingwave")]
+#[cfg(feature = "event-streaming")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename = "event_streams")]
-pub struct EventStreamsConfig {
+#[serde(rename = "event_streaming")]
+pub struct EventStreamingConfig {
     /// Enable SQL-based event stream processing
     #[serde(default)]
     pub enabled: bool,
@@ -239,11 +239,11 @@ pub struct EventStreamsConfig {
     pub cluster_mode: bool,
 
     /// Meta node address (default: 127.0.0.1:5690)
-    #[serde(default = "default_event_streams_meta_addr")]
+    #[serde(default = "default_event_streaming_meta_addr")]
     pub meta_addr: String,
 
     /// Frontend node address (default: 127.0.0.1:4566)
-    #[serde(default = "default_event_streams_frontend_addr")]
+    #[serde(default = "default_event_streaming_frontend_addr")]
     pub frontend_addr: String,
 
     /// Path to event stream engine binary (for embedded mode)
@@ -253,17 +253,17 @@ pub struct EventStreamsConfig {
 
     /// Data directory (for embedded mode)
     #[cfg(feature = "embedded")]
-    #[serde(default = "default_event_streams_data_dir")]
+    #[serde(default = "default_event_streaming_data_dir")]
     pub data_dir: String,
 
     /// Startup timeout in seconds (for embedded mode)
     #[cfg(feature = "embedded")]
-    #[serde(default = "default_event_streams_startup_timeout")]
+    #[serde(default = "default_event_streaming_startup_timeout")]
     pub startup_timeout_secs: u64,
 
     /// Shutdown timeout in seconds (for embedded mode)
     #[cfg(feature = "embedded")]
-    #[serde(default = "default_event_streams_shutdown_timeout")]
+    #[serde(default = "default_event_streaming_shutdown_timeout")]
     pub shutdown_timeout_secs: u64,
 
     /// Compute node parallelism (for embedded mode, default: CPU cores)
@@ -282,7 +282,7 @@ pub struct EventStreamsConfig {
     pub compute_nodes: Option<Vec<ComputeNodeTomlConfig>>,
 }
 
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetaNodeTomlConfig {
     pub node_id: u32,
@@ -291,7 +291,7 @@ pub struct MetaNodeTomlConfig {
     pub dashboard_addr: String,
 }
 
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputeNodeTomlConfig {
     pub listen_addr: String,
@@ -361,24 +361,24 @@ fn default_true() -> bool {
     true
 }
 
-#[cfg(feature = "risingwave")]
-fn default_event_streams_meta_addr() -> String {
+#[cfg(feature = "event-streaming")]
+fn default_event_streaming_meta_addr() -> String {
     "127.0.0.1:5690".into()
 }
-#[cfg(feature = "risingwave")]
-fn default_event_streams_frontend_addr() -> String {
+#[cfg(feature = "event-streaming")]
+fn default_event_streaming_frontend_addr() -> String {
     "127.0.0.1:4566".into()
 }
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
-fn default_event_streams_data_dir() -> String {
-    "./nexora-data/event-streams".into()
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
+fn default_event_streaming_data_dir() -> String {
+    "./nexora-data/event-streaming".into()
 }
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
-fn default_event_streams_startup_timeout() -> u64 {
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
+fn default_event_streaming_startup_timeout() -> u64 {
     60
 }
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
-fn default_event_streams_shutdown_timeout() -> u64 {
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
+fn default_event_streaming_shutdown_timeout() -> u64 {
     30
 }
 

@@ -4,7 +4,7 @@
 //! enabling seamless integration between RisingWave's SQL layer and Nexora's
 //! ontology system.
 
-use crate::error::{Result, RisingWaveError};
+use crate::error::{Result, EventStreamingError};
 
 /// SQL DDL parser for RisingWave
 pub struct DdlParser;
@@ -67,26 +67,26 @@ impl DdlParser {
         // Phase 6: Simple regex-based parser
         // Extract view name using regex
         let view_name_re = regex::Regex::new(r"CREATE\s+MATERIALIZED\s+VIEW\s+(\w+)\s+AS")
-            .map_err(|e| RisingWaveError::Internal(format!("Regex error: {}", e)))?;
+            .map_err(|e| EventStreamingError::Internal(format!("Regex error: {}", e)))?;
 
         let view_name = view_name_re
             .captures(sql)
             .and_then(|caps| caps.get(1))
             .map(|m| m.as_str().to_string())
             .ok_or_else(|| {
-                RisingWaveError::Internal("No CREATE MATERIALIZED VIEW found".to_string())
+                EventStreamingError::Internal("No CREATE MATERIALIZED VIEW found".to_string())
             })?;
 
         // Phase 6: For simplicity, extract column names from SELECT clause
         // Full implementation will use sqlparser-rs to parse the AST
         let select_re = regex::Regex::new(r"SELECT\s+(.*?)\s+FROM")
-            .map_err(|e| RisingWaveError::Internal(format!("Regex error: {}", e)))?;
+            .map_err(|e| EventStreamingError::Internal(format!("Regex error: {}", e)))?;
 
         let columns_str = select_re
             .captures(sql)
             .and_then(|caps| caps.get(1))
             .map(|m| m.as_str())
-            .ok_or_else(|| RisingWaveError::Internal("No SELECT clause found".to_string()))?;
+            .ok_or_else(|| EventStreamingError::Internal("No SELECT clause found".to_string()))?;
 
         let columns = columns_str
             .split(',')

@@ -34,7 +34,7 @@ Nexora 2.0 + RisingWave (Hybrid)
 │   ├── extensions/meta_raft/          # RisingWave Raft HA
 │   └── Use case: Complex SQL transformations, temporal joins, aggregations
 │
-└── Feature Flag: --features risingwave
+└── Feature Flag: --features event-streaming
 ```
 
 ## Integration Strategy
@@ -46,8 +46,8 @@ Nexora 2.0 + RisingWave (Hybrid)
    - nexora-stream continues to handle direct ingestion
    - All 1590+ tests must continue to pass
 
-2. **Add RisingWave as optional enhancement**
-   - Enabled via `--features risingwave`
+2. **Add the Event Streaming engine as an optional enhancement**
+   - Enabled via `--features event-streaming`
    - Provides SQL materialized views over event streams
    - Outputs enriched events back to nexora-eventlog
 
@@ -73,10 +73,10 @@ Nexora 2.0 + RisingWave (Hybrid)
 │  Graph Layer                                                     │
 │    └── nexora-core (RocksDB-backed graph storage)               │
 ├─────────────────────────────────────────────────────────────────┤
-│  Event Processing Layer                                          │
-│    ├── Path A (Simple): nexora-stream → nexora-eventlog         │
-│    └── Path B (Advanced): nexora-stream → RisingWave MV →       │
-│                            nexora-eventlog [OPTIONAL]            │
+│  Event Processing Layer (two parallel paths)                     │
+│    ├── Path A (Simple):   nexora-stream → nexora-eventlog        │
+│    └── Path B (Advanced): Event Streaming engine (own CREATE     │
+│          SOURCE + SQL/MV) → nexora-eventlog [OPTIONAL]           │
 ├─────────────────────────────────────────────────────────────────┤
 │  Event Storage Layer                                             │
 │    └── nexora-eventlog (Apache Iceberg tables)                  │
@@ -88,21 +88,18 @@ Nexora 2.0 + RisingWave (Hybrid)
 │    └── Used by: Nexora Graph Cluster (future)                   │
 └─────────────────────────────────────────────────────────────────┘
 
-External Sources
+External Sources (Kafka/Kinesis/Pulsar/MQTT)
     │
-    ├─► Kafka/Kinesis/Pulsar/MQTT
-    │       │
-    │       └─► nexora-stream
-    │               │
-    │               ├─► Path A: Direct to nexora-eventlog
-    │               │
-    │               └─► Path B: Through RisingWave
-    │                       │
-    │                       ├─► CREATE SOURCE (Kafka)
-    │                       ├─► CREATE MATERIALIZED VIEW
-    │                       └─► Output enriched events
-    │                               │
-    │                               └─► nexora-eventlog
+    ├─► Path A: nexora-stream ──────────────► nexora-eventlog
+    │           (direct event-to-graph ingestion)
+    │
+    └─► Path B: Event Streaming engine [OPTIONAL]
+                │   (connects to sources directly — no nexora-stream)
+                ├─► CREATE SOURCE (Kafka/…)
+                ├─► CREATE MATERIALIZED VIEW (SQL transforms)
+                └─► Output enriched events ─► nexora-eventlog
+
+Both paths converge at nexora-eventlog, then flow to nexora-core.
 ```
 
 ## Implementation Phases
@@ -481,19 +478,20 @@ rest_warehouse = "nexora"
 s3_endpoint = "http://localhost:9000"
 s3_bucket = "nexora-events"
 
-# NEW: RisingWave configuration (optional)
-[risingwave]
-enabled = false  # Only used when compiled with --features risingwave
-meta_port = 5690
-frontend_port = 4566
+# NEW: Event Streaming engine configuration (optional)
+# Requires: --features event-streaming
+[event_streaming]
+enabled = false
+meta_addr = "127.0.0.1:5690"
+frontend_addr = "127.0.0.1:4566"
 compute_nodes = 1
 
-[risingwave.raft]
+[event_streaming.raft]
 node_id = 1
 peers = ["node1:5690", "node2:5690", "node3:5690"]
 data_dir = "/data/nexora/raft"
 
-[risingwave.storage]
+[event_streaming.storage]
 state_store = "hummock+s3://nexora-rw-state"
 data_directory = "/data/nexora/rw-data"
 ```
@@ -506,8 +504,8 @@ data_directory = "/data/nexora/rw-data"
 cargo test -p nexora-consensus
 cargo test -p nexora-rpc
 
-# Test RisingWave wrapper
-cargo test -p nexora-risingwave --features risingwave
+# Test Event Streaming wrapper
+cargo test -p nexora-risingwave --features event-streaming
 ```
 
 ### Integration Tests
@@ -516,7 +514,7 @@ cargo test -p nexora-risingwave --features risingwave
 cargo test -p extensions-meta-raft -- --test-threads=1
 
 # Test event pipeline
-cargo test test_kafka_risingwave_eventlog --features risingwave
+cargo test test_kafka_event_streaming_eventlog --features event-streaming
 ```
 
 ### End-to-End Test
@@ -535,23 +533,23 @@ curl http://localhost:8080/api/query/cypher \
 ## Build Commands
 
 ```bash
-# Default build (no RisingWave)
+# Default build (no Event Streaming engine)
 cargo build --release
 
-# With RisingWave support
-cargo build --release --features risingwave
+# With Event Streaming engine
+cargo build --release --features event-streaming
 
-# With event-first + RisingWave
-cargo build --release --features event-first,risingwave
+# With event-first + Event Streaming engine
+cargo build --release --features event-first,event-streaming
 ```
 
 ## Migration Path
 
 ### For Existing Users
 
-1. **No changes required** if you don't enable RisingWave
+1. **No changes required** if you don't enable the Event Streaming engine
 2. All existing APIs and features continue to work
-3. Opt-in by recompiling with `--features risingwave`
+3. Opt-in by recompiling with `--features event-streaming`
 
 ### Upgrade Steps
 
@@ -559,10 +557,10 @@ cargo build --release --features event-first,risingwave
 # 1. Pull latest code
 git pull origin main
 
-# 2. Optional: Enable RisingWave
-cargo build --release --features risingwave
+# 2. Optional: Enable Event Streaming engine
+cargo build --release --features event-streaming
 
-# 3. Update config (add [risingwave] section if using)
+# 3. Update config (add [event_streaming] section if using)
 vim nexora.toml
 
 # 4. Restart
@@ -629,8 +627,8 @@ vim nexora.toml
 - [ ] End-to-end test passes
 
 ### Overall Success
-- [ ] Build without `--features risingwave`: All existing features work
-- [ ] Build with `--features risingwave`: Advanced SQL processing available
+- [ ] Build without `--features event-streaming`: All existing features work
+- [ ] Build with `--features event-streaming`: Advanced SQL processing available
 - [ ] Performance: <10% overhead for non-RisingWave code paths
 - [ ] Documentation: README updated with RisingWave usage examples
 

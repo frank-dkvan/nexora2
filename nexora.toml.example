@@ -154,3 +154,49 @@ format = "text"
 [metrics]
 # Enable Prometheus metrics endpoint at /metrics
 enabled = true
+
+
+# -----------------------------------------------------------------------------
+# [event_streaming] — Event Streaming Engine (optional)
+# -----------------------------------------------------------------------------
+# The event streaming engine provides SQL-based stream processing: continuous
+# queries, incremental materialized views, and stream joins/aggregations over
+# event streams. It is backed by an embedded RisingWave engine.
+#
+# Requires: --features event-streaming
+# Embedded mode requires: --features embedded
+# -----------------------------------------------------------------------------
+# [event_streaming]
+# # Enable the event streaming engine
+# enabled = false
+#
+# # Enable embedded mode (starts the engine as a subprocess)
+# # When true, Nexora automatically starts and manages the engine lifecycle
+# # When false, connect to an external engine service
+# embedded = false
+#
+# # Meta node address (used in both embedded and external modes)
+# meta_addr = "127.0.0.1:5690"
+#
+# # Frontend node address (used in both embedded and external modes)
+# frontend_addr = "127.0.0.1:4566"
+#
+# # --- Embedded Mode Configuration ---
+# # (Only used when embedded = true)
+#
+# # Path to the engine binary (auto-discovers if not set)
+# # Search order: RISINGWAVE_BIN env var → bin/risingwave-embedded → system PATH
+# # binary_path = "/path/to/engine"
+#
+# # Data directory for the embedded engine
+# data_dir = "./nexora-data/event-streaming"
+#
+# # Startup timeout in seconds
+# startup_timeout_secs = 60
+#
+# # Shutdown timeout in seconds
+# shutdown_timeout_secs = 30
+#
+# # Compute node parallelism (defaults to number of CPU cores)
+# # Higher values = more parallelism but more memory usage
+# # parallelism = 4

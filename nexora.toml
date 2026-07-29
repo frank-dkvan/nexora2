@@ -1,0 +1,15 @@
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[graph]
+num_shards = 256
+
+[storage.rocksdb]
+path = "./nexora-data"
+
+[event_streaming]
+enabled = true
+meta_addr = "127.0.0.1:5690"
+frontend_addr = "127.0.0.1:4566"
+data_dir = "./nexora-data/event-streaming"

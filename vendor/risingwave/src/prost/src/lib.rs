@@ -25,7 +25,7 @@
 #![expect(clippy::module_inception)]
 // FIXME: This should be fixed!!! https://github.com/risingwavelabs/risingwave/issues/19906
 #![expect(clippy::large_enum_variant)]
-// #![feature(step_trait)]
+#![feature(step_trait)]
 
 pub mod id;
 
@@ -41,7 +41,7 @@ use crate::common::WorkerType;
 use crate::ddl_service::streaming_job_resource_type;
 use crate::id::{FragmentId, SourceId, WorkerId};
 use crate::meta::event_log::event_recovery;
-use crate::stream_plan::StreamScanType;
+use crate::stream_plan::PbStreamScanType;
 
 #[rustfmt::skip]
 #[cfg_attr(madsim, path = "sim/catalog.rs")]
@@ -261,7 +261,7 @@ impl From<PbFieldNotFound> for tonic::Status {
     }
 }
 
-impl FromStr for crate::expr::table_function::Type {
+impl FromStr for crate::expr::table_function::PbType {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -269,7 +269,7 @@ impl FromStr for crate::expr::table_function::Type {
     }
 }
 
-impl FromStr for crate::expr::agg_call::Kind {
+impl FromStr for crate::expr::agg_call::PbKind {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -279,8 +279,7 @@ impl FromStr for crate::expr::agg_call::Kind {
 
 impl stream_plan::MaterializeNode {
     pub fn dist_key_indices(&self) -> Vec<u32> {
-        self.table
-            .as_ref()
+        self.get_table()
             .unwrap()
             .distribution_key
             .iter()
@@ -288,20 +287,19 @@ impl stream_plan::MaterializeNode {
             .collect()
     }
 
-    pub fn column_descs(&self) -> Vec<plan_common::ColumnDesc> {
-        self.table
-            .as_ref()
+    pub fn column_descs(&self) -> Vec<plan_common::PbColumnDesc> {
+        self.get_table()
             .unwrap()
             .columns
             .iter()
-            .map(|c| c.column_desc.as_ref().unwrap().clone())
+            .map(|c| c.get_column_desc().unwrap().clone())
             .collect()
     }
 }
 
 impl stream_plan::StreamScanNode {
     /// See [`Self::upstream_column_ids`].
-    pub fn upstream_columns(&self) -> Vec<plan_common::ColumnDesc> {
+    pub fn upstream_columns(&self) -> Vec<plan_common::PbColumnDesc> {
         self.upstream_column_ids
             .iter()
             .map(|id| {
@@ -315,7 +313,7 @@ impl stream_plan::StreamScanNode {
 }
 
 impl stream_plan::SourceBackfillNode {
-    pub fn column_descs(&self) -> Vec<plan_common::ColumnDesc> {
+    pub fn column_descs(&self) -> Vec<plan_common::PbColumnDesc> {
         self.columns
             .iter()
             .map(|c| c.column_desc.as_ref().unwrap().clone())
@@ -357,13 +355,13 @@ impl common::WorkerNode {
 }
 
 impl stream_plan::SourceNode {
-    pub fn column_descs(&self) -> Option<Vec<plan_common::ColumnDesc>> {
+    pub fn column_descs(&self) -> Option<Vec<plan_common::PbColumnDesc>> {
         Some(
             self.source_inner
                 .as_ref()?
                 .columns
                 .iter()
-                .map(|c| c.column_desc.as_ref().unwrap().clone())
+                .map(|c| c.get_column_desc().unwrap().clone())
                 .collect(),
         )
     }
@@ -371,20 +369,16 @@ impl stream_plan::SourceNode {
 
 impl meta::table_fragments::ActorStatus {
     pub fn worker_id(&self) -> WorkerId {
-        WorkerId::from(
-            self.location
-                .as_ref()
-                .expect("actor location should be exist")
-                .worker_node_id,
-        )
+        self.location
+            .as_ref()
+            .expect("actor location should be exist")
+            .worker_node_id
     }
 }
 
 impl common::ActorLocation {
     pub fn from_worker(worker_node_id: WorkerId) -> Option<Self> {
-        Some(Self {
-            worker_node_id: worker_node_id.0,
-        })
+        Some(Self { worker_node_id })
     }
 }
 
@@ -469,7 +463,7 @@ impl stream_plan::StreamNode {
             self.node_body.as_ref()
             && let Some(inner) = &source.source_inner
         {
-            return Some(SourceId::from(inner.source_id));
+            return Some(inner.source_id);
         }
 
         for child in &self.input {
@@ -497,10 +491,7 @@ impl stream_plan::StreamNode {
             {
                 // Note: avoid using `merge.upstream_actor_id` to prevent misuse.
                 // See comments there for details.
-                return Some((
-                    SourceId::from(source.upstream_source_id),
-                    FragmentId::from(merge.upstream_fragment_id),
-                ));
+                return Some((source.upstream_source_id, merge.upstream_fragment_id));
             } else {
                 unreachable!(
                     "source backfill must have a merge node as its input: {:?}",
@@ -562,18 +553,19 @@ impl catalog::StreamSourceInfo {
     }
 }
 
-impl stream_plan::StreamScanType {
+impl stream_plan::PbStreamScanType {
     pub fn is_reschedulable(&self, is_online: bool) -> bool {
         match self {
-            StreamScanType::Unspecified => {
+            PbStreamScanType::Unspecified => {
                 unreachable!()
             }
             // `UpstreamOnly` has no snapshot or backfill state to restore.
-            StreamScanType::UpstreamOnly => true,
-            StreamScanType::ArrangementBackfill => true,
-            StreamScanType::CrossDbSnapshotBackfill => true,
-            StreamScanType::SnapshotBackfill => !is_online,
-            StreamScanType::Chain | StreamScanType::Rearrange | StreamScanType::Backfill => {
+            PbStreamScanType::UpstreamOnly => true,
+            PbStreamScanType::ArrangementBackfill => true,
+            PbStreamScanType::CrossDbSnapshotBackfill => true,
+            PbStreamScanType::SnapshotBackfill => !is_online,
+            #[expect(deprecated)]
+            PbStreamScanType::Chain | PbStreamScanType::Rearrange | PbStreamScanType::Backfill => {
                 false
             }
         }
@@ -685,120 +677,110 @@ impl catalog::Table {
     }
 }
 
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for meta::SystemParams {
-//     /// Directly formatting `SystemParams` can be inaccurate or leak sensitive information.
-//     ///
-//     /// Use `SystemParamsReader` instead.
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("SystemParams").finish_non_exhaustive()
-//     }
-// }
+impl std::fmt::Debug for meta::SystemParams {
+    /// Directly formatting `SystemParams` can be inaccurate or leak sensitive information.
+    ///
+    /// Use `SystemParamsReader` instead.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemParams").finish_non_exhaustive()
+    }
+}
 
 // More compact formats for debugging
 
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for data::DataType {
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for data::DataType {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let data::DataType {
-//             precision,
-//             scale,
-//             interval_type,
-//             field_type,
-//             field_names,
-//             field_ids,
-//             type_name,
-//             // currently all data types are nullable
-//             is_nullable: _,
-//         } = self;
-//
-//         let type_name = data::data_type::TypeName::try_from(*type_name)
-//             .map(|t| t.as_str_name())
-//             .unwrap_or("Unknown");
-//
-//         let mut s = f.debug_struct(type_name);
-//         if self.precision != 0 {
-//             s.field("precision", precision);
-//         }
-//         if self.scale != 0 {
-//             s.field("scale", scale);
-//         }
-//         if self.interval_type != 0 {
-//             s.field("interval_type", interval_type);
-//         }
-//         if !self.field_type.is_empty() {
-//             s.field("field_type", field_type);
-//         }
-//         if !self.field_names.is_empty() {
-//             s.field("field_names", field_names);
-//         }
-//         if !self.field_ids.is_empty() {
-//             s.field("field_ids", field_ids);
-//         }
-//         s.finish()
-//     }
-// }
+impl std::fmt::Debug for data::DataType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let data::DataType {
+            precision,
+            scale,
+            interval_type,
+            field_type,
+            field_names,
+            field_ids,
+            type_name,
+            // currently all data types are nullable
+            is_nullable: _,
+        } = self;
 
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for plan_common::column_desc::GeneratedOrDefaultColumn {
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for plan_common::column_desc::GeneratedOrDefaultColumn {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Self::GeneratedColumn(arg0) => f.debug_tuple("GeneratedColumn").field(arg0).finish(),
-//             Self::DefaultColumn(arg0) => f.debug_tuple("DefaultColumn").field(arg0).finish(),
-//         }
-//     }
-// }
+        let type_name = data::data_type::TypeName::try_from(*type_name)
+            .map(|t| t.as_str_name())
+            .unwrap_or("Unknown");
 
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for plan_common::ColumnDesc {
-// NOTE: Commented out to avoid conflict with prost-derived Debug
-// impl std::fmt::Debug for plan_common::ColumnDesc {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         // destruct here to avoid missing new fields in the future.
-//         let plan_common::ColumnDesc {
-//             column_type,
-//             column_id,
-//             name,
-//             description,
-//             additional_column_type,
-//             additional_column,
-//             generated_or_default_column,
-//             version,
-//             nullable,
-//         } = self;
-//
-//         let mut s = f.debug_struct("ColumnDesc");
-//         if let Some(column_type) = column_type {
-//             s.field("column_type", column_type);
-//         } else {
-//             s.field("column_type", &"Unknown");
-//         }
-//         s.field("column_id", column_id).field("name", name);
-//         if let Some(description) = description {
-//             s.field("description", description);
-//         }
-//         if self.additional_column_type != 0 {
-//             s.field("additional_column_type", additional_column_type);
-//         }
-//         s.field("version", version);
-//         if let Some(AdditionalColumn {
-//             column_type: Some(column_type),
-//         }) = additional_column
-//         {
-//             // AdditionalColumn { None } means a normal column
-//             s.field("additional_column", &column_type);
-//         }
-//         if let Some(generated_or_default_column) = generated_or_default_column {
-//             s.field("generated_or_default_column", &generated_or_default_column);
-//         }
-//         s.field("nullable", nullable);
-//         s.finish()
-//     }
-// }
+        let mut s = f.debug_struct(type_name);
+        if self.precision != 0 {
+            s.field("precision", precision);
+        }
+        if self.scale != 0 {
+            s.field("scale", scale);
+        }
+        if self.interval_type != 0 {
+            s.field("interval_type", interval_type);
+        }
+        if !self.field_type.is_empty() {
+            s.field("field_type", field_type);
+        }
+        if !self.field_names.is_empty() {
+            s.field("field_names", field_names);
+        }
+        if !self.field_ids.is_empty() {
+            s.field("field_ids", field_ids);
+        }
+        s.finish()
+    }
+}
+
+impl std::fmt::Debug for plan_common::column_desc::GeneratedOrDefaultColumn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::GeneratedColumn(arg0) => f.debug_tuple("GeneratedColumn").field(arg0).finish(),
+            Self::DefaultColumn(arg0) => f.debug_tuple("DefaultColumn").field(arg0).finish(),
+        }
+    }
+}
+
+impl std::fmt::Debug for plan_common::ColumnDesc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // destruct here to avoid missing new fields in the future.
+        let plan_common::ColumnDesc {
+            column_type,
+            column_id,
+            name,
+            description,
+            additional_column_type,
+            additional_column,
+            generated_or_default_column,
+            version,
+            nullable,
+        } = self;
+
+        let mut s = f.debug_struct("ColumnDesc");
+        if let Some(column_type) = column_type {
+            s.field("column_type", column_type);
+        } else {
+            s.field("column_type", &"Unknown");
+        }
+        s.field("column_id", column_id).field("name", name);
+        if let Some(description) = description {
+            s.field("description", description);
+        }
+        if self.additional_column_type != 0 {
+            s.field("additional_column_type", additional_column_type);
+        }
+        s.field("version", version);
+        if let Some(AdditionalColumn {
+            column_type: Some(column_type),
+        }) = additional_column
+        {
+            // AdditionalColumn { None } means a normal column
+            s.field("additional_column", &column_type);
+        }
+        if let Some(generated_or_default_column) = generated_or_default_column {
+            s.field("generated_or_default_column", &generated_or_default_column);
+        }
+        s.field("nullable", nullable);
+        s.finish()
+    }
+}
 
 impl expr::UserDefinedFunction {
     pub fn name_in_runtime(&self) -> Option<&str> {
@@ -852,10 +834,10 @@ impl streaming_job_resource_type::ResourceType {
     pub fn resource_group(&self) -> Option<String> {
         match self {
             streaming_job_resource_type::ResourceType::Regular(_) => None,
-            streaming_job_resource_type::ResourceType::SpecificResourceGroup(group)
-            | streaming_job_resource_type::ResourceType::ServerlessBackfillResourceGroup(group) => {
+            streaming_job_resource_type::ResourceType::SpecificResourceGroup(group) => {
                 Some(group.clone())
             }
+            streaming_job_resource_type::ResourceType::ServerlessBackfill(_) => None,
         }
     }
 }

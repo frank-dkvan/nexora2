@@ -15,7 +15,7 @@
 use std::any::type_name;
 use std::borrow::Borrow;
 use std::fmt::Formatter;
-// use std::iter::Step;
+use std::iter::Step;
 use std::num::TryFromIntError;
 use std::ops::{Add, AddAssign, Sub};
 use std::str::FromStr;
@@ -275,19 +275,19 @@ impl<const N: usize, P: Sub<Output = P>> Sub for TypedId<N, P> {
     }
 }
 
-// impl<const N: usize, P: Step> Step for TypedId<N, P> {
-//     fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
-//         P::steps_between(&start.0, &end.0)
-//     }
-//
-//     fn forward_checked(start: Self, count: usize) -> Option<Self> {
-//         P::forward_checked(start.0, count).map(Self)
-//     }
-//
-//     fn backward_checked(start: Self, count: usize) -> Option<Self> {
-//         P::backward_checked(start.0, count).map(Self)
-//     }
-// }
+impl<const N: usize, P: Step> Step for TypedId<N, P> {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        P::steps_between(&start.0, &end.0)
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        P::forward_checked(start.0, count).map(Self)
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        P::backward_checked(start.0, count).map(Self)
+    }
+}
 
 macro_rules! impl_add {
     ($type_name:ty) => {
@@ -438,13 +438,13 @@ impl From<LocalOperatorId> for StreamNodeLocalOperatorId {
 impl From<OptionalAssociatedTableId> for TableId {
     fn from(value: OptionalAssociatedTableId) -> Self {
         let OptionalAssociatedTableId::AssociatedTableId(table_id) = value;
-        TableId::from(table_id)
+        table_id
     }
 }
 
 impl From<TableId> for OptionalAssociatedTableId {
     fn from(value: TableId) -> Self {
-        OptionalAssociatedTableId::AssociatedTableId(value.0)
+        OptionalAssociatedTableId::AssociatedTableId(value)
     }
 }
 
@@ -456,13 +456,13 @@ impl_as!(SubscriptionId, SubscriberId);
 impl From<OptionalAssociatedSourceId> for SourceId {
     fn from(value: OptionalAssociatedSourceId) -> Self {
         let OptionalAssociatedSourceId::AssociatedSourceId(source_id) = value;
-        SourceId::from(source_id)
+        source_id
     }
 }
 
 impl From<SourceId> for OptionalAssociatedSourceId {
     fn from(value: SourceId) -> Self {
-        OptionalAssociatedSourceId::AssociatedSourceId(value.0)
+        OptionalAssociatedSourceId::AssociatedSourceId(value)
     }
 }
 
@@ -471,7 +471,7 @@ macro_rules! impl_into_object {
         $(
             impl From<$type_name> for $mod_prefix {
                 fn from(value: $type_name) -> Self {
-                    <$mod_prefix>::$type_name(value.0)
+                    <$mod_prefix>::$type_name(value)
                 }
             }
         )+
@@ -536,8 +536,8 @@ macro_rules! impl_into_rename_object {
                 impl From<([<$type_name Id>], [<$type_name Id>])> for crate::ddl_service::alter_swap_rename_request::Object {
                     fn from((src_object_id, dst_object_id): ([<$type_name Id>], [<$type_name Id>])) -> Self {
                         crate::ddl_service::alter_swap_rename_request::Object::$type_name(crate::ddl_service::alter_swap_rename_request::ObjectNameSwapPair {
-                            src_object_id: src_object_id.as_object_id().0,
-                            dst_object_id: dst_object_id.as_object_id().0,
+                            src_object_id: src_object_id.as_object_id(),
+                            dst_object_id: dst_object_id.as_object_id(),
                         })
                     }
                 }

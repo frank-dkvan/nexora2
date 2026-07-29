@@ -58,18 +58,28 @@ Use the direct path when:
 
 ### RisingWave Quick Start
 
+**Single Node Mode** (Phase 7):
 ```bash
-# Build with RisingWave support
-cargo build --release --features event-first,risingwave
+# Build with embedded RisingWave support
+cargo build --release --features event-first,risingwave,embedded
 
-# Run with RisingWave enabled
-cargo run --release --features event-first,risingwave -- \
+# Run with embedded RisingWave (single node)
+cargo run --release --features event-first,risingwave,embedded -- \
   --enable-risingwave \
-  --risingwave-meta-addr 127.0.0.1:5690 \
-  --risingwave-frontend-addr 127.0.0.1:4566
+  --enable-embedded-risingwave
 ```
 
-See [RisingWave Integration Plan](docs/RISINGWAVE_INTEGRATION_PLAN.md) for complete documentation.
+**Cluster Mode (3-node HA)** (Phase 8):
+```bash
+# Create configuration file
+cp nexora-cluster.toml.example nexora.toml
+
+# Start 3-node HA cluster
+cargo run --release --features event-first,risingwave,embedded -- \
+  --config nexora.toml
+```
+
+See [RisingWave User Guide](docs/RISINGWAVE_USER_GUIDE.md) for complete documentation.
 
 ---
 

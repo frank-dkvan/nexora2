@@ -54,8 +54,8 @@ impl Default for AppTomlConfig {
             ingest: None,
             logging: Default::default(),
             metrics: Default::default(),
-            #[cfg(feature = "risingwave")]
-            event_streams: None,
+            #[cfg(feature = "event-streaming")]
+            event_streaming: None,
         }
     }
 }

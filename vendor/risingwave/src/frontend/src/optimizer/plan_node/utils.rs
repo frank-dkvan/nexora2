@@ -155,7 +155,7 @@ impl TableCatalogBuilder {
 
     /// Consume builder and create `TableCatalog` (for proto). The `read_prefix_len_hint` is the
     /// anticipated read prefix pattern (number of fields) for the table, which can be utilized for
-    /// implementing the table's bloom filter or other storage optimization techniques.
+    /// implementing the table's SST filter or other storage optimization techniques.
     pub fn build(self, distribution_key: Vec<usize>, read_prefix_len_hint: usize) -> TableCatalog {
         assert!(read_prefix_len_hint <= self.pk.len());
         let watermark_columns = match self.watermark_columns {
@@ -477,6 +477,7 @@ pub(crate) fn plan_can_use_background_ddl(plan: &StreamPlanRef) -> bool {
         {
             true
         } else if let Some(scan) = plan.as_stream_table_scan() {
+            #[expect(deprecated)]
             match scan.stream_scan_type() {
                 StreamScanType::Backfill
                 | StreamScanType::ArrangementBackfill

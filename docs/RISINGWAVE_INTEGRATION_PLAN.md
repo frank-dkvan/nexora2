@@ -632,15 +632,26 @@ vim nexora.toml
 - [ ] 3-node Raft HA cluster works without external dependencies
 - [ ] Minimal patches (<100 lines total) to RisingWave
 
-### Phase 4: Event Pipeline (Updated ⏳)
-- [ ] ~~EventLogSink implementation~~ Configure RisingWave's built-in Iceberg sink
-- [ ] Verify REST catalog connectivity (RisingWave ↔ nexora-eventlog)
-- [ ] Schema compatibility validation (Arrow ↔ RisingWave auto-mapping)
-- [ ] Events flow: Kafka → RisingWave MV → Iceberg Sink → EventLog
-- [ ] GraphStreaming implementation (EventLog → Graph projection)
-- [ ] End-to-end integration test passes
+### Phase 4: Event Pipeline (In Progress 🚀)
 
-**Key Discovery**: RisingWave already has a complete Iceberg sink with REST catalog support at `vendor/risingwave/src/connector/src/sink/iceberg/`. Phase 4 scope reduced from "implement EventLogSink" to "configure and test existing sink".
+**Architecture Decision**: Use RisingWave as unified Iceberg REST catalog (Option 1)
+
+**Tasks**:
+- [ ] Task 1: Locate REST catalog endpoint (1 hour)
+- [ ] Task 2: Validate Iceberg REST spec compliance (2 hours)
+- [ ] Task 3: Integrate nexora-eventlog with RisingWave catalog (3 hours)
+- [ ] Task 4: End-to-end pipeline test: Kafka → RisingWave → Graph (4 hours)
+- [ ] Task 5: Documentation updates (2 hours)
+
+**Total Estimated Time**: 12 hours (~1.5 days)
+
+**Key Discoveries**:
+1. RisingWave has built-in Iceberg sink at `vendor/risingwave/src/connector/src/sink/iceberg/`
+2. RisingWave Meta **hosts its own Iceberg REST catalog** (no Lakekeeper needed)
+3. Single catalog server for both nexora-eventlog and RisingWave sinks
+4. Architecture simplified from 6 services to 4 services (-33%)
+
+**Reference**: [Phase 4 Architecture Decision](PHASE4_ARCHITECTURE_DECISION.md)
 
 ### Overall Success
 - [x] Build without `--features event-streaming`: All existing features work
@@ -655,9 +666,11 @@ vim nexora.toml
 | 1 | Repository Setup | Git Subtree, scripts, Cargo config | ✅ Complete |
 | 2 | Library Mode (Phase 1) | Stable Rust compilation of RisingWave | ✅ Complete |
 | 3 | Distributed Library (Phase 2) | Multi-node in-process cluster | ✅ Complete |
-| 4 | Event Pipeline (Phase 4) | RisingWave Iceberg sink config, E2E test | ⏳ Next |
+| 4 | Event Pipeline (Phase 4) | Unified catalog integration, E2E test | 🚀 In Progress |
 | - | Shared Infrastructure (Phase 3) | nexora-consensus, nexora-rpc | 📝 Optional |
 | - | Raft HA Extension | extensions/meta_raft, patches | 📝 Optional |
+
+**Phase 4 Progress**: Architecture decided (Option 1), implementation starting
 
 ## Next Steps
 

@@ -76,6 +76,9 @@ pub mod library_module;
 #[cfg(feature = "library")]
 pub mod distributed_library_config;
 
+#[cfg(feature = "library")]
+pub mod distributed_library_meta;
+
 // Phase 7: Embedded RisingWave (process-based)
 #[cfg(feature = "embedded")]
 pub mod embedded_process;
@@ -107,6 +110,9 @@ pub use distributed_library_config::{
     FrontendNodeConfig as DistributedFrontendNodeConfig,
     ComputeNodeConfig as DistributedComputeNodeConfig, MetaBackend as DistributedMetaBackend,
 };
+
+#[cfg(feature = "library")]
+pub use distributed_library_meta::{DistributedMetaCluster, MetaClusterState, RaftState};
 
 #[cfg(feature = "embedded")]
 pub use embedded_process::{

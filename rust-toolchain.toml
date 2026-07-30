@@ -1,0 +1,10 @@
+# Nexora is pinned to RisingWave's nightly toolchain for library-mode
+# integration. RisingWave (vendor/risingwave) requires this exact nightly for
+# features like -Zhigher-ranked-assumptions and profile-rustflags. Because the
+# RisingWave crates are linked into the Nexora build graph, the whole workspace
+# must use the same channel.
+#
+# Keep this in sync with vendor/risingwave/ci/rust-toolchain.
+[toolchain]
+channel = "nightly-2026-06-11"
+components = ["rustfmt", "clippy", "rust-src"]

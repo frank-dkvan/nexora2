@@ -17,11 +17,11 @@ use std::time::Duration;
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
+use iceberg::Catalog;
 use iceberg::arrow::schema_to_arrow_schema;
 use iceberg::spec::{DataFile, Operation, SerializedDataFile, TableMetadata};
 use iceberg::table::Table;
 use iceberg::transaction::{ApplyTransactionAction, FastAppendAction, Transaction};
-use iceberg::{Catalog, TableIdent};
 use itertools::Itertools;
 use risingwave_common::array::arrow::arrow_schema_iceberg::{
     DataType as ArrowDataType, Field as ArrowField, Fields as ArrowFields,
@@ -34,14 +34,14 @@ use risingwave_pb::connector_service::SinkMetadata;
 use risingwave_pb::connector_service::sink_metadata::Metadata::Serialized;
 use risingwave_pb::connector_service::sink_metadata::SerializedMetadata;
 use risingwave_pb::stream_plan::PbSinkSchemaChange;
+use serde::{Deserialize, Serialize};
 use serde_json::from_value;
 use thiserror_ext::AsReport;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio_retry::RetryIf;
-use tokio_retry::strategy::{ExponentialBackoff, jitter};
 use tracing::warn;
 
-use super::{GLOBAL_SINK_METRICS, IcebergConfig, SinkError, commit_branch};
+use super::commit_retry::{self, CommitError, CommitRetryLogContext};
+use super::{GLOBAL_SINK_METRICS, IcebergConfig, SinkError, commit_branch, resolve_partition_type};
 use crate::connector_common::{IcebergCommittedSnapshot, IcebergSinkCompactionUpdate};
 use crate::sink::catalog::SinkId;
 use crate::sink::{Result, SinglePhaseCommitCoordinator, SinkParam, TwoPhaseCommitCoordinator};
@@ -58,62 +58,17 @@ pub struct IcebergCommitResult {
 }
 
 impl IcebergCommitResult {
-    fn try_from(value: &SinkMetadata) -> Result<Self> {
-        if let Some(Serialized(v)) = &value.metadata {
-            let mut values = if let serde_json::Value::Object(v) =
-                serde_json::from_slice::<serde_json::Value>(&v.metadata)
-                    .context("Can't parse iceberg sink metadata")?
-            {
-                v
-            } else {
-                bail!("iceberg sink metadata should be an object");
-            };
+    pub fn try_from(value: &SinkMetadata) -> Result<Self> {
+        let Some(Serialized(value)) = &value.metadata else {
+            bail!("Can't create iceberg sink write result from empty data!");
+        };
 
-            let schema_id;
-            if let Some(serde_json::Value::Number(value)) = values.remove(SCHEMA_ID) {
-                schema_id = value
-                    .as_u64()
-                    .ok_or_else(|| anyhow!("schema_id should be a u64"))?;
-            } else {
-                bail!("iceberg sink metadata should have schema_id");
-            }
-
-            let partition_spec_id;
-            if let Some(serde_json::Value::Number(value)) = values.remove(PARTITION_SPEC_ID) {
-                partition_spec_id = value
-                    .as_u64()
-                    .ok_or_else(|| anyhow!("partition_spec_id should be a u64"))?;
-            } else {
-                bail!("iceberg sink metadata should have partition_spec_id");
-            }
-
-            let data_files: Vec<SerializedDataFile>;
-            if let serde_json::Value::Array(values) = values
-                .remove(DATA_FILES)
-                .ok_or_else(|| anyhow!("iceberg sink metadata should have data_files object"))?
-            {
-                data_files = values
-                    .into_iter()
-                    .map(from_value::<SerializedDataFile>)
-                    .collect::<std::result::Result<_, _>>()
-                    .unwrap();
-            } else {
-                bail!("iceberg sink metadata should have data_files object");
-            }
-
-            Ok(Self {
-                schema_id: schema_id as i32,
-                partition_spec_id: partition_spec_id as i32,
-                data_files,
-            })
-        } else {
-            bail!("Can't create iceberg sink write result from empty data!")
-        }
+        Self::try_from_serialized_bytes(&value.metadata)
     }
 
-    fn try_from_serialized_bytes(value: Vec<u8>) -> Result<Self> {
+    pub fn try_from_serialized_bytes(value: &[u8]) -> Result<Self> {
         let mut values = if let serde_json::Value::Object(value) =
-            serde_json::from_slice::<serde_json::Value>(&value)
+            serde_json::from_slice::<serde_json::Value>(value)
                 .context("Can't parse iceberg sink metadata")?
         {
             value
@@ -165,42 +120,17 @@ impl<'a> TryFrom<&'a IcebergCommitResult> for SinkMetadata {
     type Error = SinkError;
 
     fn try_from(value: &'a IcebergCommitResult) -> std::result::Result<SinkMetadata, Self::Error> {
-        let json_data_files = serde_json::Value::Array(
-            value
-                .data_files
-                .iter()
-                .map(serde_json::to_value)
-                .collect::<std::result::Result<Vec<serde_json::Value>, _>>()
-                .context("Can't serialize data files to json")?,
-        );
-        let json_value = serde_json::Value::Object(
-            vec![
-                (
-                    SCHEMA_ID.to_owned(),
-                    serde_json::Value::Number(value.schema_id.into()),
-                ),
-                (
-                    PARTITION_SPEC_ID.to_owned(),
-                    serde_json::Value::Number(value.partition_spec_id.into()),
-                ),
-                (DATA_FILES.to_owned(), json_data_files),
-            ]
-            .into_iter()
-            .collect(),
-        );
+        let bytes = <Vec<u8>>::try_from(value)?;
         Ok(SinkMetadata {
-            metadata: Some(Serialized(SerializedMetadata {
-                metadata: serde_json::to_vec(&json_value)
-                    .context("Can't serialize iceberg sink metadata")?,
-            })),
+            metadata: Some(Serialized(SerializedMetadata { metadata: bytes })),
         })
     }
 }
 
-impl TryFrom<IcebergCommitResult> for Vec<u8> {
+impl<'a> TryFrom<&'a IcebergCommitResult> for Vec<u8> {
     type Error = SinkError;
 
-    fn try_from(value: IcebergCommitResult) -> std::result::Result<Vec<u8>, Self::Error> {
+    fn try_from(value: &'a IcebergCommitResult) -> std::result::Result<Vec<u8>, Self::Error> {
         let json_data_files = serde_json::Value::Array(
             value
                 .data_files
@@ -228,12 +158,39 @@ impl TryFrom<IcebergCommitResult> for Vec<u8> {
     }
 }
 
-/// Returns whether two Arrow data types should be treated as compatible when
-/// checking whether a schema change is already applied.
-///
-/// This intentionally allows Binary/LargeBinary equivalence and ignores
-/// Decimal128 precision/scale differences to match RisingWave's canonical
-/// mappings and avoid false ambiguity when handling add/drop column changes.
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct IcebergPositionDeleteMergerCommitResult {
+    pub schema_id: i32,
+    pub partition_spec_id: i32,
+    pub delete_files: Vec<SerializedDataFile>,
+    pub overwrite_files: Vec<SerializedDataFile>,
+}
+
+impl<'a> TryFrom<&'a SinkMetadata> for IcebergPositionDeleteMergerCommitResult {
+    type Error = SinkError;
+
+    fn try_from(value: &'a SinkMetadata) -> Result<Self> {
+        let Some(Serialized(value)) = &value.metadata else {
+            bail!("Can't create iceberg dv merger commit result from empty data!");
+        };
+        let value = serde_json::from_slice(&value.metadata)
+            .context("Can't deserialize iceberg dv merger commit result from metadata")?;
+        Ok(value)
+    }
+}
+
+impl<'a> TryFrom<&'a IcebergPositionDeleteMergerCommitResult> for SinkMetadata {
+    type Error = SinkError;
+
+    fn try_from(value: &'a IcebergPositionDeleteMergerCommitResult) -> Result<SinkMetadata> {
+        let bytes = serde_json::to_vec(value)
+            .context("Can't serialize iceberg dv merger commit result to metadata")?;
+        Ok(SinkMetadata {
+            metadata: Some(Serialized(SerializedMetadata { metadata: bytes })),
+        })
+    }
+}
+
 fn arrow_data_type_compatible(current: &ArrowDataType, expected: &ArrowDataType) -> bool {
     use ArrowDataType::*;
 
@@ -243,7 +200,7 @@ fn arrow_data_type_compatible(current: &ArrowDataType, expected: &ArrowDataType)
         // generated from RW columns using the same canonical mapping. Ignoring
         // both values prevents false schema-state ambiguity and cannot mask an
         // auto schema change, which only supports add/drop columns.
-        (Decimal128(_, _), Decimal128(_, _)) => true, // Ignore both precision and scale.
+        (Decimal128(_, _), Decimal128(_, _)) => true,
         (Binary, LargeBinary) | (LargeBinary, Binary) => true,
         (List(current_field), List(expected_field)) => {
             arrow_data_type_compatible(current_field.data_type(), expected_field.data_type())
@@ -263,11 +220,6 @@ fn arrow_data_type_compatible(current: &ArrowDataType, expected: &ArrowDataType)
     }
 }
 
-/// Returns whether `current` contains exactly the same fields as `expected`,
-/// using unordered matching with relaxed type compatibility.
-///
-/// Matched current fields are removed from an unmatched set so duplicated field
-/// names cannot be matched multiple times.
 fn schema_contains_same_fields(current: &ArrowFields, expected: &[ArrowField]) -> bool {
     if current.len() != expected.len() {
         return false;
@@ -314,11 +266,18 @@ impl IcebergSinkCommitter {
         let Some(iceberg_compact_stat_sender) = &self.iceberg_compact_stat_sender else {
             return;
         };
+        let branch = commit_branch(self.config.r#type.as_str(), self.config.write_mode);
 
         let Some(observed_snapshot) = self.latest_observed_snapshot() else {
             warn!(
+                iceberg_component = "sink_committer",
+                iceberg_operation = "notify_compaction",
                 sink_id = %self.sink_id,
-                "skip iceberg compaction update because no observed snapshot is available"
+                sink_name = %self.param.sink_name,
+                table = %self.table.identifier(),
+                branch = %branch,
+                force_compaction,
+                "iceberg_sink_compaction_update_skipped",
             );
             return;
         };
@@ -336,43 +295,18 @@ impl IcebergSinkCommitter {
             .is_err()
         {
             warn!(
+                iceberg_component = "sink_committer",
+                iceberg_operation = "notify_compaction",
                 sink_id = %self.sink_id,
+                sink_name = %self.param.sink_name,
+                table = %self.table.identifier(),
                 force_compaction,
                 observed_snapshot_id,
                 observed_snapshot_timestamp_ms,
                 observed_snapshot_branch = %observed_snapshot_branch,
-                "failed to send iceberg compaction update"
+                "iceberg_sink_compaction_update_send_failed",
             );
         }
-    }
-
-    // Reload table and guarantee current schema_id and partition_spec_id matches
-    // given `schema_id` and `partition_spec_id`
-    async fn reload_table(
-        catalog: &dyn Catalog,
-        table_ident: &TableIdent,
-        schema_id: i32,
-        partition_spec_id: i32,
-    ) -> Result<Table> {
-        let table = catalog
-            .load_table(table_ident)
-            .await
-            .map_err(|err| SinkError::Iceberg(anyhow!(err)))?;
-        if table.metadata().current_schema_id() != schema_id {
-            return Err(SinkError::Iceberg(anyhow!(
-                "Schema evolution not supported, expect schema id {}, but got {}",
-                schema_id,
-                table.metadata().current_schema_id()
-            )));
-        }
-        if table.metadata().default_partition_spec_id() != partition_spec_id {
-            return Err(SinkError::Iceberg(anyhow!(
-                "Partition evolution not supported, expect partition spec id {}, but got {}",
-                partition_spec_id,
-                table.metadata().default_partition_spec_id()
-            )));
-        }
-        Ok(table)
     }
 }
 
@@ -380,18 +314,38 @@ impl IcebergSinkCommitter {
 impl SinglePhaseCommitCoordinator for IcebergSinkCommitter {
     async fn init(&mut self) -> Result<()> {
         tracing::info!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "init",
             sink_id = %self.param.sink_id,
-            "Iceberg sink coordinator initialized",
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            "iceberg_sink_committer_initialized",
         );
 
         Ok(())
     }
 
     async fn commit_data(&mut self, epoch: u64, metadata: Vec<SinkMetadata>) -> Result<()> {
-        tracing::debug!("Starting iceberg direct commit in epoch {epoch}");
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "direct_commit",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            epoch,
+            metadata_count = metadata.len(),
+            "iceberg_sink_commit_started",
+        );
 
         if metadata.is_empty() {
-            tracing::debug!(?epoch, "No datafile to commit");
+            tracing::debug!(
+                iceberg_component = "sink_committer",
+                iceberg_operation = "direct_commit",
+                sink_id = %self.sink_id,
+                table = %self.table.identifier(),
+                epoch,
+                "iceberg_sink_commit_skipped_empty_metadata",
+            );
             return Ok(());
         }
 
@@ -410,12 +364,24 @@ impl SinglePhaseCommitCoordinator for IcebergSinkCommitter {
         schema_change: PbSinkSchemaChange,
     ) -> Result<()> {
         tracing::info!(
-            "Committing schema change {:?} in epoch {}",
-            schema_change,
-            epoch
+            iceberg_component = "sink_committer",
+            iceberg_operation = "schema_change",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            epoch,
+            schema_change = ?schema_change,
+            "iceberg_sink_schema_change_commit_started",
         );
         self.commit_schema_change_impl(schema_change).await?;
-        tracing::info!("Successfully committed schema change in epoch {}", epoch);
+        tracing::info!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "schema_change",
+            sink_id = %self.sink_id,
+            table = %self.table.identifier(),
+            epoch,
+            "iceberg_sink_schema_change_commit_succeeded",
+        );
 
         Ok(())
     }
@@ -425,8 +391,12 @@ impl SinglePhaseCommitCoordinator for IcebergSinkCommitter {
 impl TwoPhaseCommitCoordinator for IcebergSinkCommitter {
     async fn init(&mut self) -> Result<()> {
         tracing::info!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "init",
             sink_id = %self.param.sink_id,
-            "Iceberg sink coordinator initialized",
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            "iceberg_sink_committer_initialized",
         );
 
         Ok(())
@@ -438,20 +408,36 @@ impl TwoPhaseCommitCoordinator for IcebergSinkCommitter {
         metadata: Vec<SinkMetadata>,
         _schema_change: Option<PbSinkSchemaChange>,
     ) -> Result<Option<Vec<u8>>> {
-        tracing::debug!("Starting iceberg pre commit in epoch {epoch}");
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "pre_commit",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            epoch,
+            metadata_count = metadata.len(),
+            "iceberg_sink_pre_commit_started",
+        );
 
         let (write_results, snapshot_id) = match self.pre_commit_inner(epoch, metadata)? {
             Some((write_results, snapshot_id)) => (write_results, snapshot_id),
             None => {
-                tracing::debug!(?epoch, "no data to pre commit");
+                tracing::debug!(
+                    iceberg_component = "sink_committer",
+                    iceberg_operation = "pre_commit",
+                    sink_id = %self.sink_id,
+                    table = %self.table.identifier(),
+                    epoch,
+                    "iceberg_sink_pre_commit_skipped_no_data",
+                );
                 return Ok(None);
             }
         };
 
         let mut write_results_bytes = Vec::new();
         for each_parallelism_write_result in write_results {
-            let each_parallelism_write_result_bytes: Vec<u8> =
-                each_parallelism_write_result.try_into()?;
+            let each_parallelism_write_result_bytes =
+                <Vec<u8>>::try_from(&each_parallelism_write_result)?;
             write_results_bytes.push(each_parallelism_write_result_bytes);
         }
 
@@ -459,14 +445,40 @@ impl TwoPhaseCommitCoordinator for IcebergSinkCommitter {
         write_results_bytes.push(snapshot_id_bytes);
 
         let pre_commit_metadata_bytes: Vec<u8> = serialize_metadata(write_results_bytes);
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "pre_commit",
+            sink_id = %self.sink_id,
+            table = %self.table.identifier(),
+            epoch,
+            snapshot_id,
+            pre_commit_metadata_bytes = pre_commit_metadata_bytes.len(),
+            "iceberg_sink_pre_commit_metadata_encoded",
+        );
         Ok(Some(pre_commit_metadata_bytes))
     }
 
     async fn commit_data(&mut self, epoch: u64, commit_metadata: Vec<u8>) -> Result<()> {
-        tracing::debug!("Starting iceberg commit in epoch {epoch}");
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "commit",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            epoch,
+            commit_metadata_bytes = commit_metadata.len(),
+            "iceberg_sink_commit_started",
+        );
 
         if commit_metadata.is_empty() {
-            tracing::debug!(?epoch, "No datafile to commit");
+            tracing::debug!(
+                iceberg_component = "sink_committer",
+                iceberg_operation = "commit",
+                sink_id = %self.sink_id,
+                table = %self.table.identifier(),
+                epoch,
+                "iceberg_sink_commit_skipped_empty_metadata",
+            );
             return Ok(());
         }
 
@@ -491,17 +503,21 @@ impl TwoPhaseCommitCoordinator for IcebergSinkCommitter {
         // Remaining elements are write_results
         let write_results = payload
             .into_iter()
-            .map(IcebergCommitResult::try_from_serialized_bytes)
+            .map(|p| IcebergCommitResult::try_from_serialized_bytes(&p))
             .collect::<Result<Vec<_>>>()?;
 
-        let snapshot_committed = self
-            .is_snapshot_id_in_iceberg(&self.config, snapshot_id)
-            .await?;
+        let snapshot_committed = self.is_snapshot_id_in_iceberg(snapshot_id).await?;
 
         if snapshot_committed {
             tracing::info!(
-                "Snapshot id {} already committed in iceberg table, skip committing again.",
-                snapshot_id
+                iceberg_component = "sink_committer",
+                iceberg_operation = "commit",
+                sink_id = %self.sink_id,
+                sink_name = %self.param.sink_name,
+                table = %self.table.identifier(),
+                epoch,
+                snapshot_id,
+                "iceberg_sink_commit_skipped_snapshot_already_committed",
             );
             return Ok(());
         }
@@ -517,24 +533,50 @@ impl TwoPhaseCommitCoordinator for IcebergSinkCommitter {
     ) -> Result<()> {
         let schema_updated = self.check_schema_change_applied(&schema_change)?;
         if schema_updated {
-            tracing::info!("Schema change already committed in epoch {}, skip", epoch);
+            tracing::info!(
+                iceberg_component = "sink_committer",
+                iceberg_operation = "schema_change",
+                sink_id = %self.sink_id,
+                table = %self.table.identifier(),
+                epoch,
+                "iceberg_sink_schema_change_skipped_already_applied",
+            );
             return Ok(());
         }
 
         tracing::info!(
-            "Committing schema change {:?} in epoch {}",
-            schema_change,
-            epoch
+            iceberg_component = "sink_committer",
+            iceberg_operation = "schema_change",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            epoch,
+            schema_change = ?schema_change,
+            "iceberg_sink_schema_change_commit_started",
         );
         self.commit_schema_change_impl(schema_change).await?;
-        tracing::info!("Successfully committed schema change in epoch {epoch}");
+        tracing::info!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "schema_change",
+            sink_id = %self.sink_id,
+            table = %self.table.identifier(),
+            epoch,
+            "iceberg_sink_schema_change_commit_succeeded",
+        );
 
         Ok(())
     }
 
-    async fn abort(&mut self, _epoch: u64, _commit_metadata: Vec<u8>) {
+    async fn abort(&mut self, epoch: u64, _commit_metadata: Vec<u8>) {
         // TODO: Files that have been written but not committed should be deleted.
-        tracing::debug!("Abort not implemented yet");
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "abort",
+            sink_id = %self.sink_id,
+            table = %self.table.identifier(),
+            epoch,
+            "iceberg_sink_commit_abort_unimplemented",
+        );
     }
 }
 
@@ -542,13 +584,24 @@ impl TwoPhaseCommitCoordinator for IcebergSinkCommitter {
 impl IcebergSinkCommitter {
     fn pre_commit_inner(
         &mut self,
-        _epoch: u64,
+        epoch: u64,
         metadata: Vec<SinkMetadata>,
     ) -> Result<Option<(Vec<IcebergCommitResult>, i64)>> {
         let write_results: Vec<IcebergCommitResult> = metadata
             .iter()
             .map(IcebergCommitResult::try_from)
             .collect::<Result<Vec<IcebergCommitResult>>>()?;
+        let data_file_count: usize = write_results.iter().map(|r| r.data_files.len()).sum();
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "pre_commit",
+            sink_id = %self.sink_id,
+            table = %self.table.identifier(),
+            epoch,
+            writer_result_count = write_results.len(),
+            data_file_count,
+            "iceberg_sink_pre_commit_metadata_decoded",
+        );
 
         // Skip if no data to commit
         if write_results.is_empty() || write_results.iter().all(|r| r.data_files.is_empty()) {
@@ -572,6 +625,18 @@ impl IcebergSinkCommitter {
         }
 
         let snapshot_id = FastAppendAction::generate_snapshot_id(&self.table);
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "pre_commit",
+            sink_id = %self.sink_id,
+            table = %self.table.identifier(),
+            epoch,
+            snapshot_id,
+            schema_id = expect_schema_id,
+            partition_spec_id = expect_partition_spec_id,
+            data_file_count,
+            "iceberg_sink_pre_commit_snapshot_assigned",
+        );
 
         Ok(Some((write_results, snapshot_id)))
     }
@@ -592,15 +657,33 @@ impl IcebergSinkCommitter {
 
         let expect_schema_id = write_results[0].schema_id;
         let expect_partition_spec_id = write_results[0].partition_spec_id;
+        let data_file_count: usize = write_results.iter().map(|r| r.data_files.len()).sum();
+        let target_branch = commit_branch(self.config.r#type.as_str(), self.config.write_mode);
+        tracing::info!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "commit",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            branch = %target_branch,
+            epoch,
+            snapshot_id,
+            schema_id = expect_schema_id,
+            partition_spec_id = expect_partition_spec_id,
+            data_file_count,
+            retry_num = self.commit_retry_num,
+            "iceberg_sink_commit_applying",
+        );
 
         // Load the latest table to avoid concurrent modification with the best effort.
-        self.table = Self::reload_table(
+        self.table = commit_retry::reload_table(
             self.catalog.as_ref(),
             self.table.identifier(),
             expect_schema_id,
             expect_partition_spec_id,
         )
-        .await?;
+        .await
+        .map_err(SinkError::Iceberg)?;
 
         let Some(schema) = self.table.metadata().schema_by_id(expect_schema_id) else {
             return Err(SinkError::Iceberg(anyhow!(
@@ -608,21 +691,7 @@ impl IcebergSinkCommitter {
                 expect_schema_id
             )));
         };
-        let Some(partition_spec) = self
-            .table
-            .metadata()
-            .partition_spec_by_id(expect_partition_spec_id)
-        else {
-            return Err(SinkError::Iceberg(anyhow!(
-                "Can't find partition spec by id {}",
-                expect_partition_spec_id
-            )));
-        };
-        let partition_type = partition_spec
-            .as_ref()
-            .clone()
-            .partition_type(schema)
-            .map_err(|err| SinkError::Iceberg(anyhow!(err)))?;
+        let partition_type = resolve_partition_type(&self.table, expect_partition_spec_id, schema)?;
 
         let data_files = write_results
             .into_iter()
@@ -633,84 +702,84 @@ impl IcebergSinkCommitter {
                 })
             })
             .collect::<Result<Vec<DataFile>>>()?;
+
         // # TODO:
         // This retry behavior should be revert and do in iceberg-rust when it supports retry(Track in: https://github.com/apache/iceberg-rust/issues/964)
         // because retry logic involved reapply the commit metadata.
         // For now, we just retry the commit operation.
-        let retry_strategy = ExponentialBackoff::from_millis(10)
-            .max_delay(Duration::from_secs(60))
-            .map(jitter)
-            .take(self.commit_retry_num as usize);
         let catalog = self.catalog.clone();
+        let sink_id = self.sink_id;
         let table_ident = self.table.identifier().clone();
+        let table_name = table_ident.to_string();
+        let retry_log_context = CommitRetryLogContext::new(
+            "sink_committer",
+            "commit",
+            table_name.clone(),
+            target_branch.clone(),
+        )
+        .with_sink_id(sink_id)
+        .with_epoch(epoch)
+        .with_snapshot_id(snapshot_id);
 
-        // Custom retry logic that:
-        // 1. Calls reload_table before each commit attempt to get the latest metadata
-        // 2. If reload_table fails (table not exists/schema/partition mismatch), stops retrying immediately
-        // 3. If commit fails, retries with backoff
-        enum CommitError {
-            ReloadTable(SinkError), // Non-retriable: schema/partition mismatch
-            Commit(SinkError),      // Retriable: commit conflicts, network errors
-        }
+        let table = commit_retry::run_with_retry(
+            catalog.clone(),
+            table_ident.clone(),
+            expect_schema_id,
+            expect_partition_spec_id,
+            self.commit_retry_num as usize,
+            retry_log_context,
+            |table| {
+                let table_name = table_name.clone();
+                let target_branch = target_branch.clone();
+                let data_files = data_files.clone();
+                let catalog = catalog.clone();
+                async move {
+                    let txn = Transaction::new(&table);
+                    let append_action = txn
+                        .fast_append()
+                        .set_snapshot_id(snapshot_id)
+                        .set_target_branch(target_branch.clone())
+                        .add_data_files(data_files);
 
-        let table = RetryIf::spawn(
-            retry_strategy,
-            || async {
-                // Reload table before each commit attempt to get the latest metadata
-                let table = Self::reload_table(
-                    catalog.as_ref(),
-                    &table_ident,
-                    expect_schema_id,
-                    expect_partition_spec_id,
-                )
-                .await
-                .map_err(|e| {
-                    tracing::error!(error = %e.as_report(), "Failed to reload iceberg table");
-                    CommitError::ReloadTable(e)
-                })?;
-
-                let txn = Transaction::new(&table);
-                let append_action = txn
-                    .fast_append()
-                    .set_snapshot_id(snapshot_id)
-                    .set_target_branch(commit_branch(
-                        self.config.r#type.as_str(),
-                        self.config.write_mode,
-                    ))
-                    .add_data_files(data_files.clone());
-
-                let tx = append_action.apply(txn).map_err(|err| {
-                    let err: IcebergError = err.into();
-                    tracing::error!(error = %err.as_report(), "Failed to apply iceberg table");
-                    CommitError::Commit(SinkError::Iceberg(anyhow!(err)))
-                })?;
-
-                tx.commit(catalog.as_ref()).await.map_err(|err| {
-                    let err: IcebergError = err.into();
-                    tracing::error!(error = %err.as_report(), "Failed to commit iceberg table");
-                    CommitError::Commit(SinkError::Iceberg(anyhow!(err)))
-                })
-            },
-            |err: &CommitError| {
-                // Only retry on commit errors, not on reload_table errors
-                match err {
-                    CommitError::Commit(_) => {
-                        tracing::warn!("Commit failed, will retry");
-                        true
-                    }
-                    CommitError::ReloadTable(_) => {
+                    let tx = append_action.apply(txn).map_err(|err| {
+                        let err: IcebergError = err.into();
                         tracing::error!(
-                            "reload_table failed with non-retriable error, will not retry"
+                            iceberg_component = "sink_committer",
+                            iceberg_operation = "commit",
+                            sink_id = %sink_id,
+                            table = %table_name,
+                            epoch,
+                            snapshot_id,
+                            branch = %target_branch,
+                            data_file_count,
+                            error = %err.as_report(),
+                            "iceberg_sink_commit_fast_append_apply_failed",
                         );
-                        false
-                    }
+                        CommitError::Commit(anyhow!(err).context("apply iceberg fast_append"))
+                    })?;
+
+                    let table = tx.commit(catalog.as_ref()).await.map_err(|err| {
+                        let err: IcebergError = err.into();
+                        tracing::error!(
+                            iceberg_component = "sink_committer",
+                            iceberg_operation = "commit",
+                            sink_id = %sink_id,
+                            table = %table_name,
+                            epoch,
+                            snapshot_id,
+                            branch = %target_branch,
+                            data_file_count,
+                            error = %err.as_report(),
+                            "iceberg_sink_commit_transaction_failed",
+                        );
+                        CommitError::Commit(anyhow!(err).context("commit iceberg transaction"))
+                    })?;
+                    Ok(table)
                 }
             },
         )
         .await
-        .map_err(|e| match e {
-            CommitError::ReloadTable(e) | CommitError::Commit(e) => e,
-        })?;
+        .map_err(SinkError::Iceberg)?;
         self.table = table;
 
         let snapshot_num = self.table.metadata().snapshots().count();
@@ -722,7 +791,19 @@ impl IcebergSinkCommitter {
             .with_guarded_label_values(&metrics_labels)
             .set(snapshot_num as i64);
 
-        tracing::debug!("Succeeded to commit to iceberg table in epoch {epoch}.");
+        tracing::debug!(
+            iceberg_component = "sink_committer",
+            iceberg_operation = "commit",
+            sink_id = %self.sink_id,
+            sink_name = %self.param.sink_name,
+            table = %self.table.identifier(),
+            branch = %target_branch,
+            epoch,
+            snapshot_id,
+            snapshot_num,
+            data_file_count,
+            "iceberg_sink_commit_succeeded",
+        );
 
         self.notify_iceberg_compaction_scheduler(false);
 
@@ -732,12 +813,12 @@ impl IcebergSinkCommitter {
     /// During pre-commit metadata, we record the `snapshot_id` corresponding to each batch of files.
     /// Therefore, the logic for checking whether all files in this batch are present in Iceberg
     /// has been changed to verifying if their corresponding `snapshot_id` exists in Iceberg.
-    async fn is_snapshot_id_in_iceberg(
-        &self,
-        iceberg_config: &IcebergConfig,
-        snapshot_id: i64,
-    ) -> Result<bool> {
-        let table = iceberg_config.load_table().await?;
+    async fn is_snapshot_id_in_iceberg(&self, snapshot_id: i64) -> Result<bool> {
+        let table = self
+            .catalog
+            .load_table(self.table.identifier())
+            .await
+            .map_err(|err| SinkError::Iceberg(anyhow!(err).context("reload iceberg table")))?;
         if table.metadata().snapshot_by_id(snapshot_id).is_some() {
             Ok(true)
         } else {
@@ -780,42 +861,56 @@ impl IcebergSinkCommitter {
             return Ok(false);
         }
 
-        // We only support add_columns for now.
-        let Some(risingwave_pb::stream_plan::sink_schema_change::Op::AddColumns(add_columns_op)) =
-            schema_change.op.as_ref()
-        else {
-            return Err(SinkError::Iceberg(anyhow!(
-                "Unsupported sink schema change op in iceberg sink: {:?}",
-                schema_change.op
-            )));
+        let expected_after_change = match schema_change.op.as_ref() {
+            Some(risingwave_pb::stream_plan::sink_schema_change::Op::AddColumns(
+                add_columns_op,
+            )) => {
+                let add_arrow_fields: Vec<ArrowField> = add_columns_op
+                    .fields
+                    .iter()
+                    .map(|pb_field| {
+                        let field = Field::from(pb_field);
+                        iceberg_arrow_convert
+                            .to_arrow_field(&field.name, &field.data_type)
+                            .context("Failed to convert field to arrow")
+                            .map_err(SinkError::Iceberg)
+                    })
+                    .collect::<Result<_>>()?;
+
+                let mut expected_after_change = original_arrow_fields;
+                expected_after_change.extend(add_arrow_fields);
+                expected_after_change
+            }
+            Some(risingwave_pb::stream_plan::sink_schema_change::Op::DropColumns(
+                drop_columns_op,
+            )) => original_arrow_fields
+                .into_iter()
+                .filter(|field| {
+                    !drop_columns_op
+                        .column_names
+                        .iter()
+                        .any(|name| name == field.name())
+                })
+                .collect_vec(),
+            _ => {
+                return Err(SinkError::Iceberg(anyhow!(
+                    "Unsupported sink schema change op in iceberg sink: {:?}",
+                    schema_change.op
+                )));
+            }
         };
 
-        let add_arrow_fields: Vec<ArrowField> = add_columns_op
-            .fields
-            .iter()
-            .map(|pb_field| {
-                let field = Field::from(pb_field);
-                iceberg_arrow_convert
-                    .to_arrow_field(&field.name, &field.data_type)
-                    .context("Failed to convert field to arrow")
-                    .map_err(SinkError::Iceberg)
-            })
-            .collect::<Result<_>>()?;
-
-        let mut expected_after_change = original_arrow_fields;
-        expected_after_change.extend(add_arrow_fields);
-
-        // If current schema equals original_schema + add_columns, then schema change is applied.
+        // If current schema equals the changed schema, then schema change is applied.
         if schema_matches(&expected_after_change) {
             tracing::debug!(
-                "Current iceberg schema matches original_schema + add_columns ({} columns); schema change already applied",
+                "Current iceberg schema matches changed schema ({} columns); schema change already applied",
                 expected_after_change.len()
             );
             return Ok(true);
         }
 
         Err(SinkError::Iceberg(anyhow!(
-            "Current iceberg schema does not match either original_schema ({} cols) or original_schema + add_columns; cannot determine whether schema change is applied",
+            "Current iceberg schema does not match either original_schema ({} cols) or changed schema; cannot determine whether schema change is applied",
             schema_change.original_schema.len()
         )))
     }
@@ -826,17 +921,6 @@ impl IcebergSinkCommitter {
     async fn commit_schema_change_impl(&mut self, schema_change: PbSinkSchemaChange) -> Result<()> {
         use iceberg::spec::NestedField;
 
-        let Some(risingwave_pb::stream_plan::sink_schema_change::Op::AddColumns(add_columns_op)) =
-            schema_change.op.as_ref()
-        else {
-            return Err(SinkError::Iceberg(anyhow!(
-                "Unsupported sink schema change op in iceberg sink: {:?}",
-                schema_change.op
-            )));
-        };
-
-        let add_columns = add_columns_op.fields.iter().map(Field::from).collect_vec();
-
         // Step 1: Get current table metadata
         let metadata = self.table.metadata();
         let mut next_field_id = metadata.last_column_id() + 1;
@@ -846,31 +930,53 @@ impl IcebergSinkCommitter {
         let iceberg_create_table_arrow_convert = IcebergCreateTableArrowConvert::default();
         let mut new_fields = Vec::new();
 
-        for field in &add_columns {
-            // Convert RisingWave Field to Arrow Field using IcebergCreateTableArrowConvert
-            let arrow_field = iceberg_create_table_arrow_convert
-                .to_arrow_field(&field.name, &field.data_type)
-                .with_context(|| format!("Failed to convert field '{}' to arrow", field.name))
-                .map_err(SinkError::Iceberg)?;
+        let mut drop_column_names = Vec::new();
+        match schema_change.op.as_ref() {
+            Some(risingwave_pb::stream_plan::sink_schema_change::Op::AddColumns(
+                add_columns_op,
+            )) => {
+                let add_columns = add_columns_op.fields.iter().map(Field::from).collect_vec();
+                for field in &add_columns {
+                    // Convert RisingWave Field to Arrow Field using IcebergCreateTableArrowConvert
+                    let arrow_field = iceberg_create_table_arrow_convert
+                        .to_arrow_field(&field.name, &field.data_type)
+                        .with_context(|| {
+                            format!("Failed to convert field '{}' to arrow", field.name)
+                        })
+                        .map_err(SinkError::Iceberg)?;
 
-            // Convert Arrow DataType to Iceberg Type
-            let iceberg_type = iceberg::arrow::arrow_type_to_type(arrow_field.data_type())
-                .map_err(|err| {
-                    SinkError::Iceberg(
-                        anyhow!(err).context("Failed to convert Arrow type to Iceberg type"),
-                    )
-                })?;
+                    // Convert Arrow DataType to Iceberg Type
+                    let iceberg_type = iceberg::arrow::arrow_type_to_type(arrow_field.data_type())
+                        .map_err(|err| {
+                            SinkError::Iceberg(
+                                anyhow!(err)
+                                    .context("Failed to convert Arrow type to Iceberg type"),
+                            )
+                        })?;
 
-            // Create NestedField with the next available field ID
-            let nested_field = Arc::new(NestedField::optional(
-                next_field_id,
-                &field.name,
-                iceberg_type,
-            ));
+                    // Create NestedField with the next available field ID
+                    let nested_field = Arc::new(NestedField::optional(
+                        next_field_id,
+                        &field.name,
+                        iceberg_type,
+                    ));
 
-            new_fields.push(nested_field);
-            tracing::info!("Prepared field '{}' with ID {}", field.name, next_field_id);
-            next_field_id += 1;
+                    new_fields.push(nested_field);
+                    tracing::info!("Prepared field '{}' with ID {}", field.name, next_field_id);
+                    next_field_id += 1;
+                }
+            }
+            Some(risingwave_pb::stream_plan::sink_schema_change::Op::DropColumns(
+                drop_columns_op,
+            )) => {
+                drop_column_names = drop_columns_op.column_names.clone();
+            }
+            _ => {
+                return Err(SinkError::Iceberg(anyhow!(
+                    "Unsupported sink schema change op in iceberg sink: {:?}",
+                    schema_change.op
+                )));
+            }
         }
 
         // Step 3: Create Transaction with UpdateSchemaAction
@@ -880,7 +986,11 @@ impl IcebergSinkCommitter {
         );
 
         let txn = Transaction::new(&self.table);
-        let action = txn.update_schema().add_fields(new_fields);
+        let action_fields_added = new_fields.len();
+        let action = txn
+            .update_schema()
+            .add_fields(new_fields)
+            .drop_fields(drop_column_names.clone());
 
         let updated_table = action
             .apply(txn)
@@ -894,19 +1004,16 @@ impl IcebergSinkCommitter {
         self.table = updated_table;
 
         tracing::info!(
-            "Successfully committed schema change, added {} columns to iceberg table",
-            add_columns.len()
+            "Successfully committed schema change, added {} columns and dropped {} columns from iceberg table",
+            action_fields_added,
+            drop_column_names.len()
         );
 
         Ok(())
     }
 
     /// Check the number of snapshots on the given branch lineage since the last rewrite operation.
-    ///
-    /// This follows the branch head and then parent links instead of scanning all snapshots,
-    /// so snapshot backlog accounting stays isolated to the sink commit branch.
-    /// The method is stateless and only inspects the provided metadata, which also
-    /// makes it suitable for isolated unit tests.
+    /// Returns the number of snapshots since the last rewrite.
     fn count_snapshots_since_rewrite_in_metadata(metadata: &TableMetadata, branch: &str) -> usize {
         // Start from the latest snapshot of the commit branch.
         let mut snapshot_id = metadata
@@ -967,7 +1074,10 @@ impl IcebergSinkCommitter {
                 tokio::time::sleep(Duration::from_secs(30)).await;
 
                 // Refresh table after the wait so the next check sees latest snapshots.
-                self.table = self.config.load_table().await?;
+                let table_ident = self.table.identifier().clone();
+                self.table = self.catalog.load_table(&table_ident).await.map_err(|err| {
+                    SinkError::Iceberg(anyhow!(err).context("reload iceberg table"))
+                })?;
             }
         }
         Ok(())
@@ -1254,7 +1364,6 @@ mod tests {
             .build()
     }
 
-    /// Build a branch snapshot reference without retention limits for tests.
     fn snapshot_ref(snapshot_id: i64) -> SnapshotReference {
         SnapshotReference::new(snapshot_id, SnapshotRetention::branch(None, None, None))
     }

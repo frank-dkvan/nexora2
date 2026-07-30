@@ -45,6 +45,8 @@ pub enum Error {
     CompactionGroup(String),
     #[error("SST {0} is invalid")]
     InvalidSst(HummockSstableObjectId),
+    #[error("invalid manual compaction option: {0}")]
+    InvalidManualCompactionOption(String),
     #[error("time-travel version expired: table {table_id}, epoch {epoch}")]
     TimeTravelVersionExpired { table_id: TableId, epoch: u64 },
     #[error("time travel")]
@@ -82,6 +84,7 @@ impl From<sea_orm::DbErr> for Error {
 impl From<Error> for tonic::Status {
     fn from(err: Error) -> Self {
         let code = match &err {
+            Error::InvalidManualCompactionOption(_) => tonic::Code::InvalidArgument,
             Error::TimeTravelVersionExpired { .. } => tonic::Code::OutOfRange,
             _ => tonic::Code::Internal,
         };

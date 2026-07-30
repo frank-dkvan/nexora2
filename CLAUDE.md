@@ -47,41 +47,55 @@ nexora2/
 ### 1. Additive Integration, Not Replacement
 
 - Keep all existing functionality intact
-- RisingWave is **optional** via `--features risingwave`
+- Event Streaming is **optional** via `--features event-streaming`
 - All 1590+ tests must continue to pass
 - Zero performance overhead for non-RisingWave builds
 
 ### 2. Feature Flags
 
 ```toml
-# Default build (no RisingWave)
+# Default build (no Event Streaming)
 cargo build --release
 
 # With event-first storage (Apache Iceberg)
 cargo build --release --features event-first
 
-# With RisingWave integration (advanced SQL)
-cargo build --release --features risingwave
+# With Event Streaming engine (advanced SQL, backed by RisingWave)
+cargo build --release --features event-streaming
+
+# Event Streaming compiled in-process (single-node, no external binary)
+cargo build --release --features library
 
 # Full stack
-cargo build --release --features event-first,risingwave
+cargo build --release --features event-first,event-streaming
 ```
 
 ### 3. Dual Event Processing Paths
 
-**Path A - Simple** (current, always available):
+Both paths are **parallel**, not serial. The Event Streaming engine has its own
+`CREATE SOURCE` that connects directly to upstream sources, so it does not depend
+on `nexora-stream`. Both paths converge on `nexora-eventlog`.
+
 ```
-Kafka → nexora-stream → nexora-eventlog → nexora-core
+                   ┌─ Path A:  nexora-stream ───────────────────────────┐
+sources (Kafka/…) ─┤                                                     ├─→ nexora-eventlog ─[GraphStreaming]→ nexora-core
+                   └─ Path B:  Event Streaming (CREATE SOURCE + SQL/MV) ─┘
 ```
 
-**Path B - Advanced** (new, optional with --features risingwave):
-```
-Kafka → RisingWave SQL MV → nexora-eventlog → nexora-core
-```
+**Path A - Simple** (current, always available): direct connector ingestion via
+`nexora-stream` for simple event-to-graph mapping.
+
+**Path B - Advanced** (new, optional with `--features event-streaming`): SQL-based
+stream processing (continuous queries, materialized views, stream joins) via the
+embedded Event Streaming engine.
+
+**GraphStreaming** is the conceptual layer that projects converged event-log data
+into the graph (`nexora-core`). It is currently a design concept — no code carries
+that name yet.
 
 ### 4. Shared Infrastructure
 
-Both RisingWave and Nexora will use:
+Both the Event Streaming engine and Nexora will use:
 - **nexora-consensus**: Raft trait abstraction (openraft implementation)
 - **nexora-rpc**: gRPC communication layer (tonic-based)
 - Unified configuration and monitoring
@@ -120,8 +134,8 @@ cargo test -p nexora-eventlog
 # Integration tests (requires external services)
 cargo test --test distributed_integration
 
-# RisingWave-specific tests (requires feature flag)
-cargo test -p nexora-risingwave --features risingwave
+# Event Streaming-specific tests (requires feature flag)
+cargo test -p nexora-risingwave --features event-streaming
 
 # All tests
 cargo test --workspace --all-features
@@ -214,11 +228,12 @@ data_dir = "/data/nexora/graph"
 backend = "rest"
 rest_uri = "http://localhost:8181/catalog"
 
-# NEW: RisingWave (optional, only with --features risingwave)
-[risingwave]
+# NEW: Event Streaming engine (optional, only with --features event-streaming)
+# Backed by an embedded RisingWave engine.
+[event_streaming]
 enabled = false
-meta_port = 5690
-frontend_port = 4566
+meta_addr = "127.0.0.1:5690"
+frontend_addr = "127.0.0.1:4566"
 ```
 
 ### Build Configuration
@@ -338,14 +353,14 @@ cargo test --workspace
 cargo test -p nexora-consensus
 cargo test -p nexora-rpc
 
-# Phase 3: Test RisingWave wrapper
-cargo test -p nexora-risingwave --features risingwave
+# Phase 3: Test Event Streaming wrapper
+cargo test -p nexora-risingwave --features event-streaming
 
 # Phase 4: Test Raft HA
-cargo test -p extensions-meta-raft --features risingwave -- --test-threads=1
+cargo test -p extensions-meta-raft --features event-streaming -- --test-threads=1
 
 # Phase 5: Test app integration
-cargo test -p nexora-app --features risingwave
+cargo test -p nexora-app --features event-streaming
 
 # Phase 6: End-to-end test
 ./scripts/test-risingwave-pipeline.sh
@@ -369,11 +384,11 @@ docker run -d \
   -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
   confluentinc/cp-kafka:latest
 
-# Start Nexora (without RisingWave)
+# Start Nexora (without Event Streaming)
 cargo run --release --features event-first
 
-# Start Nexora (with RisingWave) - after Phase 5
-cargo run --release --features event-first,risingwave
+# Start Nexora (with Event Streaming engine) - after Phase 5
+cargo run --release --features event-first,event-streaming
 ```
 
 ## Troubleshooting
@@ -406,13 +421,13 @@ git add vendor/risingwave
 ```bash
 # Clean and rebuild
 cargo clean
-cargo build --features risingwave
+cargo build --features event-streaming
 
 # Verify feature is enabled
-cargo tree --features risingwave | grep risingwave
+cargo tree --features event-streaming | grep nexora-risingwave
 ```
 
-**Q: Existing tests fail after adding RisingWave**
+**Q: Existing tests fail after adding the Event Streaming engine**
 ```bash
 # This is a BLOCKER - must fix immediately
 # Run git bisect to find the breaking commit
@@ -510,7 +525,7 @@ cargo build
 cargo build --release
 
 # Build with specific features
-cargo build --features risingwave
+cargo build --features event-streaming
 
 # Check compilation without building
 cargo check --workspace --all-features

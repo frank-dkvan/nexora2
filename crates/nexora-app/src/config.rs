@@ -67,9 +67,9 @@ pub struct AppTomlConfig {
     #[serde(default)]
     pub metrics: MetricsConfig,
 
-    #[cfg(feature = "risingwave")]
+    #[cfg(feature = "event-streaming")]
     #[serde(default)]
-    pub event_streams: Option<EventStreamsConfig>,
+    pub event_streaming: Option<EventStreamingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,10 +220,10 @@ pub struct MetricsConfig {
     pub enabled: bool,
 }
 
-#[cfg(feature = "risingwave")]
+#[cfg(feature = "event-streaming")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename = "event_streams")]
-pub struct EventStreamsConfig {
+#[serde(rename = "event_streaming")]
+pub struct EventStreamingConfig {
     /// Enable SQL-based event stream processing
     #[serde(default)]
     pub enabled: bool,
@@ -239,11 +239,11 @@ pub struct EventStreamsConfig {
     pub cluster_mode: bool,
 
     /// Meta node address (default: 127.0.0.1:5690)
-    #[serde(default = "default_event_streams_meta_addr")]
+    #[serde(default = "default_event_streaming_meta_addr")]
     pub meta_addr: String,
 
     /// Frontend node address (default: 127.0.0.1:4566)
-    #[serde(default = "default_event_streams_frontend_addr")]
+    #[serde(default = "default_event_streaming_frontend_addr")]
     pub frontend_addr: String,
 
     /// Path to event stream engine binary (for embedded mode)
@@ -253,17 +253,17 @@ pub struct EventStreamsConfig {
 
     /// Data directory (for embedded mode)
     #[cfg(feature = "embedded")]
-    #[serde(default = "default_event_streams_data_dir")]
+    #[serde(default = "default_event_streaming_data_dir")]
     pub data_dir: String,
 
     /// Startup timeout in seconds (for embedded mode)
     #[cfg(feature = "embedded")]
-    #[serde(default = "default_event_streams_startup_timeout")]
+    #[serde(default = "default_event_streaming_startup_timeout")]
     pub startup_timeout_secs: u64,
 
     /// Shutdown timeout in seconds (for embedded mode)
     #[cfg(feature = "embedded")]
-    #[serde(default = "default_event_streams_shutdown_timeout")]
+    #[serde(default = "default_event_streaming_shutdown_timeout")]
     pub shutdown_timeout_secs: u64,
 
     /// Compute node parallelism (for embedded mode, default: CPU cores)
@@ -280,9 +280,14 @@ pub struct EventStreamsConfig {
     #[cfg(feature = "embedded")]
     #[serde(default)]
     pub compute_nodes: Option<Vec<ComputeNodeTomlConfig>>,
+
+    /// Distributed library mode configuration (Phase 2)
+    #[cfg(feature = "library")]
+    #[serde(default)]
+    pub distributed: Option<DistributedLibraryTomlConfig>,
 }
 
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetaNodeTomlConfig {
     pub node_id: u32,
@@ -291,11 +296,94 @@ pub struct MetaNodeTomlConfig {
     pub dashboard_addr: String,
 }
 
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputeNodeTomlConfig {
     pub listen_addr: String,
     pub parallelism: usize,
+}
+
+/// Distributed library mode configuration (Phase 2)
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributedLibraryTomlConfig {
+    /// Enable distributed library mode
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Node ID (e.g., "meta-1", "meta-2", "meta-3")
+    pub node_id: String,
+
+    /// Meta node configuration
+    pub meta: MetaNodeLibraryConfig,
+
+    /// Frontend node configuration
+    #[serde(default)]
+    pub frontend: Option<FrontendNodeLibraryConfig>,
+
+    /// Compute node configuration
+    #[serde(default)]
+    pub compute: Option<ComputeNodeLibraryConfig>,
+
+    /// Data directory for persistent storage
+    #[serde(default = "default_distributed_data_dir")]
+    pub data_dir: String,
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetaNodeLibraryConfig {
+    /// Address to bind Meta service (e.g., "0.0.0.0:5690")
+    pub listen_addr: String,
+
+    /// Address other nodes use to reach this Meta node (e.g., "node1.local:5690")
+    pub advertise_addr: String,
+
+    /// Peer Meta nodes for Raft cluster (format: "node_id@advertise_addr")
+    #[serde(default)]
+    pub raft_peers: Vec<String>,
+
+    /// Meta backend storage type ("etcd", "sqlite", or "memory")
+    #[serde(default = "default_meta_backend")]
+    pub backend: String,
+
+    /// Etcd endpoints (only for "etcd" backend)
+    #[serde(default)]
+    pub etcd_endpoints: Option<Vec<String>>,
+
+    /// SQLite path (only for "sqlite" backend)
+    #[serde(default)]
+    pub sqlite_path: Option<String>,
+
+    /// Raft election timeout in milliseconds (default: 3000)
+    #[serde(default = "default_election_timeout")]
+    pub election_timeout_ms: u64,
+
+    /// Raft heartbeat interval in milliseconds (default: 1000)
+    #[serde(default = "default_heartbeat_interval")]
+    pub heartbeat_interval_ms: u64,
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendNodeLibraryConfig {
+    /// Address to bind PostgreSQL wire protocol listener
+    pub listen_addr: String,
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputeNodeLibraryConfig {
+    /// Address to bind Compute service
+    pub listen_addr: String,
+
+    /// Number of parallel workers (default: CPU cores)
+    #[serde(default)]
+    pub parallelism: Option<usize>,
+
+    /// Internal RPC address (default: use listen_addr)
+    #[serde(default)]
+    pub internal_rpc_addr: Option<String>,
 }
 
 // ---- Default values ----
@@ -361,25 +449,42 @@ fn default_true() -> bool {
     true
 }
 
-#[cfg(feature = "risingwave")]
-fn default_event_streams_meta_addr() -> String {
+#[cfg(feature = "event-streaming")]
+fn default_event_streaming_meta_addr() -> String {
     "127.0.0.1:5690".into()
 }
-#[cfg(feature = "risingwave")]
-fn default_event_streams_frontend_addr() -> String {
+#[cfg(feature = "event-streaming")]
+fn default_event_streaming_frontend_addr() -> String {
     "127.0.0.1:4566".into()
 }
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
-fn default_event_streams_data_dir() -> String {
-    "./nexora-data/event-streams".into()
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
+fn default_event_streaming_data_dir() -> String {
+    "./nexora-data/event-streaming".into()
 }
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
-fn default_event_streams_startup_timeout() -> u64 {
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
+fn default_event_streaming_startup_timeout() -> u64 {
     60
 }
-#[cfg(all(feature = "risingwave", feature = "embedded"))]
-fn default_event_streams_shutdown_timeout() -> u64 {
+#[cfg(all(feature = "event-streaming", feature = "embedded"))]
+fn default_event_streaming_shutdown_timeout() -> u64 {
     30
+}
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_distributed_data_dir() -> String {
+    "./nexora-data/event-streaming-distributed".into()
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_meta_backend() -> String {
+    "sqlite".into()
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_election_timeout() -> u64 {
+    3000
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_heartbeat_interval() -> u64 {
+    1000
 }
 
 impl Default for ServerConfig {

@@ -1,10 +1,12 @@
 //! Main RisingWave module that coordinates all components.
 
-use crate::config::RisingWaveConfig;
+use crate::config::EventStreamingConfig;
 use crate::error::Result;
 use crate::event_sink::ColumnValue;
-use crate::frontend_wrapper::FrontendNode;
+use crate::event_streaming_trait::EventStreamingOperations;
+use crate::frontend_wrapper::FrontendWrapper;
 use crate::meta_wrapper::MetaNode;
+use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::info;
 
@@ -20,11 +22,11 @@ use tracing::info;
 /// # Example
 ///
 /// ```rust,no_run
-/// use nexora_risingwave::{RisingWaveModule, RisingWaveConfig};
+/// use nexora_risingwave::{EventStreamingModule, EventStreamingConfig};
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let config = RisingWaveConfig::new();
-/// let rw = RisingWaveModule::start(config).await?;
+/// let config = EventStreamingConfig::new();
+/// let rw = EventStreamingModule::start(config).await?;
 ///
 /// rw.execute_ddl("CREATE SOURCE ...").await?;
 /// let results = rw.query_mv("SELECT * FROM ...").await?;
@@ -33,13 +35,13 @@ use tracing::info;
 /// # Ok(())
 /// # }
 /// ```
-pub struct RisingWaveModule {
+pub struct EventStreamingModule {
     meta: Arc<MetaNode>,
-    frontend: Arc<FrontendNode>,
-    config: RisingWaveConfig,
+    frontend: Arc<FrontendWrapper>,
+    config: EventStreamingConfig,
 }
 
-impl RisingWaveModule {
+impl EventStreamingModule {
     /// Start the RisingWave module with the given configuration.
     ///
     /// This will start:
@@ -58,14 +60,14 @@ impl RisingWaveModule {
     /// # Errors
     ///
     /// Returns an error if any component fails to start.
-    pub async fn start(config: RisingWaveConfig) -> Result<Self> {
+    pub async fn start(config: EventStreamingConfig) -> Result<Self> {
         info!("Starting RisingWave module");
 
         // Phase 3: Start Meta and Frontend with simplified wrappers
         let meta = Arc::new(MetaNode::new(config.meta_addr));
         meta.start().await?;
 
-        let frontend = Arc::new(FrontendNode::new(config.frontend_addr, config.meta_addr));
+        let frontend = Arc::new(FrontendWrapper::new(config.frontend_addr, config.meta_addr));
         frontend.start().await?;
 
         // Phase 4: Will also start Compute node if configured
@@ -91,8 +93,8 @@ impl RisingWaveModule {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use nexora_risingwave::RisingWaveModule;
-    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// # use nexora_risingwave::EventStreamingModule;
+    /// # async fn example(rw: &EventStreamingModule) -> Result<(), Box<dyn std::error::Error>> {
     /// rw.execute_ddl("
     ///     CREATE SOURCE my_kafka_source WITH (
     ///         connector = 'kafka',
@@ -130,8 +132,8 @@ impl RisingWaveModule {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use nexora_risingwave::RisingWaveModule;
-    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// # use nexora_risingwave::EventStreamingModule;
+    /// # async fn example(rw: &EventStreamingModule) -> Result<(), Box<dyn std::error::Error>> {
     /// let results = rw.query_mv("
     ///     SELECT id, COUNT(*) as count
     ///     FROM enriched_events
@@ -163,8 +165,8 @@ impl RisingWaveModule {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use nexora_risingwave::RisingWaveModule;
-    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// # use nexora_risingwave::EventStreamingModule;
+    /// # async fn example(rw: &EventStreamingModule) -> Result<(), Box<dyn std::error::Error>> {
     /// let sources = rw.list_sources().await?;
     /// for source in sources {
     ///     println!("Source: {} ({})", source.name, source.connector);
@@ -186,8 +188,8 @@ impl RisingWaveModule {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use nexora_risingwave::RisingWaveModule;
-    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// # use nexora_risingwave::EventStreamingModule;
+    /// # async fn example(rw: &EventStreamingModule) -> Result<(), Box<dyn std::error::Error>> {
     /// let mvs = rw.list_materialized_views().await?;
     /// for mv in mvs {
     ///     println!("MV: {}", mv.name);
@@ -223,8 +225,8 @@ impl RisingWaveModule {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use nexora_risingwave::{RisingWaveModule, Change};
-    /// # async fn example(rw: &RisingWaveModule) -> Result<(), Box<dyn std::error::Error>> {
+    /// # use nexora_risingwave::{EventStreamingModule, Change};
+    /// # async fn example(rw: &EventStreamingModule) -> Result<(), Box<dyn std::error::Error>> {
     /// let mut rx = rw.subscribe_mv("enriched_events").await?;
     ///
     /// while let Some(change) = rx.recv().await {
@@ -307,7 +309,7 @@ impl RisingWaveModule {
     }
 
     /// Get the RisingWave configuration.
-    pub fn config(&self) -> &RisingWaveConfig {
+    pub fn config(&self) -> &EventStreamingConfig {
         &self.config
     }
 
@@ -330,17 +332,51 @@ impl RisingWaveModule {
     }
 }
 
+#[async_trait]
+impl EventStreamingOperations for EventStreamingModule {
+    async fn execute_ddl(&self, sql: &str) -> Result<()> {
+        self.execute_ddl(sql).await
+    }
+
+    async fn query_mv(&self, sql: &str) -> Result<String> {
+        self.query_mv(sql).await
+    }
+
+    async fn list_sources(&self) -> Result<Vec<crate::catalog::SourceInfo>> {
+        self.list_sources().await
+    }
+
+    async fn list_materialized_views(&self) -> Result<Vec<crate::catalog::MaterializedViewInfo>> {
+        self.list_materialized_views().await
+    }
+
+    async fn is_leader(&self) -> bool {
+        self.is_leader().await
+    }
+
+    async fn list_hosted_iceberg_tables(
+        &self,
+    ) -> Result<Vec<crate::event_streaming_trait::IcebergTable>> {
+        // Client-server mode uses the placeholder FrontendWrapper / CatalogClient,
+        // which do not hold a live pgwire connection to a RisingWave frontend, so
+        // the hosted Iceberg catalog cannot be read here. The functional path is
+        // library mode (LibraryEventStreamingModule), which queries
+        // rw_catalog.iceberg_tables directly over pgwire.
+        Ok(vec![])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_module_lifecycle() {
-        let config = RisingWaveConfig::new()
+        let config = EventStreamingConfig::new()
             .with_meta_addr("127.0.0.1:15690".parse().unwrap())
             .with_frontend_addr("127.0.0.1:14566".parse().unwrap());
 
-        let rw = RisingWaveModule::start(config).await.unwrap();
+        let rw = EventStreamingModule::start(config).await.unwrap();
 
         assert!(rw.is_leader().await);
         assert!(rw.meta.is_running().await);
@@ -354,11 +390,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_module_ddl() {
-        let config = RisingWaveConfig::new()
+        let config = EventStreamingConfig::new()
             .with_meta_addr("127.0.0.1:15691".parse().unwrap())
             .with_frontend_addr("127.0.0.1:14567".parse().unwrap());
 
-        let rw = RisingWaveModule::start(config).await.unwrap();
+        let rw = EventStreamingModule::start(config).await.unwrap();
 
         // Execute DDL
         let result = rw.execute_ddl("CREATE SOURCE my_source WITH (...)").await;
@@ -369,11 +405,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_module_query() {
-        let config = RisingWaveConfig::new()
+        let config = EventStreamingConfig::new()
             .with_meta_addr("127.0.0.1:15692".parse().unwrap())
             .with_frontend_addr("127.0.0.1:14568".parse().unwrap());
 
-        let rw = RisingWaveModule::start(config).await.unwrap();
+        let rw = EventStreamingModule::start(config).await.unwrap();
 
         // Execute query
         let result = rw.query_mv("SELECT * FROM my_mv").await;

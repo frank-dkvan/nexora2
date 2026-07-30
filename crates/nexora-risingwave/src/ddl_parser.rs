@@ -4,7 +4,7 @@
 //! enabling seamless integration between RisingWave's SQL layer and Nexora's
 //! ontology system.
 
-use crate::error::{Result, RisingWaveError};
+use crate::error::{EventStreamingError, Result};
 
 /// SQL DDL parser for RisingWave
 pub struct DdlParser;
@@ -67,26 +67,26 @@ impl DdlParser {
         // Phase 6: Simple regex-based parser
         // Extract view name using regex
         let view_name_re = regex::Regex::new(r"CREATE\s+MATERIALIZED\s+VIEW\s+(\w+)\s+AS")
-            .map_err(|e| RisingWaveError::Internal(format!("Regex error: {}", e)))?;
+            .map_err(|e| EventStreamingError::Internal(format!("Regex error: {}", e)))?;
 
         let view_name = view_name_re
             .captures(sql)
             .and_then(|caps| caps.get(1))
             .map(|m| m.as_str().to_string())
             .ok_or_else(|| {
-                RisingWaveError::Internal("No CREATE MATERIALIZED VIEW found".to_string())
+                EventStreamingError::Internal("No CREATE MATERIALIZED VIEW found".to_string())
             })?;
 
         // Phase 6: For simplicity, extract column names from SELECT clause
         // Full implementation will use sqlparser-rs to parse the AST
         let select_re = regex::Regex::new(r"SELECT\s+(.*?)\s+FROM")
-            .map_err(|e| RisingWaveError::Internal(format!("Regex error: {}", e)))?;
+            .map_err(|e| EventStreamingError::Internal(format!("Regex error: {}", e)))?;
 
         let columns_str = select_re
             .captures(sql)
             .and_then(|caps| caps.get(1))
             .map(|m| m.as_str())
-            .ok_or_else(|| RisingWaveError::Internal("No SELECT clause found".to_string()))?;
+            .ok_or_else(|| EventStreamingError::Internal("No SELECT clause found".to_string()))?;
 
         let columns = columns_str
             .split(',')
@@ -153,43 +153,68 @@ impl DdlParser {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// # use nexora_risingwave::ddl_parser::DdlParser;
     /// let sql = "CREATE MATERIALIZED VIEW test AS SELECT id, name FROM events";
     /// let schema = DdlParser::parse_create_mv(sql).unwrap();
     /// let package = DdlParser::schema_to_domain_package(&schema);
     ///
-    /// assert_eq!(package.name, "test");
-    /// assert_eq!(package.entities.len(), 1);
+    /// assert_eq!(package.schema.domain, "test");
+    /// assert_eq!(package.schema.labels.len(), 1);
     /// ```
     #[cfg(feature = "event-first")]
     pub fn schema_to_domain_package(
         schema: &ParsedSchema,
     ) -> nexora_core::domain_package::DomainPackage {
-        use nexora_core::domain_package::{DomainPackage, Entity, Property};
+        use nexora_core::domain_package::{DomainPackage, DomainSchema, LabelDef, PropertyDef};
 
-        let properties: Vec<Property> = schema
+        // Each parsed MV column becomes a property on a single label named after
+        // the view. `nullable` maps to `required = !nullable`.
+        let properties: Vec<PropertyDef> = schema
             .columns
             .iter()
-            .map(|col| Property {
+            .map(|col| PropertyDef {
                 name: col.name.clone(),
-                property_type: col.nexora_type.clone(),
-                required: !col.nullable,
+                prop_type: col.nexora_type.clone(),
+                required: Some(!col.nullable),
+                indexed: None,
+                description: None,
+                enum_values: None,
+                min: None,
+                max: None,
+                default: None,
             })
             .collect();
 
-        let entity = Entity {
+        let label = LabelDef {
             name: schema.name.clone(),
+            description: Some(format!(
+                "Auto-generated from RisingWave MV: {}",
+                schema.name
+            )),
+            extends: None,
             properties,
         };
 
-        DomainPackage {
-            name: schema.name.clone(),
+        let domain_schema = DomainSchema {
+            domain: schema.name.clone(),
             version: "1.0.0".to_string(),
-            description: format!("Auto-generated from RisingWave MV: {}", schema.name),
-            entities: vec![entity],
+            description: Some(format!(
+                "Auto-generated from RisingWave MV: {}",
+                schema.name
+            )),
+            extends: None,
+            labels: vec![label],
+            edge_types: vec![],
+            constraints: vec![],
+            indexes: vec![],
+        };
+
+        DomainPackage {
+            schema: domain_schema,
             mappings: vec![],
-            relationships: vec![],
+            standing_queries: vec![],
+            materialized_views: vec![],
         }
     }
 }
@@ -288,15 +313,15 @@ mod tests {
 
         let package = DdlParser::schema_to_domain_package(&schema);
 
-        assert_eq!(package.name, "test_mv");
-        assert_eq!(package.version, "1.0.0");
-        assert_eq!(package.entities.len(), 1);
-        assert_eq!(package.entities[0].name, "test_mv");
-        assert_eq!(package.entities[0].properties.len(), 2);
-        assert_eq!(package.entities[0].properties[0].name, "id");
-        assert_eq!(package.entities[0].properties[0].property_type, "integer");
-        assert!(package.entities[0].properties[0].required);
-        assert_eq!(package.entities[0].properties[1].name, "name");
-        assert!(!package.entities[0].properties[1].required);
+        assert_eq!(package.schema.domain, "test_mv");
+        assert_eq!(package.schema.version, "1.0.0");
+        assert_eq!(package.schema.labels.len(), 1);
+        assert_eq!(package.schema.labels[0].name, "test_mv");
+        assert_eq!(package.schema.labels[0].properties.len(), 2);
+        assert_eq!(package.schema.labels[0].properties[0].name, "id");
+        assert_eq!(package.schema.labels[0].properties[0].prop_type, "integer");
+        assert_eq!(package.schema.labels[0].properties[0].required, Some(true));
+        assert_eq!(package.schema.labels[0].properties[1].name, "name");
+        assert_eq!(package.schema.labels[0].properties[1].required, Some(false));
     }
 }

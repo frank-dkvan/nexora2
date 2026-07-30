@@ -3,7 +3,7 @@
 //! Phase 3: Simplified implementation with placeholder logic.
 //! Phase 4: Full integration with vendor/risingwave Meta node.
 
-use crate::error::{Result, RisingWaveError};
+use crate::error::{EventStreamingError, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -64,7 +64,7 @@ impl MetaNode {
     pub async fn start(&self) -> Result<()> {
         let mut state = self.state.write().await;
         if state.running {
-            return Err(RisingWaveError::MetaStartFailed(
+            return Err(EventStreamingError::MetaStartFailed(
                 "meta node already running".to_string(),
             ));
         }

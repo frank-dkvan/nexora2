@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RisingWave Build Script - Ensures correct nightly toolchain is used
+# Fixes PATH issue where Homebrew Rust overrides rustup toolchains
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RISINGWAVE_DIR="$PROJECT_ROOT/vendor/risingwave"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}RisingWave Build Script${NC}"
+echo "================================"
+
+# Check if RisingWave directory exists
+if [ ! -d "$RISINGWAVE_DIR" ]; then
+    echo -e "${RED}Error: RisingWave directory not found at $RISINGWAVE_DIR${NC}"
+    exit 1
+fi
+
+# Set PATH to prioritize rustup nightly toolchain over Homebrew
+export PATH="$HOME/.rustup/toolchains/nightly-2026-03-15-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+
+echo -e "${YELLOW}Verifying toolchain...${NC}"
+echo "rustc: $(rustc --version)"
+echo "cargo: $(cargo --version)"
+
+# Verify we're using nightly
+if ! rustc --version | grep -q "nightly"; then
+    echo -e "${RED}Error: Not using nightly toolchain!${NC}"
+    echo "Current rustc: $(which rustc)"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Using correct nightly toolchain${NC}"
+echo ""
+
+cd "$RISINGWAVE_DIR"
+
+# Parse command line arguments
+BUILD_TYPE="${1:-release}"  # default to release
+PACKAGE="${2:-risingwave_cmd_all}"
+BINARY="${3:-risingwave}"
+
+case "$BUILD_TYPE" in
+    dev|debug)
+        echo -e "${YELLOW}Building $PACKAGE (debug mode)...${NC}"
+        cargo build -p "$PACKAGE" --bin "$BINARY"
+        ;;
+    release)
+        echo -e "${YELLOW}Building $PACKAGE (release mode)...${NC}"
+        cargo build -p "$PACKAGE" --bin "$BINARY" --release
+        ;;
+    *)
+        echo -e "${RED}Error: Unknown build type '$BUILD_TYPE'${NC}"
+        echo "Usage: $0 [dev|release] [package] [binary]"
+        exit 1
+        ;;
+esac
+
+echo ""
+echo -e "${GREEN}✓ Build completed successfully!${NC}"
+
+# Show binary location
+if [ "$BUILD_TYPE" = "release" ]; then
+    BINARY_PATH="$RISINGWAVE_DIR/target/release/$BINARY"
+else
+    BINARY_PATH="$RISINGWAVE_DIR/target/debug/$BINARY"
+fi
+
+if [ -f "$BINARY_PATH" ]; then
+    echo "Binary location: $BINARY_PATH"
+    echo "Binary size: $(du -h "$BINARY_PATH" | cut -f1)"
+else
+    echo -e "${YELLOW}Warning: Binary not found at expected location${NC}"
+fi

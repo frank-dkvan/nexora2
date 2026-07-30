@@ -80,3 +80,7 @@ crates/nexora-core/benches/comparison_results.json
 /vendor/risingwave/.vscode/
 /vendor/risingwave/Cargo.lock
 /vendor/risingwave/.DS_Store
+# NOTE: vendor/risingwave/.cargo/config.toml is tracked (contains our stable Rust modifications)
+
+# RisingWave embedded binary
+/bin/risingwave-embedded

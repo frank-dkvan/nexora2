@@ -34,7 +34,7 @@ Nexora 2.0 + RisingWave (Hybrid)
 │   ├── extensions/meta_raft/          # RisingWave Raft HA
 │   └── Use case: Complex SQL transformations, temporal joins, aggregations
 │
-└── Feature Flag: --features risingwave
+└── Feature Flag: --features event-streaming
 ```
 
 ## Integration Strategy
@@ -46,8 +46,8 @@ Nexora 2.0 + RisingWave (Hybrid)
    - nexora-stream continues to handle direct ingestion
    - All 1590+ tests must continue to pass
 
-2. **Add RisingWave as optional enhancement**
-   - Enabled via `--features risingwave`
+2. **Add the Event Streaming engine as an optional enhancement**
+   - Enabled via `--features event-streaming`
    - Provides SQL materialized views over event streams
    - Outputs enriched events back to nexora-eventlog
 
@@ -73,10 +73,10 @@ Nexora 2.0 + RisingWave (Hybrid)
 │  Graph Layer                                                     │
 │    └── nexora-core (RocksDB-backed graph storage)               │
 ├─────────────────────────────────────────────────────────────────┤
-│  Event Processing Layer                                          │
-│    ├── Path A (Simple): nexora-stream → nexora-eventlog         │
-│    └── Path B (Advanced): nexora-stream → RisingWave MV →       │
-│                            nexora-eventlog [OPTIONAL]            │
+│  Event Processing Layer (two parallel paths)                     │
+│    ├── Path A (Simple):   nexora-stream → nexora-eventlog        │
+│    └── Path B (Advanced): Event Streaming engine (own CREATE     │
+│          SOURCE + SQL/MV) → nexora-eventlog [OPTIONAL]           │
 ├─────────────────────────────────────────────────────────────────┤
 │  Event Storage Layer                                             │
 │    └── nexora-eventlog (Apache Iceberg tables)                  │
@@ -88,21 +88,18 @@ Nexora 2.0 + RisingWave (Hybrid)
 │    └── Used by: Nexora Graph Cluster (future)                   │
 └─────────────────────────────────────────────────────────────────┘
 
-External Sources
+External Sources (Kafka/Kinesis/Pulsar/MQTT)
     │
-    ├─► Kafka/Kinesis/Pulsar/MQTT
-    │       │
-    │       └─► nexora-stream
-    │               │
-    │               ├─► Path A: Direct to nexora-eventlog
-    │               │
-    │               └─► Path B: Through RisingWave
-    │                       │
-    │                       ├─► CREATE SOURCE (Kafka)
-    │                       ├─► CREATE MATERIALIZED VIEW
-    │                       └─► Output enriched events
-    │                               │
-    │                               └─► nexora-eventlog
+    ├─► Path A: nexora-stream ──────────────► nexora-eventlog
+    │           (direct event-to-graph ingestion)
+    │
+    └─► Path B: Event Streaming engine [OPTIONAL]
+                │   (connects to sources directly — no nexora-stream)
+                ├─► CREATE SOURCE (Kafka/…)
+                ├─► CREATE MATERIALIZED VIEW (SQL transforms)
+                └─► Output enriched events ─► nexora-eventlog
+
+Both paths converge at nexora-eventlog, then flow to nexora-core.
 ```
 
 ## Implementation Phases
@@ -481,19 +478,20 @@ rest_warehouse = "nexora"
 s3_endpoint = "http://localhost:9000"
 s3_bucket = "nexora-events"
 
-# NEW: RisingWave configuration (optional)
-[risingwave]
-enabled = false  # Only used when compiled with --features risingwave
-meta_port = 5690
-frontend_port = 4566
+# NEW: Event Streaming engine configuration (optional)
+# Requires: --features event-streaming
+[event_streaming]
+enabled = false
+meta_addr = "127.0.0.1:5690"
+frontend_addr = "127.0.0.1:4566"
 compute_nodes = 1
 
-[risingwave.raft]
+[event_streaming.raft]
 node_id = 1
 peers = ["node1:5690", "node2:5690", "node3:5690"]
 data_dir = "/data/nexora/raft"
 
-[risingwave.storage]
+[event_streaming.storage]
 state_store = "hummock+s3://nexora-rw-state"
 data_directory = "/data/nexora/rw-data"
 ```
@@ -506,8 +504,8 @@ data_directory = "/data/nexora/rw-data"
 cargo test -p nexora-consensus
 cargo test -p nexora-rpc
 
-# Test RisingWave wrapper
-cargo test -p nexora-risingwave --features risingwave
+# Test Event Streaming wrapper
+cargo test -p nexora-risingwave --features event-streaming
 ```
 
 ### Integration Tests
@@ -516,7 +514,7 @@ cargo test -p nexora-risingwave --features risingwave
 cargo test -p extensions-meta-raft -- --test-threads=1
 
 # Test event pipeline
-cargo test test_kafka_risingwave_eventlog --features risingwave
+cargo test test_kafka_event_streaming_eventlog --features event-streaming
 ```
 
 ### End-to-End Test
@@ -535,23 +533,23 @@ curl http://localhost:8080/api/query/cypher \
 ## Build Commands
 
 ```bash
-# Default build (no RisingWave)
+# Default build (no Event Streaming engine)
 cargo build --release
 
-# With RisingWave support
-cargo build --release --features risingwave
+# With Event Streaming engine
+cargo build --release --features event-streaming
 
-# With event-first + RisingWave
-cargo build --release --features event-first,risingwave
+# With event-first + Event Streaming engine
+cargo build --release --features event-first,event-streaming
 ```
 
 ## Migration Path
 
 ### For Existing Users
 
-1. **No changes required** if you don't enable RisingWave
+1. **No changes required** if you don't enable the Event Streaming engine
 2. All existing APIs and features continue to work
-3. Opt-in by recompiling with `--features risingwave`
+3. Opt-in by recompiling with `--features event-streaming`
 
 ### Upgrade Steps
 
@@ -559,10 +557,10 @@ cargo build --release --features event-first,risingwave
 # 1. Pull latest code
 git pull origin main
 
-# 2. Optional: Enable RisingWave
-cargo build --release --features risingwave
+# 2. Optional: Enable Event Streaming engine
+cargo build --release --features event-streaming
 
-# 3. Update config (add [risingwave] section if using)
+# 3. Update config (add [event_streaming] section if using)
 vim nexora.toml
 
 # 4. Restart
@@ -613,37 +611,80 @@ vim nexora.toml
 
 ## Success Criteria
 
-### Phase 1-2 Success
-- [ ] RisingWave v3.0.2 added as Git Subtree
+### Phase 1: Library Mode (Complete ✅)
+- [x] RisingWave compiles as Rust library without C++ dependencies
+- [x] EmbeddedLibrary can start Meta+Frontend+Compute in-process
+- [x] Basic DDL execution (CREATE SOURCE, CREATE MV)
+- [x] nexora-app integration with --features library
+- [x] All existing tests still pass
+
+### Phase 2: Distributed Library Mode (Complete ✅)
+- [x] Multi-node cluster configuration via TOML
+- [x] Raft-based Meta cluster with leader election
+- [x] Frontend pool with health checks and load balancing
+- [x] Compute cluster with heartbeat and fragment scheduling
+- [x] HTTP endpoints for cluster status and node listing
+- [x] Integration tests covering all cluster components
+- [x] nexora-app startup with distributed library cluster
+
+### Phase 3-4: Raft HA Extension (Pending ⏳)
 - [ ] `nexora-consensus` and `nexora-rpc` crates functional
-- [ ] All existing tests still pass
-
-### Phase 3-4 Success
-- [ ] `nexora-risingwave` wrapper can start Meta+Frontend
 - [ ] 3-node Raft HA cluster works without external dependencies
-- [ ] Can execute basic DDL (CREATE SOURCE, CREATE MV)
+- [ ] Minimal patches (<100 lines total) to RisingWave
 
-### Phase 5-6 Success
-- [ ] RisingWave integrated into `nexora-app` via feature flag
-- [ ] Events flow: Kafka → RisingWave → EventLog → Graph
-- [ ] End-to-end test passes
+### Phase 4: Event Pipeline (Complete ✅)
+
+**Architecture Decision (final)**: Nexora hosts its OWN Iceberg REST catalog
+endpoint (served by nexora-app at `/api/iceberg/catalog`), backed by RisingWave's
+internal hosted-catalog metadata. No external Lakekeeper required — one catalog
+is shared by nexora-eventlog (via iceberg-rust REST client) and RisingWave sinks
+(via `hosted_catalog=true`).
+
+This supersedes the earlier Lakekeeper-based plan: RisingWave's
+`HostedIcebergCatalogService` metadata is queryable over pgwire
+(`rw_catalog.iceberg_tables`), so nexora-app re-exposes it as a standard Iceberg
+REST v1 API rather than deploying a separate catalog service.
+
+**Tasks**:
+- [x] Task 1: Iceberg REST catalog HTTP endpoints in nexora-app - **COMPLETE**
+- [x] Task 2: Configure nexora-eventlog to use the local REST catalog - **COMPLETE**
+- [x] Task 3: Wire real RisingWave hosted-table listing (pgwire query) - **COMPLETE**
+- [x] Task 4: End-to-end test (integration test + HTTP smoke script) - **COMPLETE**
+- [x] Task 5: Documentation - **COMPLETE**
+
+**Key Discoveries**:
+1. RisingWave has a built-in Iceberg sink at `vendor/risingwave/src/connector/src/sink/iceberg/`
+2. RisingWave Meta manages Iceberg table metadata internally (`iceberg_tables`)
+3. That metadata is queryable over pgwire via `rw_catalog.iceberg_tables`
+4. nexora-app re-exposes it as an Iceberg REST v1 catalog — no external service
+5. nexora-eventlog reaches it through `StorageConfig::rest(uri, …)` (existing CLI flags)
+
+**Reference**:
+- [Phase 4 Complete](PHASE4_COMPLETE.md)
+- [Phase 4 Task 1 Complete](PHASE4_TASK1_COMPLETE.md)
+- [Phase 4 Architecture Decision](PHASE4_ARCHITECTURE_DECISION.md)
+- [Task 1 Findings](PHASE4_TASK1_FINDINGS.md)
 
 ### Overall Success
-- [ ] Build without `--features risingwave`: All existing features work
-- [ ] Build with `--features risingwave`: Advanced SQL processing available
+- [x] Build without `--features event-streaming`: All existing features work
+- [x] Build with `--features library`: In-process RisingWave available
 - [ ] Performance: <10% overhead for non-RisingWave code paths
-- [ ] Documentation: README updated with RisingWave usage examples
+- [x] Documentation: Configuration examples and HTTP API reference
 
 ## Timeline
 
-| Week | Phase | Deliverables |
-|------|-------|-------------|
-| 1 | Repository Setup | Git Subtree, scripts, Cargo config |
-| 2 | Shared Infrastructure | nexora-consensus, nexora-rpc |
-| 3 | RisingWave Wrapper | nexora-risingwave crate |
-| 4 | Raft HA Extension | extensions/meta_raft, patches |
-| 5 | App Integration | HTTP endpoints, feature gate |
-| 6 | Event Pipeline | EventLogSink, E2E test |
+| Week | Phase | Deliverables | Status |
+|------|-------|-------------|--------|
+| 1 | Repository Setup | Git Subtree, scripts, Cargo config | ✅ Complete |
+| 2 | Library Mode (Phase 1) | Stable Rust compilation of RisingWave | ✅ Complete |
+| 3 | Distributed Library (Phase 2) | Multi-node in-process cluster | ✅ Complete |
+| 4 | Event Pipeline (Phase 4) | Unified catalog integration, E2E test | ✅ Complete |
+| - | Shared Infrastructure (Phase 3) | nexora-consensus, nexora-rpc | 📝 Optional |
+| - | Raft HA Extension | extensions/meta_raft, patches | 📝 Optional |
+
+**Phase 4 Progress**: Complete — nexora-hosted Iceberg REST catalog serving
+RisingWave's internal metadata; nexora-eventlog and RisingWave sinks share it.
+See [PHASE4_COMPLETE.md](PHASE4_COMPLETE.md).
 
 ## Next Steps
 

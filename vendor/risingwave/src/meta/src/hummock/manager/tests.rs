@@ -1051,6 +1051,24 @@ async fn test_trigger_manual_compaction() {
     )
     .await;
     {
+        let option = ManualCompactionOption {
+            level: 0,
+            target_level: Some(0),
+            ..Default::default()
+        };
+        let result = hummock_manager
+            .trigger_manual_compaction(StaticCompactionGroupId::StateDefault, option)
+            .await;
+
+        assert!(
+            result
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("invalid manual compaction option: target_level for L0 must be")
+        );
+    }
+    {
         // to check compactor send task fail
         drop(receiver);
         {
@@ -3809,6 +3827,60 @@ async fn test_time_travel_vacuum_with_cross_database_epoch_order() {
             .await
             .unwrap()
             .is_some()
+    );
+}
+
+#[tokio::test]
+async fn test_time_travel_epoch_mapping_excludes_internal_tables() {
+    use risingwave_hummock_sdk::version::HummockVersionDelta;
+    use risingwave_meta_model::hummock_epoch_to_version;
+    use sea_orm::{EntityTrait, TransactionTrait};
+
+    let (env, hummock_manager, _, _) = setup_compute_env(80).await;
+    env.system_params_manager_impl_ref()
+        .set_param(
+            "time_travel_retention_ms",
+            Some((10 * 60 * 1000).to_string()),
+        )
+        .await
+        .unwrap();
+
+    let user_table_id = TableId::new(1);
+    let internal_table_id = TableId::new(2);
+    let compaction_group_id: CompactionGroupId = 1.into();
+    let tables_to_commit = [
+        (user_table_id, compaction_group_id, 100),
+        (internal_table_id, compaction_group_id, 100),
+    ];
+    let mut delta = HummockVersionDelta::default();
+    delta.id = 2.into();
+
+    let txn = env.meta_store_ref().conn.begin().await.unwrap();
+    hummock_manager
+        .write_time_travel_metadata(
+            &txn,
+            None,
+            delta,
+            HashSet::from([user_table_id]),
+            &HashSet::new(),
+            tables_to_commit
+                .iter()
+                .map(|(table_id, compaction_group_id, epoch)| {
+                    (table_id, compaction_group_id, *epoch)
+                }),
+        )
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let epoch_mappings = hummock_epoch_to_version::Entity::find()
+        .all(&env.meta_store_ref().conn)
+        .await
+        .unwrap();
+    assert_eq!(epoch_mappings.len(), 1);
+    assert_eq!(
+        epoch_mappings[0].table_id,
+        i64::from(user_table_id.as_raw_id())
     );
 }
 

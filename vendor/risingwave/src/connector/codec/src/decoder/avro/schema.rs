@@ -326,38 +326,41 @@ pub(super) fn avro_schema_to_struct_field_name(schema: &Schema) -> Result<String
             // schema.name().unwrap().fullname(None)
             // See test_avro_lib_union_record_bug
             // https://github.com/risingwavelabs/risingwave/issues/17632
-            bail_not_implemented!(issue=17632, "Avro named type used in Union type: {:?}", schema)
-
+            bail_not_implemented!(
+                issue = 17632,
+                "Avro named type used in Union type: {:?}",
+                schema
+            )
         }
 
         // Logical types are currently banned. See https://github.com/risingwavelabs/risingwave/issues/17616
 
-/*
-        Schema::Uuid => "uuid".to_string(),
-        // Decimal is the most tricky. https://avro.apache.org/docs/1.11.1/specification/_print/#decimal
-        // - A decimal logical type annotates Avro bytes _or_ fixed types.
-        // - It has attributes `precision` and `scale`.
-        //  "For the purposes of schema resolution, two schemas that are decimal logical types match if their scales and precisions match."
-        // - When the physical type is fixed, it's a named type. And a schema containing 2 decimals is possible:
-        //   [
-        //     {"type":"fixed","name":"Decimal128","size":16,"logicalType":"decimal","precision":38,"scale":2},
-        //     {"type":"fixed","name":"Decimal256","size":32,"logicalType":"decimal","precision":50,"scale":2}
-        //   ]
-        //   In this case (a logical type's physical type is a named type), perhaps we should use the physical type's `name`.
-        Schema::Decimal(_) => "decimal".to_string(),
-        Schema::Date => "date".to_string(),
-        // Note: in Avro, the name style is "time-millis", etc.
-        // But in RisingWave (Postgres), it will require users to use quotes, i.e.,
-        // select (struct)."time-millis", (struct).time_millies from t;
-        // The latter might be more user-friendly.
-        Schema::TimeMillis => "time_millis".to_string(),
-        Schema::TimeMicros => "time_micros".to_string(),
-        Schema::TimestampMillis => "timestamp_millis".to_string(),
-        Schema::TimestampMicros => "timestamp_micros".to_string(),
-        Schema::LocalTimestampMillis => "local_timestamp_millis".to_string(),
-        Schema::LocalTimestampMicros => "local_timestamp_micros".to_string(),
-        Schema::Duration => "duration".to_string(),
-*/
+        /*
+                Schema::Uuid => "uuid".to_string(),
+                // Decimal is the most tricky. https://avro.apache.org/docs/1.11.1/specification/_print/#decimal
+                // - A decimal logical type annotates Avro bytes _or_ fixed types.
+                // - It has attributes `precision` and `scale`.
+                //  "For the purposes of schema resolution, two schemas that are decimal logical types match if their scales and precisions match."
+                // - When the physical type is fixed, it's a named type. And a schema containing 2 decimals is possible:
+                //   [
+                //     {"type":"fixed","name":"Decimal128","size":16,"logicalType":"decimal","precision":38,"scale":2},
+                //     {"type":"fixed","name":"Decimal256","size":32,"logicalType":"decimal","precision":50,"scale":2}
+                //   ]
+                //   In this case (a logical type's physical type is a named type), perhaps we should use the physical type's `name`.
+                Schema::Decimal(_) => "decimal".to_string(),
+                Schema::Date => "date".to_string(),
+                // Note: in Avro, the name style is "time-millis", etc.
+                // But in RisingWave (Postgres), it will require users to use quotes, i.e.,
+                // select (struct)."time-millis", (struct).time_millies from t;
+                // The latter might be more user-friendly.
+                Schema::TimeMillis => "time_millis".to_string(),
+                Schema::TimeMicros => "time_micros".to_string(),
+                Schema::TimestampMillis => "timestamp_millis".to_string(),
+                Schema::TimestampMicros => "timestamp_micros".to_string(),
+                Schema::LocalTimestampMillis => "local_timestamp_millis".to_string(),
+                Schema::LocalTimestampMicros => "local_timestamp_micros".to_string(),
+                Schema::Duration => "duration".to_string(),
+        */
         Schema::Uuid
         | Schema::Decimal(_)
         | Schema::BigDecimal
@@ -371,7 +374,11 @@ pub(super) fn avro_schema_to_struct_field_name(schema: &Schema) -> Result<String
         | Schema::LocalTimestampMicros
         | Schema::LocalTimestampNanos
         | Schema::Duration => {
-            bail_not_implemented!(issue=17616, "Avro logicalType used in Union type: {:?}", schema)
+            bail_not_implemented!(
+                issue = 17616,
+                "Avro logicalType used in Union type: {:?}",
+                schema
+            )
         }
     })
 }

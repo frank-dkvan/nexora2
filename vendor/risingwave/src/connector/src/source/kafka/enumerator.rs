@@ -87,7 +87,7 @@ impl KafkaSplitEnumerator {
         self.context
             .metrics
             .kafka_consumer_group_delete_failure_count
-            .with_label_values(&[source_id.as_str(), group_id])
+            .with_label_values(&[&source_id, group_id])
             .inc();
     }
 

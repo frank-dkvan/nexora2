@@ -14,6 +14,7 @@
 
 mod backfill;
 mod background_ddl;
+mod batch_refresh;
 mod cross_db_retention;
 mod drop_streaming_job;
 mod event_log;

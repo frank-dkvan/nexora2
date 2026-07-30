@@ -1,3 +1,8 @@
+# Required by RisingWave (vendor/risingwave) for per-profile rustflags. This is
+# a nightly cargo feature; the workspace is pinned to nightly via
+# rust-toolchain.toml for library-mode integration.
+cargo-features = ["profile-rustflags"]
+
 [workspace]
 resolver = "2"
 members = [
@@ -28,11 +33,15 @@ members = [
     "crates/nexora-mcp",
     "crates/nexora-pgwire", "crates/nexora-etl",
     "crates/nexora-eventlog",
-    # RisingWave Integration (Phase 1)
+    # RisingWave Integration (library mode, main branch)
     "crates/nexora-risingwave",
     "crates/nexora-consensus",
     "crates/nexora-rpc",
     "extensions/meta_raft",
+]
+exclude = [
+    # RisingWave source (Phase 7: managed separately, requires nightly Rust)
+    "vendor/risingwave",
 ]
 
 [workspace.package]
@@ -41,6 +50,8 @@ edition = "2021"
 rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/frank-dkvan/nexora"
+homepage = "https://github.com/frank-dkvan/nexora"
+keywords = ["database", "graph", "streaming"]
 
 [workspace.dependencies]
 # Async runtime
@@ -75,12 +86,55 @@ sqlparser = "0.53"
 rust-rocksdb = "0.50"
 
 # Consensus & RPC (Phase 2)
+# tonic/prost are aligned with RisingWave (library-mode integration): tonic uses
+# the madsim fork (re-exports real tonic outside sim mode) and prost is pinned to
+# 0.14.3, redirected to RisingWave's prost fork via [patch.crates-io] below.
 openraft = { version = "0.9", features = ["serde"] }
-tonic = { version = "0.12", features = ["tls"] }
-prost = "0.13"
-tonic-build = "0.12"
+tonic = { package = "madsim-tonic", git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646", features = ["tls"] }
+prost = { version = "=0.14.3" }
+tonic-build = { package = "madsim-tonic-build", git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
 tower = "0.4"
 
 # Testing
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
+
+# RisingWave dependencies
+tokio-postgres = "0.7"
+num_cpus = "1.16"
+which = "6.0"
+nix = { version = "0.29", features = ["signal"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+# Replicated verbatim from vendor/risingwave/Cargo.toml. Because library-mode
+# integration links RisingWave crates into this workspace's build graph, the root
+# workspace must apply the same [patch.crates-io] RisingWave requires. madsim-*
+# forks re-export the real implementations outside simulation (cfg(madsim)) mode,
+# so production runtime behavior is unchanged. Keep in sync with the vendor file.
+[patch.crates-io]
+faiss = { git = "https://github.com/risingwavelabs/faiss-rs.git", rev = "f6f0acb" }
+# Keep transitive madsim-family resolution aligned to the same upstream rev.
+madsim = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+madsim-aws-sdk-s3 = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+madsim-macros = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+madsim-rdkafka = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+madsim-tokio = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+madsim-tonic = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+madsim-tonic-build = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
+# Patch third-party crates for deterministic simulation.
+getrandom = { git = "https://github.com/madsim-rs/getrandom.git", rev = "e79a7ae" }
+tokio-retry = { git = "https://github.com/madsim-rs/rust-tokio-retry.git", rev = "95e2fd3" }
+tokio-postgres = { git = "https://github.com/madsim-rs/rust-postgres.git", rev = "ac00d88" }
+# sqlx version: v0.8.2
+sqlx = { git = "https://github.com/madsim-rs/sqlx.git", rev = "d43f1f28c0a2ec28144d81fdf78706ce30002b59" }
+# patch to remove preserve_order from serde_json
+bson = { git = "https://github.com/risingwavelabs/bson-rust", tag = "v2.15.0-json-no-preserve_order" }
+# patch to revert `Hash for StringRef` for compatibility with `&str` in vnode
+jsonbb = { git = "https://github.com/risingwavelabs/jsonbb.git", rev = "f618cd8c9bc517f35dec192d4e7553650894a011" }
+# patch to make zstd version compatible (parquet@54 requires zstd-sys <= 2.0.13)
+rdkafka-sys = { git = "https://github.com/risingwavelabs/rust-rdkafka", package = "rdkafka-sys", branch = "downgrade-zstd" }
+# Keep prost aligned with tonic-build 0.14.x used by madsim-tonic-build.
+prost = { git = "https://github.com/risingwavelabs/prost.git", package = "prost", rev = "040a192409e45069158300baec4f402ad1fe101a" }
+prost-derive = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-derive", rev = "040a192409e45069158300baec4f402ad1fe101a" }
+prost-build = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-build", rev = "040a192409e45069158300baec4f402ad1fe101a" }
+prost-types = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-types", rev = "040a192409e45069158300baec4f402ad1fe101a" }

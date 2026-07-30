@@ -154,3 +154,125 @@ format = "text"
 [metrics]
 # Enable Prometheus metrics endpoint at /metrics
 enabled = true
+
+
+# -----------------------------------------------------------------------------
+# [event_streaming] — Event Streaming Engine (optional)
+# -----------------------------------------------------------------------------
+# The event streaming engine provides SQL-based stream processing: continuous
+# queries, incremental materialized views, and stream joins/aggregations over
+# event streams. It is backed by an embedded RisingWave engine.
+#
+# Requires: --features event-streaming
+# Embedded mode requires: --features embedded
+# Library mode requires: --features library
+# -----------------------------------------------------------------------------
+# [event_streaming]
+# # Enable the event streaming engine
+# enabled = false
+#
+# # Enable embedded mode (starts the engine as a subprocess)
+# # When true, Nexora automatically starts and manages the engine lifecycle
+# # When false, connect to an external engine service
+# embedded = false
+#
+# # Meta node address (used in both embedded and external modes)
+# meta_addr = "127.0.0.1:5690"
+#
+# # Frontend node address (used in both embedded and external modes)
+# frontend_addr = "127.0.0.1:4566"
+#
+# # --- Embedded Mode Configuration ---
+# # (Only used when embedded = true)
+#
+# # Path to the engine binary (auto-discovers if not set)
+# # Search order: RISINGWAVE_BIN env var → bin/risingwave-embedded → system PATH
+# # binary_path = "/path/to/engine"
+#
+# # Data directory for the embedded engine
+# data_dir = "./nexora-data/event-streaming"
+#
+# # Startup timeout in seconds
+# startup_timeout_secs = 60
+#
+# # Shutdown timeout in seconds
+# shutdown_timeout_secs = 30
+#
+# # Compute node parallelism (defaults to number of CPU cores)
+# # Higher values = more parallelism but more memory usage
+# # parallelism = 4
+#
+# # --- Distributed Library Mode Configuration (Phase 2) ---
+# # (Requires --features library)
+# #
+# # Distributed library mode runs a multi-node cluster where each Nexora process
+# # embeds Meta + Frontend + Compute nodes in-process. This provides high
+# # availability and horizontal scaling without external binaries.
+# #
+# # Minimum 3 nodes recommended for production (tolerates 1 node failure).
+#
+# [event_streaming.distributed]
+# # Enable distributed library mode
+# enabled = false
+#
+# # Node identifier (must be unique across cluster)
+# # Recommended naming: "meta-1", "meta-2", "meta-3" for a 3-node cluster
+# node_id = "meta-1"
+#
+# # Data directory for persistent storage (Hummock metadata cache)
+# data_dir = "./nexora-data/event-streaming-distributed"
+#
+# # --- Meta Node Configuration ---
+# [event_streaming.distributed.meta]
+# # Address to bind Meta service (use 0.0.0.0 for all interfaces)
+# listen_addr = "0.0.0.0:5690"
+#
+# # Address other nodes use to reach this Meta node
+# # Should be a reachable hostname or IP
+# # Example: "node1.local:5690" or "10.0.1.10:5690"
+# advertise_addr = "node1.local:5690"
+#
+# # Peer Meta nodes for Raft cluster formation
+# # Format: "node_id@advertise_addr"
+# # Do NOT include this node's own ID
+# raft_peers = [
+#     "meta-2@node2.local:5690",
+#     "meta-3@node3.local:5690",
+# ]
+#
+# # Meta backend storage: "etcd", "sqlite", or "memory"
+# # - "etcd": Recommended for production (requires external etcd cluster)
+# # - "sqlite": Single-node or development (local SQLite file)
+# # - "memory": Testing only (all state lost on restart)
+# backend = "sqlite"
+#
+# # Etcd endpoints (only for backend = "etcd")
+# # etcd_endpoints = ["http://etcd1:2379", "http://etcd2:2379", "http://etcd3:2379"]
+#
+# # SQLite path (only for backend = "sqlite")
+# sqlite_path = "./nexora-data/meta-node1.db"
+#
+# # Raft election timeout in milliseconds (default: 3000)
+# # Higher = more stable but slower failover
+# election_timeout_ms = 3000
+#
+# # Raft heartbeat interval in milliseconds (default: 1000)
+# # Should be << election_timeout_ms (typically 1/3)
+# heartbeat_interval_ms = 1000
+#
+# # --- Frontend Node Configuration ---
+# [event_streaming.distributed.frontend]
+# # Address to bind PostgreSQL wire protocol listener
+# listen_addr = "0.0.0.0:4566"
+#
+# # --- Compute Node Configuration ---
+# [event_streaming.distributed.compute]
+# # Address to bind Compute service
+# listen_addr = "0.0.0.0:5688"
+#
+# # Number of parallel workers (default: number of CPU cores)
+# # parallelism = 8
+#
+# # Internal RPC address (default: use listen_addr)
+# # internal_rpc_addr = "0.0.0.0:5689"
+

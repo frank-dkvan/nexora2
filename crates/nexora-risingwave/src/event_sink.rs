@@ -4,10 +4,10 @@
 //! to flow into Nexora's EventLogStore, enabling the advanced path:
 //! Kafka → RisingWave (SQL MV) → EventLogStore → Graph
 
-use crate::error::Result;
 #[cfg(feature = "event-first")]
-use crate::error::RisingWaveError;
-use crate::module::RisingWaveModule;
+use crate::error::EventStreamingError;
+use crate::error::Result;
+use crate::module::EventStreamingModule;
 use serde_json::json;
 use std::sync::Arc;
 #[cfg(feature = "event-first")]
@@ -78,7 +78,7 @@ pub struct EventLogSink {
     #[cfg(feature = "event-first")]
     event_store: Arc<nexora_eventlog::EventLogStore>,
     #[allow(dead_code)]
-    risingwave: Arc<RisingWaveModule>,
+    risingwave: Arc<EventStreamingModule>,
 }
 
 impl EventLogSink {
@@ -91,7 +91,7 @@ impl EventLogSink {
     #[cfg(feature = "event-first")]
     pub fn new(
         event_store: Arc<nexora_eventlog::EventLogStore>,
-        risingwave: Arc<RisingWaveModule>,
+        risingwave: Arc<EventStreamingModule>,
     ) -> Self {
         Self {
             event_store,
@@ -164,19 +164,15 @@ impl EventLogSink {
     async fn process_change(&self, change: &Change, topic: &str) -> Result<()> {
         match change {
             Change::Insert(row) => {
-                let event = self.row_to_event(row)?;
-                self.event_store.append(topic, event).await.map_err(|e| {
-                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
-                })?;
+                let payload = self.row_to_event(row)?;
+                self.append_payload(topic, payload).await?;
                 debug!("Inserted event into topic: {}", topic);
             }
             Change::Update { old: _, new } => {
                 // For updates, we append the new state
                 // (EventLogStore is append-only, so we don't delete the old state)
-                let event = self.row_to_event(new)?;
-                self.event_store.append(topic, event).await.map_err(|e| {
-                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
-                })?;
+                let payload = self.row_to_event(new)?;
+                self.append_payload(topic, payload).await?;
                 debug!("Updated event in topic: {}", topic);
             }
             Change::Delete(row) => {
@@ -185,20 +181,47 @@ impl EventLogSink {
                 // 2. Write a tombstone event with a _deleted flag
                 //
                 // For now, we write a tombstone for auditability
-                let mut event = self.row_to_event(row)?;
-                if let serde_json::Value::Object(ref mut map) = event {
+                let mut payload = self.row_to_event(row)?;
+                if let serde_json::Value::Object(ref mut map) = payload {
                     map.insert("_deleted".to_string(), json!(true));
                     map.insert(
                         "_deleted_at".to_string(),
                         json!(chrono::Utc::now().to_rfc3339()),
                     );
                 }
-                self.event_store.append(topic, event).await.map_err(|e| {
-                    RisingWaveError::Internal(format!("EventLogStore append failed: {}", e))
-                })?;
+                self.append_payload(topic, payload).await?;
                 debug!("Deleted event from topic: {}", topic);
             }
         }
+        Ok(())
+    }
+
+    /// Wrap a JSON payload in a [`RawEvent`] for `topic` and append it to the
+    /// event store. Event/ingest time are stamped with the current wall clock;
+    /// the sink is a derived MV projection, so there is no upstream transport
+    /// partition/offset to carry.
+    #[cfg(feature = "event-first")]
+    async fn append_payload(&self, topic: &str, payload: serde_json::Value) -> Result<()> {
+        let now_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or(0);
+        let event = nexora_core::RawEvent::new(
+            now_us,
+            now_us,
+            "risingwave",
+            topic,
+            None,
+            None,
+            None,
+            payload,
+        );
+        self.event_store
+            .append(std::slice::from_ref(&event))
+            .await
+            .map_err(|e| {
+                EventStreamingError::Internal(format!("EventLogStore append failed: {}", e))
+            })?;
         Ok(())
     }
 
@@ -271,11 +294,11 @@ mod tests {
                         .await
                         .unwrap(),
                 );
-                let config = crate::config::RisingWaveConfig::new()
+                let config = crate::config::EventStreamingConfig::new()
                     .with_meta_addr("127.0.0.1:15690".parse().unwrap())
                     .with_frontend_addr("127.0.0.1:14566".parse().unwrap());
                 let rw = Arc::new(
-                    crate::module::RisingWaveModule::start(config)
+                    crate::module::EventStreamingModule::start(config)
                         .await
                         .unwrap(),
                 );

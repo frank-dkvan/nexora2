@@ -4,12 +4,12 @@
 //! standalone instance inside the process. This module provides a PostgreSQL
 //! client wrapper that connects to the embedded instance via its pgwire port.
 
-use crate::error::{Result, EventStreamingError};
 use crate::catalog::{MaterializedViewInfo, SourceInfo};
+use crate::error::{EventStreamingError, Result};
 use crate::event_streaming_trait::IcebergTable;
-use tokio_postgres::{Client, NoTls};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_postgres::{Client, NoTls};
 
 /// Client for library-mode RisingWave instance.
 ///
@@ -26,16 +26,21 @@ impl LibraryClient {
     ///
     /// - `frontend_addr`: The pgwire address (e.g., "127.0.0.1:4566")
     pub async fn connect(frontend_addr: String) -> Result<Self> {
-        let conn_str = format!("host={} port={} user=root dbname=dev",
+        let conn_str = format!(
+            "host={} port={} user=root dbname=dev",
             frontend_addr.split(':').next().unwrap_or("127.0.0.1"),
             frontend_addr.split(':').nth(1).unwrap_or("4566")
         );
 
-        let (client, connection) = tokio_postgres::connect(&conn_str, NoTls)
-            .await
-            .map_err(|e| EventStreamingError::QueryFailed(
-                format!("Failed to connect to RisingWave: {}", e)
-            ))?;
+        let (client, connection) =
+            tokio_postgres::connect(&conn_str, NoTls)
+                .await
+                .map_err(|e| {
+                    EventStreamingError::QueryFailed(format!(
+                        "Failed to connect to RisingWave: {}",
+                        e
+                    ))
+                })?;
 
         // Spawn connection handler
         tokio::spawn(async move {
@@ -53,7 +58,8 @@ impl LibraryClient {
     /// Execute a DDL statement (CREATE SOURCE, CREATE MATERIALIZED VIEW, etc.)
     pub async fn execute_ddl(&self, sql: &str) -> Result<()> {
         let client = self.client.lock().await;
-        client.execute(sql, &[])
+        client
+            .execute(sql, &[])
             .await
             .map_err(|e| EventStreamingError::DdlFailed(format!("{}", e)))?;
         Ok(())
@@ -64,7 +70,8 @@ impl LibraryClient {
     /// Returns results as JSON string (array of objects).
     pub async fn query_mv(&self, sql: &str) -> Result<String> {
         let client = self.client.lock().await;
-        let rows = client.query(sql, &[])
+        let rows = client
+            .query(sql, &[])
             .await
             .map_err(|e| EventStreamingError::QueryFailed(format!("{}", e)))?;
 
@@ -85,10 +92,13 @@ impl LibraryClient {
     /// List all sources
     pub async fn list_sources(&self) -> Result<Vec<SourceInfo>> {
         let client = self.client.lock().await;
-        let rows = client.query(
-            "SELECT name FROM rw_sources WHERE name NOT LIKE 'rw_%'",
-            &[]
-        ).await.map_err(|e| EventStreamingError::QueryFailed(format!("{}", e)))?;
+        let rows = client
+            .query(
+                "SELECT name FROM rw_sources WHERE name NOT LIKE 'rw_%'",
+                &[],
+            )
+            .await
+            .map_err(|e| EventStreamingError::QueryFailed(format!("{}", e)))?;
 
         let mut sources = Vec::new();
         for row in rows {
@@ -96,7 +106,7 @@ impl LibraryClient {
             sources.push(SourceInfo {
                 name,
                 connector: "unknown".to_string(), // Would need to query rw_sources table for details
-                schema: "public".to_string(), // Default schema
+                schema: "public".to_string(),     // Default schema
                 properties: std::collections::HashMap::new(), // Would need additional query
             });
         }
@@ -106,10 +116,13 @@ impl LibraryClient {
     /// List all materialized views
     pub async fn list_materialized_views(&self) -> Result<Vec<MaterializedViewInfo>> {
         let client = self.client.lock().await;
-        let rows = client.query(
-            "SELECT name, definition FROM rw_materialized_views WHERE name NOT LIKE 'rw_%'",
-            &[]
-        ).await.map_err(|e| EventStreamingError::QueryFailed(format!("{}", e)))?;
+        let rows = client
+            .query(
+                "SELECT name, definition FROM rw_materialized_views WHERE name NOT LIKE 'rw_%'",
+                &[],
+            )
+            .await
+            .map_err(|e| EventStreamingError::QueryFailed(format!("{}", e)))?;
 
         let mut mvs = Vec::new();
         for row in rows {
@@ -119,7 +132,7 @@ impl LibraryClient {
                 name,
                 definition: definition.unwrap_or_default(),
                 schema: "public".to_string(), // Default schema
-                columns: Vec::new(), // Would need additional query to get column info
+                columns: Vec::new(),          // Would need additional query to get column info
             });
         }
         Ok(mvs)

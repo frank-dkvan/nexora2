@@ -3,7 +3,7 @@
 //! Phase 3: Simplified implementation with placeholder logic.
 //! Phase 4: Full integration with vendor/risingwave Meta node.
 
-use crate::error::{Result, EventStreamingError};
+use crate::error::{EventStreamingError, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;

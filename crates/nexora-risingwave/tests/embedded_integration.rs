@@ -30,9 +30,7 @@ mod embedded_integration_tests {
             frontend: nexora_risingwave::FrontendConfig {
                 listen_addr: "127.0.0.1:14566".to_string(), // Non-default port
             },
-            compute: nexora_risingwave::ComputeConfig {
-                parallelism: 2,
-            },
+            compute: nexora_risingwave::ComputeConfig { parallelism: 2 },
             startup_timeout_secs: 120, // Allow more time for CI
             shutdown_timeout_secs: 30,
         };
@@ -40,7 +38,10 @@ mod embedded_integration_tests {
         let embedded = match EmbeddedEventStreaming::start(embedded_config).await {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("Failed to start embedded RisingWave (binary may not be available): {}", e);
+                eprintln!(
+                    "Failed to start embedded RisingWave (binary may not be available): {}",
+                    e
+                );
                 return; // Skip test if binary not found
             }
         };
@@ -82,9 +83,7 @@ mod embedded_integration_tests {
             frontend: nexora_risingwave::FrontendConfig {
                 listen_addr: "127.0.0.1:4566".to_string(),
             },
-            compute: nexora_risingwave::ComputeConfig {
-                parallelism: 8,
-            },
+            compute: nexora_risingwave::ComputeConfig { parallelism: 8 },
             startup_timeout_secs: 90,
             shutdown_timeout_secs: 45,
         };

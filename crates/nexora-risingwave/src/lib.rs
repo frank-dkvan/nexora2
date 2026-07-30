@@ -96,7 +96,7 @@ pub mod distributed;
 pub use catalog::{CatalogClient, ColumnInfo, MaterializedViewInfo, SourceInfo};
 pub use config::EventStreamingConfig;
 pub use ddl_parser::{ColumnDef, DdlParser, ParsedSchema};
-pub use error::{Result, EventStreamingError};
+pub use error::{EventStreamingError, Result};
 pub use event_sink::{Change, ColumnValue, EventLogSink, Row};
 pub use event_streaming_trait::{EventStreamingOperations, IcebergTable};
 pub use module::EventStreamingModule;
@@ -112,30 +112,26 @@ pub use library_module::LibraryEventStreamingModule;
 
 #[cfg(feature = "library")]
 pub use distributed_library_config::{
-    DistributedLibraryConfig, MetaNodeConfig as DistributedMetaNodeConfig,
-    FrontendNodeConfig as DistributedFrontendNodeConfig,
-    ComputeNodeConfig as DistributedComputeNodeConfig, MetaBackend as DistributedMetaBackend,
+    ComputeNodeConfig as DistributedComputeNodeConfig, DistributedLibraryConfig,
+    FrontendNodeConfig as DistributedFrontendNodeConfig, MetaBackend as DistributedMetaBackend,
+    MetaNodeConfig as DistributedMetaNodeConfig,
 };
 
 #[cfg(feature = "library")]
 pub use distributed_library_meta::{DistributedMetaCluster, MetaClusterState, RaftState};
 
 #[cfg(feature = "library")]
-pub use distributed_library_frontend::{DistributedFrontendPool, FrontendNode, FrontendHealth};
+pub use distributed_library_frontend::{DistributedFrontendPool, FrontendHealth, FrontendNode};
 
 #[cfg(feature = "library")]
 pub use distributed_library_compute::{
-    DistributedComputeCluster, ComputeNode, ComputeHealth,
-    FragmentAssignment, FragmentScheduler,
+    ComputeHealth, ComputeNode, DistributedComputeCluster, FragmentAssignment, FragmentScheduler,
 };
 
 // Re-export simplified names for nexora-app
 #[cfg(feature = "library")]
 pub use distributed_library_config::{
-    MetaNodeConfig,
-    FrontendNodeConfig,
-    ComputeNodeConfig,
-    MetaBackend,
+    ComputeNodeConfig, FrontendNodeConfig, MetaBackend, MetaNodeConfig,
 };
 
 /// Start a distributed library mode cluster.
@@ -144,7 +140,11 @@ pub use distributed_library_config::{
 #[cfg(feature = "library")]
 pub async fn start_distributed_library_cluster(
     config: DistributedLibraryConfig,
-) -> Result<(DistributedMetaCluster, DistributedFrontendPool, DistributedComputeCluster)> {
+) -> Result<(
+    DistributedMetaCluster,
+    DistributedFrontendPool,
+    DistributedComputeCluster,
+)> {
     use std::sync::Arc;
 
     // Start Meta cluster
@@ -161,18 +161,21 @@ pub async fn start_distributed_library_cluster(
     let _frontend_health = frontend.start_health_check();
     let _compute_heartbeat = compute.start_heartbeat();
 
-    Ok((meta, frontend, Arc::try_unwrap(compute).unwrap_or_else(|arc| (*arc).clone())))
+    Ok((
+        meta,
+        frontend,
+        Arc::try_unwrap(compute).unwrap_or_else(|arc| (*arc).clone()),
+    ))
 }
 
 #[cfg(feature = "embedded")]
 pub use embedded_process::{
-    EmbeddedEventStreaming, EmbeddedConfig, EmbeddedState,
-    MetaConfig, MetaBackend, FrontendConfig, ComputeConfig,
+    ComputeConfig, EmbeddedConfig, EmbeddedEventStreaming, EmbeddedState, FrontendConfig,
+    MetaBackend, MetaConfig,
 };
 
 #[cfg(feature = "embedded")]
 pub use distributed::{
-    DistributedEmbeddedEventStreaming, DistributedConfig,
-    MetaNodeConfig, FrontendNodeConfig, ComputeNodeConfig,
-    ClusterHealth, NodeHealth,
+    ClusterHealth, ComputeNodeConfig, DistributedConfig, DistributedEmbeddedEventStreaming,
+    FrontendNodeConfig, MetaNodeConfig, NodeHealth,
 };

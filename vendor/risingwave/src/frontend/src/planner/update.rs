@@ -73,21 +73,22 @@ impl Planner {
 
             let old: ExprImpl = InputRef::new(i, data_type.clone()).into();
 
-            let mut new: ExprImpl = match (update.projects.get(&i)).map(|p| p.offset(old_schema_len)) {
-                Some(UpdateProject::Simple(j)) => InputRef::new(j, data_type.clone()).into(),
-                Some(UpdateProject::Composite(j, field)) => FunctionCall::new_unchecked(
-                    Type::Field,
-                    vec![
-                        InputRef::new(j, with_new.schema().data_types()[j].clone()).into(), // struct
-                        Literal::new(Some((field as i32).to_scalar_value()), DataType::Int32)
-                            .into(),
-                    ],
-                    data_type.clone(),
-                )
-                .into(),
+            let mut new: ExprImpl =
+                match (update.projects.get(&i)).map(|p| p.offset(old_schema_len)) {
+                    Some(UpdateProject::Simple(j)) => InputRef::new(j, data_type.clone()).into(),
+                    Some(UpdateProject::Composite(j, field)) => FunctionCall::new_unchecked(
+                        Type::Field,
+                        vec![
+                            InputRef::new(j, with_new.schema().data_types()[j].clone()).into(), // struct
+                            Literal::new(Some((field as i32).to_scalar_value()), DataType::Int32)
+                                .into(),
+                        ],
+                        data_type.clone(),
+                    )
+                    .into(),
 
-                None => old.clone(),
-            };
+                    None => old.clone(),
+                };
             if !col.nullable() {
                 new = FunctionCall::new_unchecked(
                     ExprType::CheckNotNull,

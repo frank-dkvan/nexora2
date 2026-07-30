@@ -49,11 +49,11 @@
 mod client;
 mod error;
 mod network;
-mod storage;
 mod sqlite_storage;
+mod storage;
 
 pub use client::{ElectionMember, RaftElectionClient, RaftElectionConfig};
 pub use error::{Error, Result};
 pub use network::{RaftNetwork, RaftNetworkConfig};
+pub use sqlite_storage::{LogEntry, SqliteStorage, SqliteStorageConfig};
 pub use storage::{RaftStorage, RaftStorageConfig};
-pub use sqlite_storage::{SqliteStorage, SqliteStorageConfig, LogEntry};

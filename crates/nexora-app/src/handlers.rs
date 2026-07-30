@@ -5,17 +5,17 @@
 // mounted without rework; silence dead-code until then.
 #[allow(dead_code)]
 pub mod batch_ops;
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+pub mod distributed_cluster;
+#[cfg(feature = "event-streaming")]
+pub mod event_streaming;
 pub mod explain;
+#[cfg(feature = "event-streaming")]
+pub mod iceberg_catalog;
 pub mod materialized_view;
 pub mod ontology;
 #[allow(dead_code)]
 pub mod query_mgmt;
-#[cfg(feature = "event-streaming")]
-pub mod event_streaming;
-#[cfg(all(feature = "event-streaming", feature = "library"))]
-pub mod distributed_cluster;
-#[cfg(feature = "event-streaming")]
-pub mod iceberg_catalog;
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
@@ -203,14 +203,17 @@ pub struct AppState {
     pub event_streaming: Option<Arc<dyn nexora_risingwave::EventStreamingOperations>>,
     /// Distributed event streaming engine cluster instance (Phase 8, optional)
     #[cfg(all(feature = "event-streaming", feature = "embedded"))]
-    pub distributed_event_streaming: Option<Arc<nexora_risingwave::DistributedEmbeddedEventStreaming>>,
+    pub distributed_event_streaming:
+        Option<Arc<nexora_risingwave::DistributedEmbeddedEventStreaming>>,
     /// Distributed library mode cluster (Phase 2)
     #[cfg(all(feature = "event-streaming", feature = "library"))]
-    pub distributed_library: Option<Arc<(
-        nexora_risingwave::DistributedMetaCluster,
-        nexora_risingwave::DistributedFrontendPool,
-        nexora_risingwave::DistributedComputeCluster,
-    )>>,
+    pub distributed_library: Option<
+        Arc<(
+            nexora_risingwave::DistributedMetaCluster,
+            nexora_risingwave::DistributedFrontendPool,
+            nexora_risingwave::DistributedComputeCluster,
+        )>,
+    >,
 }
 
 impl AppState {

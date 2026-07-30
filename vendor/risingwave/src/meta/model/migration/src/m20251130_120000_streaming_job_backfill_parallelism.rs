@@ -11,8 +11,7 @@ impl MigrationTrait for Migration {
                 Table::alter()
                     .table(StreamingJob::Table)
                     .add_column(
-                        ColumnDef::new(StreamingJob::BackfillParallelism)
-                            .json_binary(), // nullable by default for backward compatibility
+                        ColumnDef::new(StreamingJob::BackfillParallelism).json_binary(), // nullable by default for backward compatibility
                     )
                     .to_owned(),
             )

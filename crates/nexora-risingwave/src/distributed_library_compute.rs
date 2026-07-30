@@ -117,7 +117,11 @@ impl DistributedComputeCluster {
     /// - Meta cluster is unreachable
     /// - Registration fails
     pub async fn register_compute_node(&self) -> Result<()> {
-        let parallelism = self.config.compute.parallelism.unwrap_or_else(num_cpus::get);
+        let parallelism = self
+            .config
+            .compute
+            .parallelism
+            .unwrap_or_else(num_cpus::get);
 
         info!(
             node_id = %self.config.node_id,
@@ -135,10 +139,7 @@ impl DistributedComputeCluster {
             active_fragments: 0,
         };
 
-        self.nodes
-            .write()
-            .await
-            .insert(node.node_id.clone(), node);
+        self.nodes.write().await.insert(node.node_id.clone(), node);
 
         info!("Local Compute node registered");
         Ok(())

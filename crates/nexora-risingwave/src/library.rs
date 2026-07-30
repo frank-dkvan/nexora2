@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use crate::error::{Result, EventStreamingError};
+use crate::error::{EventStreamingError, Result};
 
 /// Configuration for an embedded, in-process RisingWave single-node instance.
 #[derive(Debug, Clone)]
@@ -150,7 +150,10 @@ impl EmbeddedLibrary {
         install_process_globals();
 
         let args = config.to_args();
-        info!(?args, "starting embedded RisingWave (single-node, library mode)");
+        info!(
+            ?args,
+            "starting embedded RisingWave (single-node, library mode)"
+        );
 
         // Parse into SingleNodeOpts via clap, then lower to standalone opts.
         let single_opts = SingleNodeOpts::try_parse_from(&args).map_err(|e| {

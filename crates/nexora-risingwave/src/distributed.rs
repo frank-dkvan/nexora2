@@ -5,12 +5,12 @@
 //! - 1 个 Frontend 节点
 //! - N 个 Compute 节点
 
+use anyhow::{anyhow, Context, Result};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
-use anyhow::{Context, Result, anyhow};
-use tracing::{info, debug};
-use serde::{Deserialize, Serialize};
+use tracing::{debug, info};
 
 /// 分布式嵌入式 RisingWave 集群管理器
 pub struct DistributedEmbeddedEventStreaming {
@@ -166,13 +166,15 @@ impl DistributedEmbeddedEventStreaming {
         info!("Using RisingWave binary: {}", binary_path.display());
 
         // 2. 创建数据目录
-        std::fs::create_dir_all(&config.data_dir)
-            .context("Failed to create data directory")?;
+        std::fs::create_dir_all(&config.data_dir).context("Failed to create data directory")?;
 
         // 3. 启动 Meta 节点（顺序启动，等待 Raft 选举）
         let mut meta_nodes = Vec::new();
         for (idx, meta_cfg) in config.meta_nodes.iter().enumerate() {
-            info!("Starting Meta node {} at {}...", meta_cfg.node_id, meta_cfg.listen_addr);
+            info!(
+                "Starting Meta node {} at {}...",
+                meta_cfg.node_id, meta_cfg.listen_addr
+            );
 
             let process = Self::start_meta_node(&binary_path, &config, meta_cfg, idx == 0).await?;
             meta_nodes.push(process);
@@ -269,21 +271,28 @@ impl DistributedEmbeddedEventStreaming {
 
         let mut cmd = Command::new(binary_path);
         cmd.arg("meta-node")
-            .arg("--listen-addr").arg(&meta_cfg.listen_addr)
-            .arg("--advertise-addr").arg(&meta_cfg.advertise_addr)
-            .arg("--dashboard-host").arg(&meta_cfg.dashboard_addr)
+            .arg("--listen-addr")
+            .arg(&meta_cfg.listen_addr)
+            .arg("--advertise-addr")
+            .arg(&meta_cfg.advertise_addr)
+            .arg("--dashboard-host")
+            .arg(&meta_cfg.dashboard_addr)
             // SQLite 持久化元数据
-            .arg("--backend").arg("sql")
-            .arg("--sql-endpoint").arg(&format!(
+            .arg("--backend")
+            .arg("sql")
+            .arg("--sql-endpoint")
+            .arg(&format!(
                 "sqlite://{}",
                 risingwave_dir.join("meta.db").display()
             ))
             // 文件系统持久化状态数据
-            .arg("--state-store").arg(&format!(
+            .arg("--state-store")
+            .arg(&format!(
                 "hummock+fs://{}",
                 risingwave_dir.join("state").display()
             ))
-            .arg("--data-directory").arg(&node_data_dir);
+            .arg("--data-directory")
+            .arg(&node_data_dir);
 
         // 非首个节点需要 --join 参数
         if !is_first {
@@ -296,7 +305,8 @@ impl DistributedEmbeddedEventStreaming {
 
         debug!("Meta node {} command: {:?}", meta_cfg.node_id, cmd);
 
-        let process = cmd.spawn()
+        let process = cmd
+            .spawn()
             .context(format!("Failed to spawn Meta node {}", meta_cfg.node_id))?;
 
         Ok(EmbeddedProcess {
@@ -314,11 +324,13 @@ impl DistributedEmbeddedEventStreaming {
     ) -> Result<EmbeddedProcess> {
         let mut cmd = Command::new(binary_path);
         cmd.arg("frontend-node")
-            .arg("--listen-addr").arg(&config.frontend.listen_addr);
+            .arg("--listen-addr")
+            .arg(&config.frontend.listen_addr);
 
         // 连接到所有 Meta 节点
         for meta in &config.meta_nodes {
-            cmd.arg("--meta-addr").arg(format!("http://{}", meta.advertise_addr));
+            cmd.arg("--meta-addr")
+                .arg(format!("http://{}", meta.advertise_addr));
         }
 
         cmd.stdout(Stdio::piped());
@@ -326,8 +338,7 @@ impl DistributedEmbeddedEventStreaming {
 
         debug!("Frontend command: {:?}", cmd);
 
-        let process = cmd.spawn()
-            .context("Failed to spawn Frontend node")?;
+        let process = cmd.spawn().context("Failed to spawn Frontend node")?;
 
         Ok(EmbeddedProcess {
             process,
@@ -345,8 +356,10 @@ impl DistributedEmbeddedEventStreaming {
     ) -> Result<EmbeddedProcess> {
         let mut cmd = Command::new(binary_path);
         cmd.arg("compute-node")
-            .arg("--listen-addr").arg(&compute_cfg.listen_addr)
-            .arg("--parallelism").arg(compute_cfg.parallelism.to_string());
+            .arg("--listen-addr")
+            .arg(&compute_cfg.listen_addr)
+            .arg("--parallelism")
+            .arg(compute_cfg.parallelism.to_string());
 
         // 连接到 Meta 集群
         let meta_addr = format!("http://{}", config.meta_nodes[0].advertise_addr);
@@ -357,8 +370,7 @@ impl DistributedEmbeddedEventStreaming {
 
         debug!("Compute command: {:?}", cmd);
 
-        let process = cmd.spawn()
-            .context("Failed to spawn Compute node")?;
+        let process = cmd.spawn().context("Failed to spawn Compute node")?;
 
         Ok(EmbeddedProcess {
             process,
@@ -369,10 +381,7 @@ impl DistributedEmbeddedEventStreaming {
     }
 
     /// 等待 Meta Leader 选举完成
-    async fn wait_for_meta_leader(
-        meta_nodes: &[MetaNodeConfig],
-        timeout: Duration,
-    ) -> Result<u32> {
+    async fn wait_for_meta_leader(meta_nodes: &[MetaNodeConfig], timeout: Duration) -> Result<u32> {
         let start = std::time::Instant::now();
 
         loop {
@@ -415,34 +424,43 @@ impl DistributedEmbeddedEventStreaming {
     pub async fn monitor_health(&self) -> Result<ClusterHealth> {
         let leader_id = self.detect_meta_leader().await.ok();
 
-        let meta_nodes: Vec<NodeHealth> = self.meta_nodes.iter().map(|node| {
-            NodeHealth {
+        let meta_nodes: Vec<NodeHealth> = self
+            .meta_nodes
+            .iter()
+            .map(|node| NodeHealth {
                 node_id: node.node_id,
                 is_running: Self::is_process_running(&node.process),
                 is_leader: Some(node.node_id) == leader_id,
                 address: node.listen_addr.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let frontend = NodeHealth {
             node_id: 0,
-            is_running: self.frontend.as_ref()
+            is_running: self
+                .frontend
+                .as_ref()
                 .map(|f| Self::is_process_running(&f.process))
                 .unwrap_or(false),
             is_leader: false,
-            address: self.frontend.as_ref()
+            address: self
+                .frontend
+                .as_ref()
                 .map(|f| f.listen_addr.clone())
                 .unwrap_or_default(),
         };
 
-        let compute_nodes: Vec<NodeHealth> = self.compute_nodes.iter().enumerate().map(|(idx, node)| {
-            NodeHealth {
+        let compute_nodes: Vec<NodeHealth> = self
+            .compute_nodes
+            .iter()
+            .enumerate()
+            .map(|(idx, node)| NodeHealth {
                 node_id: idx as u32,
                 is_running: Self::is_process_running(&node.process),
                 is_leader: false,
                 address: node.listen_addr.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(ClusterHealth {
             leader_node_id: leader_id,
@@ -518,4 +536,3 @@ impl DistributedEmbeddedEventStreaming {
         }
     }
 }
-

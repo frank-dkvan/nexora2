@@ -4,7 +4,7 @@
 //! enabling seamless integration between RisingWave's SQL layer and Nexora's
 //! ontology system.
 
-use crate::error::{Result, EventStreamingError};
+use crate::error::{EventStreamingError, Result};
 
 /// SQL DDL parser for RisingWave
 pub struct DdlParser;
@@ -166,9 +166,7 @@ impl DdlParser {
     pub fn schema_to_domain_package(
         schema: &ParsedSchema,
     ) -> nexora_core::domain_package::DomainPackage {
-        use nexora_core::domain_package::{
-            DomainPackage, DomainSchema, LabelDef, PropertyDef,
-        };
+        use nexora_core::domain_package::{DomainPackage, DomainSchema, LabelDef, PropertyDef};
 
         // Each parsed MV column becomes a property on a single label named after
         // the view. `nullable` maps to `required = !nullable`.

@@ -8,11 +8,11 @@
 //! ```
 
 use nexora_risingwave::distributed::{
-    DistributedEmbeddedRisingWave, DistributedConfig,
-    MetaNodeConfig, FrontendNodeConfig, ComputeNodeConfig,
+    ComputeNodeConfig, DistributedConfig, DistributedEmbeddedRisingWave, FrontendNodeConfig,
+    MetaNodeConfig,
 };
-use tokio_postgres::NoTls;
 use std::time::Duration;
+use tokio_postgres::NoTls;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -53,12 +53,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         frontend: FrontendNodeConfig {
             listen_addr: "127.0.0.1:4566".to_string(),
         },
-        compute_nodes: vec![
-            ComputeNodeConfig {
-                listen_addr: "127.0.0.1:5688".to_string(),
-                parallelism: num_cpus::get(),
-            },
-        ],
+        compute_nodes: vec![ComputeNodeConfig {
+            listen_addr: "127.0.0.1:5688".to_string(),
+            parallelism: num_cpus::get(),
+        }],
         startup_timeout_secs: 60,
         shutdown_timeout_secs: 30,
     };
@@ -66,7 +64,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("配置:");
     println!("  - Meta 节点: 3 个 (端口 5690, 5692, 5694)");
     println!("  - Frontend: 1 个 (端口 4566)");
-    println!("  - Compute: 1 个 (端口 5688, {} 并发)", config.compute_nodes[0].parallelism);
+    println!(
+        "  - Compute: 1 个 (端口 5688, {} 并发)",
+        config.compute_nodes[0].parallelism
+    );
     println!();
 
     // 2. 启动集群
@@ -79,10 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. 连接 Frontend
     println!("连接 Frontend...");
-    let (client, connection) = tokio_postgres::connect(
-        "host=127.0.0.1 port=4566 user=root dbname=dev",
-        NoTls,
-    ).await?;
+    let (client, connection) =
+        tokio_postgres::connect("host=127.0.0.1 port=4566 user=root dbname=dev", NoTls).await?;
 
     // 连接处理器（后台任务）
     tokio::spawn(async move {
@@ -147,10 +146,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  测试 3: 查询 Materialized View");
     println!("========================================");
 
-    let rows = client.query(
-        "SELECT user_id, event_type, event_count FROM user_event_counts LIMIT 10",
-        &[],
-    ).await?;
+    let rows = client
+        .query(
+            "SELECT user_id, event_type, event_count FROM user_event_counts LIMIT 10",
+            &[],
+        )
+        .await?;
 
     println!("\nTop 10 用户事件统计:");
     println!("{:<10} {:<15} {:<12}", "User ID", "Event Type", "Count");
@@ -182,7 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agg_rows = client.query(agg_query, &[]).await?;
 
     println!("\n按事件类型统计:");
-    println!("{:<15} {:<15} {:<15} {:<20}", "Event Type", "Unique Users", "Total Events", "Avg/User");
+    println!(
+        "{:<15} {:<15} {:<15} {:<20}",
+        "Event Type", "Unique Users", "Total Events", "Avg/User"
+    );
     println!("{}", "-".repeat(70));
 
     for row in agg_rows {
@@ -207,18 +211,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let health = cluster.monitor_health().await?;
     println!("\nMeta 节点:");
     for node in &health.meta_nodes {
-        let status = if node.is_running { "运行中" } else { "已停止" };
+        let status = if node.is_running {
+            "运行中"
+        } else {
+            "已停止"
+        };
         let role = if node.is_leader { " [Leader]" } else { "" };
-        println!("  - Node {} ({}): {}{}", node.node_id, node.address, status, role);
+        println!(
+            "  - Node {} ({}): {}{}",
+            node.node_id, node.address, status, role
+        );
     }
 
     println!("\nFrontend:");
-    let fe_status = if health.frontend.is_running { "运行中" } else { "已停止" };
+    let fe_status = if health.frontend.is_running {
+        "运行中"
+    } else {
+        "已停止"
+    };
     println!("  - {}: {}", health.frontend.address, fe_status);
 
     println!("\nCompute 节点:");
     for node in &health.compute_nodes {
-        let status = if node.is_running { "运行中" } else { "已停止" };
+        let status = if node.is_running {
+            "运行中"
+        } else {
+            "已停止"
+        };
         println!("  - Node {} ({}): {}", node.node_id, node.address, status);
     }
 
@@ -232,8 +251,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("========================================");
 
     println!("删除测试对象...");
-    client.execute("DROP MATERIALIZED VIEW IF EXISTS user_event_counts", &[]).await?;
-    client.execute("DROP SOURCE IF EXISTS user_events", &[]).await?;
+    client
+        .execute("DROP MATERIALIZED VIEW IF EXISTS user_event_counts", &[])
+        .await?;
+    client
+        .execute("DROP SOURCE IF EXISTS user_events", &[])
+        .await?;
     println!("✓ 清理完成\n");
 
     // 12. 关闭集群

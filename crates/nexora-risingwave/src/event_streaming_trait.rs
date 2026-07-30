@@ -2,8 +2,8 @@
 //!
 //! Provides a unified interface for both standard and library-mode modules.
 
-use crate::error::Result;
 use crate::catalog::{MaterializedViewInfo, SourceInfo};
+use crate::error::Result;
 use async_trait::async_trait;
 
 /// Iceberg table metadata from RisingWave's hosted catalog

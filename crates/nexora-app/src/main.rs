@@ -427,7 +427,10 @@ struct Cli {
 
     /// Peer Meta nodes for Raft cluster (format: "node_id@addr", repeatable)
     #[cfg(all(feature = "event-streaming", feature = "library"))]
-    #[arg(long = "library-meta-peer", requires = "distributed_library_event_streaming")]
+    #[arg(
+        long = "library-meta-peer",
+        requires = "distributed_library_event_streaming"
+    )]
     library_meta_peers: Vec<String>,
 
     /// Event streams Meta node address (e.g., "127.0.0.1:5690")
@@ -449,7 +452,6 @@ struct Cli {
     #[cfg(all(feature = "event-streaming", feature = "embedded"))]
     #[arg(long, requires = "embedded_event_streaming")]
     event_streaming_cluster: bool,
-
 
     /// Event streams Raft node ID (for HA mode)
     #[cfg(feature = "event-streaming")]
@@ -1800,8 +1802,8 @@ async fn main() -> anyhow::Result<()> {
         if enabled {
             // Phase 8: Check for cluster mode first
             #[cfg(feature = "embedded")]
-            let cluster_mode = cli.event_streaming_cluster
-                || rw_config.map_or(false, |c| c.cluster_mode);
+            let cluster_mode =
+                cli.event_streaming_cluster || rw_config.map_or(false, |c| c.cluster_mode);
 
             #[cfg(not(feature = "embedded"))]
             let cluster_mode = false;
@@ -1826,26 +1828,28 @@ async fn main() -> anyhow::Result<()> {
                     let dist_config = if let Some(rw) = rw_config {
                         if let Some(meta_nodes_cfg) = &rw.meta_nodes {
                             // Use custom config from TOML
-                            let meta_nodes = meta_nodes_cfg.iter().map(|m| {
-                                nexora_risingwave::MetaNodeConfig {
+                            let meta_nodes = meta_nodes_cfg
+                                .iter()
+                                .map(|m| nexora_risingwave::MetaNodeConfig {
                                     node_id: m.node_id,
                                     listen_addr: m.listen_addr.clone(),
                                     advertise_addr: m.advertise_addr.clone(),
                                     dashboard_addr: m.dashboard_addr.clone(),
-                                }
-                            }).collect();
+                                })
+                                .collect();
 
                             let frontend = nexora_risingwave::FrontendNodeConfig {
                                 listen_addr: rw.frontend_addr.clone(),
                             };
 
                             let compute_nodes = if let Some(compute_cfg) = &rw.compute_nodes {
-                                compute_cfg.iter().map(|c| {
-                                    nexora_risingwave::ComputeNodeConfig {
+                                compute_cfg
+                                    .iter()
+                                    .map(|c| nexora_risingwave::ComputeNodeConfig {
                                         listen_addr: c.listen_addr.clone(),
                                         parallelism: c.parallelism,
-                                    }
-                                }).collect()
+                                    })
+                                    .collect()
                             } else {
                                 vec![nexora_risingwave::ComputeNodeConfig {
                                     listen_addr: "127.0.0.1:5688".to_string(),
@@ -1879,13 +1883,18 @@ async fn main() -> anyhow::Result<()> {
                         cfg
                     };
 
-                    match nexora_risingwave::DistributedEmbeddedEventStreaming::start(dist_config).await {
+                    match nexora_risingwave::DistributedEmbeddedEventStreaming::start(dist_config)
+                        .await
+                    {
                         Ok(instance) => {
                             tracing::info!("   Event Streaming: distributed cluster started");
                             (None, None, Some(instance))
                         }
                         Err(e) => {
-                            tracing::error!("Failed to start distributed event streams cluster: {}", e);
+                            tracing::error!(
+                                "Failed to start distributed event streams cluster: {}",
+                                e
+                            );
                             anyhow::bail!("Distributed event streams initialization failed: {}", e);
                         }
                     }
@@ -1899,17 +1908,21 @@ async fn main() -> anyhow::Result<()> {
                 // Phase 7.5: Embedded RisingWave support (single node)
                 #[cfg(feature = "embedded")]
                 let embedded_instance = {
-                    let use_embedded = cli.embedded_event_streaming
-                        || rw_config.map_or(false, |c| c.embedded);
+                    let use_embedded =
+                        cli.embedded_event_streaming || rw_config.map_or(false, |c| c.embedded);
 
                     if use_embedded {
                         tracing::info!("   Event Streaming: starting embedded process...");
 
                         // CLI args override config file
-                        let meta_addr = cli.event_streaming_meta_addr.clone()
+                        let meta_addr = cli
+                            .event_streaming_meta_addr
+                            .clone()
                             .or_else(|| rw_config.and_then(|c| Some(c.meta_addr.clone())))
                             .unwrap_or_else(|| "127.0.0.1:5690".to_string());
-                        let frontend_addr = cli.event_streaming_frontend_addr.clone()
+                        let frontend_addr = cli
+                            .event_streaming_frontend_addr
+                            .clone()
                             .or_else(|| rw_config.and_then(|c| Some(c.frontend_addr.clone())))
                             .unwrap_or_else(|| "127.0.0.1:4566".to_string());
 
@@ -1920,10 +1933,8 @@ async fn main() -> anyhow::Result<()> {
                         let binary_path = rw_config
                             .and_then(|c| c.binary_path.as_ref().map(std::path::PathBuf::from));
 
-                        let startup_timeout = rw_config
-                            .map_or(60, |c| c.startup_timeout_secs);
-                        let shutdown_timeout = rw_config
-                            .map_or(30, |c| c.shutdown_timeout_secs);
+                        let startup_timeout = rw_config.map_or(60, |c| c.startup_timeout_secs);
+                        let shutdown_timeout = rw_config.map_or(30, |c| c.shutdown_timeout_secs);
 
                         let parallelism = rw_config
                             .and_then(|c| c.parallelism)
@@ -1939,21 +1950,27 @@ async fn main() -> anyhow::Result<()> {
                             frontend: nexora_risingwave::FrontendConfig {
                                 listen_addr: frontend_addr.clone(),
                             },
-                            compute: nexora_risingwave::ComputeConfig {
-                                parallelism,
-                            },
+                            compute: nexora_risingwave::ComputeConfig { parallelism },
                             startup_timeout_secs: startup_timeout,
                             shutdown_timeout_secs: shutdown_timeout,
                         };
 
-                        match nexora_risingwave::EmbeddedEventStreaming::start(embedded_config).await {
+                        match nexora_risingwave::EmbeddedEventStreaming::start(embedded_config)
+                            .await
+                        {
                             Ok(instance) => {
-                                tracing::info!("   Event Streaming: embedded process started (PID: {})", instance.pid());
+                                tracing::info!(
+                                    "   Event Streaming: embedded process started (PID: {})",
+                                    instance.pid()
+                                );
                                 Some(instance)
                             }
                             Err(e) => {
                                 tracing::error!("Failed to start embedded event streams: {}", e);
-                                anyhow::bail!("Embedded event streams initialization failed: {}", e);
+                                anyhow::bail!(
+                                    "Embedded event streams initialization failed: {}",
+                                    e
+                                );
                             }
                         }
                     } else {
@@ -1964,10 +1981,14 @@ async fn main() -> anyhow::Result<()> {
                 #[cfg(not(feature = "embedded"))]
                 let embedded_instance: Option<RwEmbeddedInstance> = None;
 
-                let meta_addr = cli.event_streaming_meta_addr.clone()
+                let meta_addr = cli
+                    .event_streaming_meta_addr
+                    .clone()
                     .or_else(|| rw_config.map(|c| c.meta_addr.clone()))
                     .unwrap_or_else(|| {
-                        tracing::warn!("No --event-streaming-meta-addr provided, using default 127.0.0.1:5690");
+                        tracing::warn!(
+                            "No --event-streaming-meta-addr provided, using default 127.0.0.1:5690"
+                        );
                         "127.0.0.1:5690".to_string()
                     });
                 let frontend_addr = cli.event_streaming_frontend_addr.clone()
@@ -1995,7 +2016,9 @@ async fn main() -> anyhow::Result<()> {
                 // Enable HA mode with Raft if requested
                 if cli.event_streaming_ha {
                     let node_id = cli.event_streaming_raft_node_id.unwrap_or_else(|| {
-                        tracing::warn!("No --event-streaming-raft-node-id provided, using default 1");
+                        tracing::warn!(
+                            "No --event-streaming-raft-node-id provided, using default 1"
+                        );
                         1
                     });
                     let peers: Vec<(u64, String)> = cli
@@ -2048,61 +2071,67 @@ async fn main() -> anyhow::Result<()> {
     // using vendored crates — no external `event-streaming` binary needed.
     // Enabled by --library-event-streaming; mutually exclusive with --embedded-event-streaming.
     #[cfg(all(feature = "event-streaming", feature = "library"))]
-    let mut library_event_streaming_client: Option<Arc<dyn nexora_risingwave::EventStreamingOperations>> = None;
+    let mut library_event_streaming_client: Option<
+        Arc<dyn nexora_risingwave::EventStreamingOperations>,
+    > = None;
 
     #[cfg(all(feature = "event-streaming", feature = "library"))]
-    let library_event_streaming: Option<nexora_risingwave::EmbeddedLibrary> =
-        if cli.library_event_streaming {
-            let frontend_addr = cli
-                .event_streaming_frontend_addr
-                .clone()
-                .unwrap_or_else(|| "127.0.0.1:4566".to_string());
+    let library_event_streaming: Option<nexora_risingwave::EmbeddedLibrary> = if cli
+        .library_event_streaming
+    {
+        let frontend_addr = cli
+            .event_streaming_frontend_addr
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:4566".to_string());
 
-            // Use a persistent store when RocksDB is enabled, in-memory otherwise.
-            let lib_config = if cli.no_rocksdb {
-                nexora_risingwave::EmbeddedLibraryConfig::new()
-                    .with_frontend_listen_addr(&frontend_addr)
-                    .in_memory()
-            } else {
-                let store_dir = cli.rocksdb_path.join("event-streaming-library");
-                nexora_risingwave::EmbeddedLibraryConfig::new()
-                    .with_frontend_listen_addr(&frontend_addr)
-                    .with_store_directory(store_dir)
-            };
-
-            match nexora_risingwave::EmbeddedLibrary::start(lib_config) {
-                Ok(instance) => {
-                    tracing::info!(
-                        "   Event Streaming: in-process library started \
-                         (RisingWave engine embedded in nexora binary, frontend={})",
-                        frontend_addr,
-                    );
-
-                    // Wait a moment for RisingWave to be ready
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-                    // Create client module for HTTP API
-                    match nexora_risingwave::LibraryEventStreamingModule::connect(frontend_addr.clone()).await {
-                        Ok(client_module) => {
-                            tracing::info!("   Event Streaming: client connected to library instance");
-                            // Store both: library instance for lifecycle, client for API
-                            library_event_streaming_client = Some(Arc::new(client_module) as Arc<dyn nexora_risingwave::EventStreamingOperations>);
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to connect Event Streaming client: {}", e);
-                        }
-                    }
-
-                    Some(instance)
-                }
-                Err(e) => {
-                    tracing::error!("Failed to start in-process event streaming engine: {}", e);
-                    anyhow::bail!("Library event streams initialization failed: {}", e);
-                }
-            }
+        // Use a persistent store when RocksDB is enabled, in-memory otherwise.
+        let lib_config = if cli.no_rocksdb {
+            nexora_risingwave::EmbeddedLibraryConfig::new()
+                .with_frontend_listen_addr(&frontend_addr)
+                .in_memory()
         } else {
-            None
+            let store_dir = cli.rocksdb_path.join("event-streaming-library");
+            nexora_risingwave::EmbeddedLibraryConfig::new()
+                .with_frontend_listen_addr(&frontend_addr)
+                .with_store_directory(store_dir)
         };
+
+        match nexora_risingwave::EmbeddedLibrary::start(lib_config) {
+            Ok(instance) => {
+                tracing::info!(
+                    "   Event Streaming: in-process library started \
+                         (RisingWave engine embedded in nexora binary, frontend={})",
+                    frontend_addr,
+                );
+
+                // Wait a moment for RisingWave to be ready
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                // Create client module for HTTP API
+                match nexora_risingwave::LibraryEventStreamingModule::connect(frontend_addr.clone())
+                    .await
+                {
+                    Ok(client_module) => {
+                        tracing::info!("   Event Streaming: client connected to library instance");
+                        // Store both: library instance for lifecycle, client for API
+                        library_event_streaming_client = Some(Arc::new(client_module)
+                            as Arc<dyn nexora_risingwave::EventStreamingOperations>);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to connect Event Streaming client: {}", e);
+                    }
+                }
+
+                Some(instance)
+            }
+            Err(e) => {
+                tracing::error!("Failed to start in-process event streaming engine: {}", e);
+                anyhow::bail!("Library event streams initialization failed: {}", e);
+            }
+        }
+    } else {
+        None
+    };
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
     let library_event_streaming: Option<()> = None;
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
@@ -2128,19 +2157,18 @@ async fn main() -> anyhow::Result<()> {
                     );
 
                     use nexora_risingwave::{
-                        DistributedLibraryConfig, MetaNodeConfig, FrontendNodeConfig,
-                        ComputeNodeConfig, MetaBackend,
+                        ComputeNodeConfig, DistributedLibraryConfig, FrontendNodeConfig,
+                        MetaBackend, MetaNodeConfig,
                     };
                     use std::path::PathBuf;
 
                     // Parse backend configuration
                     let backend = match dist_config.meta.backend.as_str() {
                         "etcd" => {
-                            let endpoints = dist_config
-                                .meta
-                                .etcd_endpoints
-                                .clone()
-                                .ok_or_else(|| anyhow::anyhow!("etcd backend requires etcd_endpoints"))?;
+                            let endpoints =
+                                dist_config.meta.etcd_endpoints.clone().ok_or_else(|| {
+                                    anyhow::anyhow!("etcd backend requires etcd_endpoints")
+                                })?;
                             MetaBackend::Etcd { endpoints }
                         }
                         "sqlite" => {
@@ -2149,7 +2177,12 @@ async fn main() -> anyhow::Result<()> {
                                 .sqlite_path
                                 .as_ref()
                                 .map(PathBuf::from)
-                                .unwrap_or_else(|| PathBuf::from(format!("./nexora-data/meta-{}.db", dist_config.node_id)));
+                                .unwrap_or_else(|| {
+                                    PathBuf::from(format!(
+                                        "./nexora-data/meta-{}.db",
+                                        dist_config.node_id
+                                    ))
+                                });
                             MetaBackend::Sqlite { path }
                         }
                         "memory" => MetaBackend::Memory,
@@ -2158,17 +2191,17 @@ async fn main() -> anyhow::Result<()> {
 
                     let meta_listen: std::net::SocketAddr = dist_config.meta.listen_addr.parse()?;
 
-                    let frontend_config = dist_config
-                        .frontend
-                        .as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("distributed mode requires frontend configuration"))?;
-                    let frontend_listen: std::net::SocketAddr = frontend_config.listen_addr.parse()?;
+                    let frontend_config = dist_config.frontend.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("distributed mode requires frontend configuration")
+                    })?;
+                    let frontend_listen: std::net::SocketAddr =
+                        frontend_config.listen_addr.parse()?;
 
-                    let compute_config = dist_config
-                        .compute
-                        .as_ref()
-                        .ok_or_else(|| anyhow::anyhow!("distributed mode requires compute configuration"))?;
-                    let compute_listen: std::net::SocketAddr = compute_config.listen_addr.parse()?;
+                    let compute_config = dist_config.compute.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("distributed mode requires compute configuration")
+                    })?;
+                    let compute_listen: std::net::SocketAddr =
+                        compute_config.listen_addr.parse()?;
                     let compute_internal_rpc: Option<std::net::SocketAddr> = compute_config
                         .internal_rpc_addr
                         .as_ref()
@@ -2202,14 +2235,21 @@ async fn main() -> anyhow::Result<()> {
                     })?;
 
                     // Start cluster components
-                    match nexora_risingwave::start_distributed_library_cluster(lib_dist_config).await {
+                    match nexora_risingwave::start_distributed_library_cluster(lib_dist_config)
+                        .await
+                    {
                         Ok((meta, frontend, compute)) => {
-                            tracing::info!("   Event Streaming: distributed library cluster started");
+                            tracing::info!(
+                                "   Event Streaming: distributed library cluster started"
+                            );
                             Some(Arc::new((meta, frontend, compute)))
                         }
                         Err(e) => {
                             tracing::error!("Failed to start distributed library cluster: {}", e);
-                            anyhow::bail!("Distributed library cluster initialization failed: {}", e);
+                            anyhow::bail!(
+                                "Distributed library cluster initialization failed: {}",
+                                e
+                            );
                         }
                     }
                 } else {
@@ -2280,8 +2320,11 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(64),
         )),
         #[cfg(feature = "event-streaming")]
-        event_streaming: library_event_streaming_client
-            .or_else(|| event_streaming_module.as_ref().map(|m| m.clone() as Arc<dyn nexora_risingwave::EventStreamingOperations>)),
+        event_streaming: library_event_streaming_client.or_else(|| {
+            event_streaming_module
+                .as_ref()
+                .map(|m| m.clone() as Arc<dyn nexora_risingwave::EventStreamingOperations>)
+        }),
         #[cfg(all(feature = "event-streaming", feature = "embedded"))]
         distributed_event_streaming: distributed_event_streaming.map(Arc::new),
         #[cfg(all(feature = "event-streaming", feature = "library"))]

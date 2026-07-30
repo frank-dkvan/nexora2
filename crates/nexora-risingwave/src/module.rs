@@ -354,7 +354,9 @@ impl EventStreamingOperations for EventStreamingModule {
         self.is_leader().await
     }
 
-    async fn list_hosted_iceberg_tables(&self) -> Result<Vec<crate::event_streaming_trait::IcebergTable>> {
+    async fn list_hosted_iceberg_tables(
+        &self,
+    ) -> Result<Vec<crate::event_streaming_trait::IcebergTable>> {
         // Client-server mode uses the placeholder FrontendWrapper / CatalogClient,
         // which do not hold a live pgwire connection to a RisingWave frontend, so
         // the hosted Iceberg catalog cannot be read here. The functional path is

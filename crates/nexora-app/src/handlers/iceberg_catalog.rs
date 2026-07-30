@@ -163,16 +163,16 @@ pub struct SortField {
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/v1/config", get(get_config))
-        .route("/v1/namespaces", get(list_namespaces).post(create_namespace))
+        .route(
+            "/v1/namespaces",
+            get(list_namespaces).post(create_namespace),
+        )
         .route("/v1/namespaces/{namespace}", get(get_namespace))
         .route(
             "/v1/namespaces/{namespace}/tables",
             get(list_tables).post(create_table),
         )
-        .route(
-            "/v1/namespaces/{namespace}/tables/{table}",
-            get(load_table),
-        )
+        .route("/v1/namespaces/{namespace}/tables/{table}", get(load_table))
 }
 
 /// GET /v1/config
@@ -198,10 +198,9 @@ async fn list_namespaces(
         .ok_or(ApiError::FeatureNotEnabled("event-streaming".to_string()))?;
 
     // Query RisingWave Meta's iceberg_tables
-    let tables = risingwave
-        .list_hosted_iceberg_tables()
-        .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to list Iceberg tables: {}", e)))?;
+    let tables = risingwave.list_hosted_iceberg_tables().await.map_err(|e| {
+        ApiError::InternalServerError(format!("Failed to list Iceberg tables: {}", e))
+    })?;
 
     // Extract unique namespaces
     let mut namespaces = std::collections::HashSet::new();
@@ -263,17 +262,20 @@ async fn list_tables(
         .as_ref()
         .ok_or(ApiError::FeatureNotEnabled("event-streaming".to_string()))?;
 
-    let tables = risingwave
-        .list_hosted_iceberg_tables()
-        .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to list Iceberg tables: {}", e)))?;
+    let tables = risingwave.list_hosted_iceberg_tables().await.map_err(|e| {
+        ApiError::InternalServerError(format!("Failed to list Iceberg tables: {}", e))
+    })?;
 
     // Filter tables by namespace
     let identifiers: Vec<TableIdentifier> = tables
         .into_iter()
         .filter(|t| t.table_namespace == namespace)
         .map(|t| TableIdentifier {
-            namespace: t.table_namespace.split('.').map(|s| s.to_string()).collect(),
+            namespace: t
+                .table_namespace
+                .split('.')
+                .map(|s| s.to_string())
+                .collect(),
             name: t.table_name,
         })
         .collect();
@@ -290,7 +292,9 @@ async fn create_table(
 ) -> Result<StatusCode, ApiError> {
     // Tables are created by RisingWave sinks automatically
     // Return 501 Not Implemented for now
-    Err(ApiError::NotImplemented("Table creation is handled by RisingWave CREATE SINK"))
+    Err(ApiError::NotImplemented(
+        "Table creation is handled by RisingWave CREATE SINK",
+    ))
 }
 
 /// GET /v1/namespaces/{namespace}/tables/{table}
@@ -305,16 +309,18 @@ async fn load_table(
         .as_ref()
         .ok_or(ApiError::FeatureNotEnabled("event-streaming".to_string()))?;
 
-    let tables = risingwave
-        .list_hosted_iceberg_tables()
-        .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to list Iceberg tables: {}", e)))?;
+    let tables = risingwave.list_hosted_iceberg_tables().await.map_err(|e| {
+        ApiError::InternalServerError(format!("Failed to list Iceberg tables: {}", e))
+    })?;
 
     // Find matching table
     let table = tables
         .into_iter()
         .find(|t| t.table_namespace == namespace && t.table_name == table_name)
-        .ok_or(ApiError::NotFound(format!("Table {}.{} not found", namespace, table_name)))?;
+        .ok_or(ApiError::NotFound(format!(
+            "Table {}.{} not found",
+            namespace, table_name
+        )))?;
 
     // TODO: Parse actual metadata from metadata_location S3 file
     // For now, return minimal metadata

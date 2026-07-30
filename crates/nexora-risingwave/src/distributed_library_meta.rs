@@ -162,9 +162,10 @@ impl DistributedMetaCluster {
         };
 
         // Start Raft election
-        raft_client.init().await.map_err(|e| {
-            EventStreamingError::Internal(format!("Raft init failed: {}", e))
-        })?;
+        raft_client
+            .init()
+            .await
+            .map_err(|e| EventStreamingError::Internal(format!("Raft init failed: {}", e)))?;
 
         // Transition to Follower state (will become Leader after election)
         *cluster.state.write().await = MetaClusterState::Follower;
@@ -231,11 +232,7 @@ impl DistributedMetaCluster {
                     // Update term when becoming leader
                     let current = raft_state_clone.current_term();
                     raft_state_clone.current_term.fetch_add(1, Ordering::SeqCst);
-                    tracing::info!(
-                        "Node became leader, term: {} -> {}",
-                        current,
-                        current + 1
-                    );
+                    tracing::info!("Node became leader, term: {} -> {}", current, current + 1);
                 }
             }
         });
@@ -370,10 +367,7 @@ mod tests {
         let cluster = DistributedMetaCluster::start(config).await.unwrap();
 
         assert_eq!(cluster.node_id(), "meta-1");
-        assert_eq!(
-            cluster.cluster_state().await,
-            MetaClusterState::Follower
-        );
+        assert_eq!(cluster.cluster_state().await, MetaClusterState::Follower);
     }
 
     #[tokio::test]

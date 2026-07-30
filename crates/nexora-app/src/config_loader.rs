@@ -28,11 +28,11 @@ pub fn load_config(config_path: Option<&Path>) -> Result<AppTomlConfig> {
     // Try default location
     let default_path = Path::new("nexora.toml");
     if default_path.exists() {
-        let content = std::fs::read_to_string(default_path)
-            .context("Failed to read nexora.toml")?;
+        let content =
+            std::fs::read_to_string(default_path).context("Failed to read nexora.toml")?;
 
-        let config: AppTomlConfig = toml::from_str(&content)
-            .context("Failed to parse nexora.toml")?;
+        let config: AppTomlConfig =
+            toml::from_str(&content).context("Failed to parse nexora.toml")?;
 
         tracing::info!("Loaded configuration from: nexora.toml");
         return Ok(config);

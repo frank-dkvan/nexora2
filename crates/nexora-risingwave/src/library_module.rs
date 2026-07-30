@@ -3,10 +3,10 @@
 //! Provides an `EventStreamingModule`-compatible interface for library-mode
 //! RisingWave. Uses `LibraryClient` to connect to the embedded instance.
 
-use crate::error::Result;
 use crate::catalog::{MaterializedViewInfo, SourceInfo};
-use crate::library_client::LibraryClient;
+use crate::error::Result;
 use crate::event_streaming_trait::EventStreamingOperations;
+use crate::library_client::LibraryClient;
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -61,7 +61,9 @@ impl EventStreamingOperations for LibraryEventStreamingModule {
         true // Always true in single-node library mode
     }
 
-    async fn list_hosted_iceberg_tables(&self) -> Result<Vec<crate::event_streaming_trait::IcebergTable>> {
+    async fn list_hosted_iceberg_tables(
+        &self,
+    ) -> Result<Vec<crate::event_streaming_trait::IcebergTable>> {
         // Library mode connects to the embedded RisingWave over pgwire and reads
         // the hosted Iceberg catalog directly from `rw_catalog.iceberg_tables`.
         self.client.list_hosted_iceberg_tables().await

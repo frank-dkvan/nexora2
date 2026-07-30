@@ -2,7 +2,7 @@
 
 #[cfg(feature = "embedded")]
 mod embedded_tests {
-    use nexora_risingwave::{EmbeddedRisingWave, EmbeddedConfig, MetaBackend, EmbeddedState};
+    use nexora_risingwave::{EmbeddedConfig, EmbeddedRisingWave, EmbeddedState, MetaBackend};
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -69,7 +69,8 @@ mod embedded_tests {
     #[test]
     fn test_meta_opts_memory_backend() {
         let config = EmbeddedConfig::default();
-        let opts = nexora_risingwave::embedded_process::EmbeddedRisingWave::build_meta_opts(&config);
+        let opts =
+            nexora_risingwave::embedded_process::EmbeddedRisingWave::build_meta_opts(&config);
 
         assert!(opts.contains("--listen-addr"));
         assert!(opts.contains("127.0.0.1:5690"));
@@ -83,7 +84,8 @@ mod embedded_tests {
             uri: "postgres://localhost/test".to_string(),
         };
 
-        let opts = nexora_risingwave::embedded_process::EmbeddedRisingWave::build_meta_opts(&config);
+        let opts =
+            nexora_risingwave::embedded_process::EmbeddedRisingWave::build_meta_opts(&config);
 
         assert!(opts.contains("--backend postgres"));
         assert!(opts.contains("--store-uri postgres://localhost/test"));
@@ -93,7 +95,8 @@ mod embedded_tests {
     #[test]
     fn test_frontend_opts() {
         let config = EmbeddedConfig::default();
-        let opts = nexora_risingwave::embedded_process::EmbeddedRisingWave::build_frontend_opts(&config);
+        let opts =
+            nexora_risingwave::embedded_process::EmbeddedRisingWave::build_frontend_opts(&config);
 
         assert!(opts.contains("--listen-addr 127.0.0.1:4566"));
         assert!(opts.contains("--meta-addr 127.0.0.1:5690"));
@@ -105,7 +108,8 @@ mod embedded_tests {
         let mut config = EmbeddedConfig::default();
         config.compute.parallelism = 4;
 
-        let opts = nexora_risingwave::embedded_process::EmbeddedRisingWave::build_compute_opts(&config);
+        let opts =
+            nexora_risingwave::embedded_process::EmbeddedRisingWave::build_compute_opts(&config);
 
         assert!(opts.contains("--meta-addr 127.0.0.1:5690"));
         assert!(opts.contains("--parallelism 4"));

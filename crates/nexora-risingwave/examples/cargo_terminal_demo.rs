@@ -7,11 +7,11 @@
 //! - 实时统计和监控
 
 use nexora_risingwave::distributed::{
-    DistributedEmbeddedRisingWave, DistributedConfig,
-    MetaNodeConfig, FrontendNodeConfig, ComputeNodeConfig,
+    ComputeNodeConfig, DistributedConfig, DistributedEmbeddedRisingWave, FrontendNodeConfig,
+    MetaNodeConfig,
 };
-use tokio_postgres::NoTls;
 use std::time::Duration;
+use tokio_postgres::NoTls;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -55,12 +55,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         frontend: FrontendNodeConfig {
             listen_addr: "127.0.0.1:4566".to_string(),
         },
-        compute_nodes: vec![
-            ComputeNodeConfig {
-                listen_addr: "127.0.0.1:5688".to_string(),
-                parallelism: num_cpus::get(),
-            },
-        ],
+        compute_nodes: vec![ComputeNodeConfig {
+            listen_addr: "127.0.0.1:5688".to_string(),
+            parallelism: num_cpus::get(),
+        }],
         startup_timeout_secs: 60,
         shutdown_timeout_secs: 30,
     };
@@ -68,7 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📦 系统配置:");
     println!("  - Meta 节点: 3 个 HA 集群");
     println!("  - Frontend: PostgreSQL 协议");
-    println!("  - Compute: {} 核并行处理\n", config.compute_nodes[0].parallelism);
+    println!(
+        "  - Compute: {} 核并行处理\n",
+        config.compute_nodes[0].parallelism
+    );
 
     // 2. 启动集群
     println!("🚀 启动分布式 RisingWave 集群...");
@@ -79,10 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. 连接 Frontend
     println!("🔌 连接到数据库...");
-    let (client, connection) = tokio_postgres::connect(
-        "host=127.0.0.1 port=4566 user=root dbname=dev",
-        NoTls,
-    ).await?;
+    let (client, connection) =
+        tokio_postgres::connect("host=127.0.0.1 port=4566 user=root dbname=dev", NoTls).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -317,7 +316,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     "#;
 
     let rows = client.query(query1, &[]).await?;
-    println!("{:<20} {:<15} {:<20} {:<15}", "航线", "货物数量", "总重量(kg)", "平均重量(kg)");
+    println!(
+        "{:<20} {:<15} {:<20} {:<15}",
+        "航线", "货物数量", "总重量(kg)", "平均重量(kg)"
+    );
     println!("{}", "─".repeat(75));
 
     for row in rows {
@@ -349,7 +351,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     "#;
 
     let rows2 = client.query(query2, &[]).await?;
-    println!("{:<12} {:<12} {:<10} {:<18} {:<12}", "货物类型", "优先级", "数量", "总重量(kg)", "航班数");
+    println!(
+        "{:<12} {:<12} {:<10} {:<18} {:<12}",
+        "货物类型", "优先级", "数量", "总重量(kg)", "航班数"
+    );
     println!("{}", "─".repeat(70));
 
     for row in rows2 {
@@ -358,8 +363,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let count: i64 = row.get(2);
         let weight: f64 = row.get::<_, f64>(3);
         let flights: i64 = row.get(4);
-        println!("{:<12} {:<12} {:<10} {:<18.2} {:<12}",
-            cargo_type, priority, count, weight, flights);
+        println!(
+            "{:<12} {:<12} {:<10} {:<18.2} {:<12}",
+            cargo_type, priority, count, weight, flights
+        );
     }
     println!();
 
@@ -383,7 +390,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     "#;
 
     let rows3 = client.query(query3, &[]).await?;
-    println!("{:<12} {:<15} {:<12} {:<12} {:<12}", "仓库区域", "操作类型", "操作次数", "操作员数", "货物数");
+    println!(
+        "{:<12} {:<15} {:<12} {:<12} {:<12}",
+        "仓库区域", "操作类型", "操作次数", "操作员数", "货物数"
+    );
     println!("{}", "─".repeat(65));
 
     for row in rows3 {
@@ -392,8 +402,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let op_count: i64 = row.get(2);
         let operators: i64 = row.get(3);
         let cargos: i64 = row.get(4);
-        println!("{:<12} {:<15} {:<12} {:<12} {:<12}",
-            zone, op_type, op_count, operators, cargos);
+        println!(
+            "{:<12} {:<15} {:<12} {:<12} {:<12}",
+            zone, op_type, op_count, operators, cargos
+        );
     }
     println!();
 
@@ -416,7 +428,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     "#;
 
     let rows4 = client.query(query4, &[]).await?;
-    println!("{:<12} {:<10} {:<15} {:<15}", "航班号", "登机口", "已装载数量", "唯一货物数");
+    println!(
+        "{:<12} {:<10} {:<15} {:<15}",
+        "航班号", "登机口", "已装载数量", "唯一货物数"
+    );
     println!("{}", "─".repeat(55));
 
     for row in rows4 {
@@ -474,18 +489,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("🖥️  Meta 节点:");
     for node in &health.meta_nodes {
-        let status = if node.is_running { "✓ 运行中" } else { "✗ 已停止" };
+        let status = if node.is_running {
+            "✓ 运行中"
+        } else {
+            "✗ 已停止"
+        };
         let role = if node.is_leader { " [Leader]" } else { "" };
-        println!("   • Node {} ({}): {}{}", node.node_id, node.address, status, role);
+        println!(
+            "   • Node {} ({}): {}{}",
+            node.node_id, node.address, status, role
+        );
     }
 
     println!("\n🌐 Frontend:");
-    let fe_status = if health.frontend.is_running { "✓ 运行中" } else { "✗ 已停止" };
+    let fe_status = if health.frontend.is_running {
+        "✓ 运行中"
+    } else {
+        "✗ 已停止"
+    };
     println!("   • {}: {}", health.frontend.address, fe_status);
 
     println!("\n⚙️  Compute 节点:");
     for node in &health.compute_nodes {
-        let status = if node.is_running { "✓ 运行中" } else { "✗ 已停止" };
+        let status = if node.is_running {
+            "✓ 运行中"
+        } else {
+            "✗ 已停止"
+        };
         println!("   • Node {} ({}): {}", node.node_id, node.address, status);
     }
 
@@ -501,13 +531,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("═══════════════════════════════════════════════\n");
 
     println!("🧹 删除测试对象...");
-    client.execute("DROP MATERIALIZED VIEW IF EXISTS flight_loading_efficiency", &[]).await?;
-    client.execute("DROP MATERIALIZED VIEW IF EXISTS warehouse_utilization", &[]).await?;
-    client.execute("DROP MATERIALIZED VIEW IF EXISTS cargo_type_stats", &[]).await?;
-    client.execute("DROP MATERIALIZED VIEW IF EXISTS route_cargo_stats", &[]).await?;
-    client.execute("DROP SOURCE IF EXISTS flight_loading", &[]).await?;
-    client.execute("DROP SOURCE IF EXISTS warehouse_operations", &[]).await?;
-    client.execute("DROP SOURCE IF EXISTS cargo_arrivals", &[]).await?;
+    client
+        .execute(
+            "DROP MATERIALIZED VIEW IF EXISTS flight_loading_efficiency",
+            &[],
+        )
+        .await?;
+    client
+        .execute(
+            "DROP MATERIALIZED VIEW IF EXISTS warehouse_utilization",
+            &[],
+        )
+        .await?;
+    client
+        .execute("DROP MATERIALIZED VIEW IF EXISTS cargo_type_stats", &[])
+        .await?;
+    client
+        .execute("DROP MATERIALIZED VIEW IF EXISTS route_cargo_stats", &[])
+        .await?;
+    client
+        .execute("DROP SOURCE IF EXISTS flight_loading", &[])
+        .await?;
+    client
+        .execute("DROP SOURCE IF EXISTS warehouse_operations", &[])
+        .await?;
+    client
+        .execute("DROP SOURCE IF EXISTS cargo_arrivals", &[])
+        .await?;
     println!("✓ 清理完成\n");
 
     // ========================================

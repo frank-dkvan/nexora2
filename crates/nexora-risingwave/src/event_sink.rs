@@ -4,9 +4,9 @@
 //! to flow into Nexora's EventLogStore, enabling the advanced path:
 //! Kafka → RisingWave (SQL MV) → EventLogStore → Graph
 
-use crate::error::Result;
 #[cfg(feature = "event-first")]
 use crate::error::EventStreamingError;
+use crate::error::Result;
 use crate::module::EventStreamingModule;
 use serde_json::json;
 use std::sync::Arc;

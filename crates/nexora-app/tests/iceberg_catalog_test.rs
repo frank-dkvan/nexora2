@@ -24,6 +24,9 @@ mod tests {
     #[test]
     fn test_feature_disabled() {
         // This test exists to ensure cargo test passes even without the feature
-        assert!(true, "Iceberg catalog tests require --features event-streaming");
+        assert!(
+            true,
+            "Iceberg catalog tests require --features event-streaming"
+        );
     }
 }

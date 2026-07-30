@@ -982,8 +982,8 @@ impl PostCollectCommand {
                             .post_collect_job_fragments(
                                 sink.tmp_sink_id.as_job_id(),
                                 &Default::default(), // upstream_fragment_downstreams is already inserted in the job of upstream table
-                                None, // no replace plan
-                                None, // no init split assignment
+                                None,                // no replace plan
+                                None,                // no init split assignment
                                 None,
                             )
                             .await?;

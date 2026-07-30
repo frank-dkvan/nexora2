@@ -149,7 +149,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  查询 1: Top 10 繁忙航线");
     println!("═══════════════════════════════════════════════\n");
 
-    println!("{:<20} {:<15} {:<20} {:<15}", "航线", "货物数量", "总重量(kg)", "平均重量(kg)");
+    println!(
+        "{:<20} {:<15} {:<20} {:<15}",
+        "航线", "货物数量", "总重量(kg)", "平均重量(kg)"
+    );
     println!("{}", "─".repeat(75));
 
     // 模拟数据
@@ -178,7 +181,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  查询 2: 货物类型和优先级分布");
     println!("═══════════════════════════════════════════════\n");
 
-    println!("{:<12} {:<12} {:<10} {:<18} {:<12}", "货物类型", "优先级", "数量", "总重量(kg)", "航班数");
+    println!(
+        "{:<12} {:<12} {:<10} {:<18} {:<12}",
+        "货物类型", "优先级", "数量", "总重量(kg)", "航班数"
+    );
     println!("{}", "─".repeat(70));
 
     let cargo_types = vec![
@@ -193,8 +199,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for (cargo_type, priority, count, weight, flights) in cargo_types {
-        println!("{:<12} {:<12} {:<10} {:<18.2} {:<12}",
-            cargo_type, priority, count, weight, flights);
+        println!(
+            "{:<12} {:<12} {:<10} {:<18.2} {:<12}",
+            cargo_type, priority, count, weight, flights
+        );
     }
     println!();
 
@@ -205,7 +213,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  查询 3: 仓库区域实时利用率");
     println!("═══════════════════════════════════════════════\n");
 
-    println!("{:<12} {:<15} {:<12} {:<12} {:<12}", "仓库区域", "操作类型", "操作次数", "操作员数", "货物数");
+    println!(
+        "{:<12} {:<15} {:<12} {:<12} {:<12}",
+        "仓库区域", "操作类型", "操作次数", "操作员数", "货物数"
+    );
     println!("{}", "─".repeat(65));
 
     let warehouse = vec![
@@ -220,8 +231,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for (zone, op_type, op_count, operators, cargos) in warehouse {
-        println!("{:<12} {:<15} {:<12} {:<12} {:<12}",
-            zone, op_type, op_count, operators, cargos);
+        println!(
+            "{:<12} {:<15} {:<12} {:<12} {:<12}",
+            zone, op_type, op_count, operators, cargos
+        );
     }
     println!();
 
@@ -232,7 +245,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  查询 4: 航班装载效率 Top 10");
     println!("═══════════════════════════════════════════════\n");
 
-    println!("{:<12} {:<10} {:<15} {:<15}", "航班号", "登机口", "已装载数量", "唯一货物数");
+    println!(
+        "{:<12} {:<10} {:<15} {:<15}",
+        "航班号", "登机口", "已装载数量", "唯一货物数"
+    );
     println!("{}", "─".repeat(55));
 
     let flights = vec![

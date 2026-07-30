@@ -34,11 +34,11 @@
 //! }
 //! ```
 
+use anyhow::{anyhow, Context, Result};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
-use anyhow::{Context, Result, anyhow};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 /// 嵌入式 RisingWave 进程管理器
 pub struct EmbeddedEventStreaming {
@@ -155,8 +155,7 @@ impl EmbeddedEventStreaming {
         info!("Using RisingWave binary: {}", binary_path.display());
 
         // 2. 创建数据目录
-        std::fs::create_dir_all(&config.data_dir)
-            .context("Failed to create data directory")?;
+        std::fs::create_dir_all(&config.data_dir).context("Failed to create data directory")?;
 
         // 3. 构建命令
         let mut cmd = Command::new(&binary_path);
@@ -181,8 +180,7 @@ impl EmbeddedEventStreaming {
         debug!("Command: {:?}", cmd);
 
         // 4. 启动进程
-        let process = cmd.spawn()
-            .context("Failed to spawn RisingWave process")?;
+        let process = cmd.spawn().context("Failed to spawn RisingWave process")?;
 
         let pid = process.id();
         info!("RisingWave process started with PID: {}", pid);
@@ -264,13 +262,20 @@ impl EmbeddedEventStreaming {
             }
             MetaBackend::Postgres { uri } => {
                 opts.push(format!("--backend postgres --sql-endpoint {}", uri));
-                opts.push(format!("--state-store hummock+fs://{}/hummock",
-                                 config.data_dir.display()));
+                opts.push(format!(
+                    "--state-store hummock+fs://{}/hummock",
+                    config.data_dir.display()
+                ));
             }
             MetaBackend::Sqlite { path } => {
-                opts.push(format!("--backend sql --sql-endpoint sqlite://{}", path.display()));
-                opts.push(format!("--state-store hummock+fs://{}/hummock",
-                                 config.data_dir.display()));
+                opts.push(format!(
+                    "--backend sql --sql-endpoint sqlite://{}",
+                    path.display()
+                ));
+                opts.push(format!(
+                    "--state-store hummock+fs://{}/hummock",
+                    config.data_dir.display()
+                ));
             }
         }
 
@@ -282,8 +287,7 @@ impl EmbeddedEventStreaming {
     pub fn build_frontend_opts(config: &EmbeddedConfig) -> String {
         format!(
             "--listen-addr {} --meta-addr {}",
-            config.frontend.listen_addr,
-            config.meta.listen_addr
+            config.frontend.listen_addr, config.meta.listen_addr
         )
     }
 
@@ -292,8 +296,7 @@ impl EmbeddedEventStreaming {
     pub fn build_compute_opts(config: &EmbeddedConfig) -> String {
         format!(
             "--meta-addr {} --parallelism {}",
-            config.meta.listen_addr,
-            config.compute.parallelism
+            config.meta.listen_addr, config.compute.parallelism
         )
     }
 

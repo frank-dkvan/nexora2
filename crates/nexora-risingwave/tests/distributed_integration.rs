@@ -7,8 +7,8 @@
 //! - End-to-end DDL and query execution
 
 use nexora_risingwave::{
-    DistributedLibraryConfig, DistributedMetaCluster, DistributedComputeCluster,
-    DistributedFrontendPool,
+    DistributedComputeCluster, DistributedFrontendPool, DistributedLibraryConfig,
+    DistributedMetaCluster,
 };
 use std::sync::Arc;
 use std::time::Duration;

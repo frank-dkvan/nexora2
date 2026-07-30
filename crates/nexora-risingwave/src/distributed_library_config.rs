@@ -231,11 +231,9 @@ impl DistributedLibraryConfig {
 
         // Etcd backend required for production multi-node
         if matches!(self.meta.backend, MetaBackend::Memory) {
-            return Err(
-                "Memory backend not supported for distributed mode. \
+            return Err("Memory backend not supported for distributed mode. \
                  Use 'etcd' or 'sqlite' backend."
-                    .to_string(),
-            );
+                .to_string());
         }
 
         // Heartbeat interval should be < election timeout
@@ -326,7 +324,10 @@ mod tests {
     #[test]
     fn test_validate_self_in_peers() {
         let mut config = DistributedLibraryConfig::test_3node_memory("meta-1", 5690);
-        config.meta.raft_peers.push("meta-1@localhost:5690".to_string());
+        config
+            .meta
+            .raft_peers
+            .push("meta-1@localhost:5690".to_string());
         assert!(config.validate().is_err());
     }
 

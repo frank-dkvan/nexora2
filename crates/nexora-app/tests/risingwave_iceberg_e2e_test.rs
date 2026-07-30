@@ -10,15 +10,15 @@
 #![cfg(all(test, feature = "event-streaming", feature = "library"))]
 
 use nexora_risingwave::{
-    EmbeddedLibrary, EmbeddedLibraryConfig, LibraryEventStreamingModule,
-    EventStreamingOperations,
+    EmbeddedLibrary, EmbeddedLibraryConfig, EventStreamingOperations, LibraryEventStreamingModule,
 };
 use std::sync::Arc;
-use tokio_postgres::{NoTls, Client};
+use tokio_postgres::{Client, NoTls};
 
 /// Test helper: connect to RisingWave frontend via pgwire
 async fn connect_pg(frontend_addr: &str) -> anyhow::Result<Client> {
-    let config = format!("host={} port={} user=root dbname=dev",
+    let config = format!(
+        "host={} port={} user=root dbname=dev",
         frontend_addr.split(':').next().unwrap(),
         frontend_addr.split(':').nth(1).unwrap()
     );
@@ -67,12 +67,14 @@ async fn test_risingwave_iceberg_hosted_catalog_e2e() -> anyhow::Result<()> {
     pg.execute(ddl, &[]).await?;
 
     // Step 4: Query rw_catalog.iceberg_tables to verify table was created
-    let rows = pg.query(
-        "SELECT catalog_name, table_namespace, table_name, metadata_location
+    let rows = pg
+        .query(
+            "SELECT catalog_name, table_namespace, table_name, metadata_location
          FROM rw_catalog.iceberg_tables
          WHERE table_name = 'test_table'",
-        &[]
-    ).await?;
+            &[],
+        )
+        .await?;
 
     assert_eq!(rows.len(), 1, "Expected 1 iceberg table");
     let catalog_name: String = rows[0].get(0);
@@ -81,18 +83,25 @@ async fn test_risingwave_iceberg_hosted_catalog_e2e() -> anyhow::Result<()> {
     let metadata_location: Option<String> = rows[0].get(3);
 
     assert_eq!(table_name, "test_table");
-    assert!(metadata_location.is_some(), "metadata_location should be set");
+    assert!(
+        metadata_location.is_some(),
+        "metadata_location should be set"
+    );
 
-    println!("✓ RisingWave hosted catalog created table: {}.{}.{}",
-        catalog_name, table_namespace, table_name);
+    println!(
+        "✓ RisingWave hosted catalog created table: {}.{}.{}",
+        catalog_name, table_namespace, table_name
+    );
 
     // Step 5: Call EventStreamingOperations.list_hosted_iceberg_tables()
-    let module = Arc::new(
-        LibraryEventStreamingModule::connect(frontend_addr.to_string()).await?
-    );
+    let module = Arc::new(LibraryEventStreamingModule::connect(frontend_addr.to_string()).await?);
     let tables = module.list_hosted_iceberg_tables().await?;
 
-    assert_eq!(tables.len(), 1, "Expected 1 table from list_hosted_iceberg_tables");
+    assert_eq!(
+        tables.len(),
+        1,
+        "Expected 1 table from list_hosted_iceberg_tables"
+    );
     assert_eq!(tables[0].table_name, "test_table");
     assert_eq!(tables[0].catalog_name, catalog_name);
     assert_eq!(tables[0].table_namespace, table_namespace);
@@ -115,9 +124,7 @@ async fn test_risingwave_iceberg_hosted_catalog_e2e() -> anyhow::Result<()> {
 }
 
 /// Helper: create minimal AppState for handler testing
-fn create_test_app_state(
-    event_streaming: Arc<LibraryEventStreamingModule>
-) -> Arc<TestAppState> {
+fn create_test_app_state(event_streaming: Arc<LibraryEventStreamingModule>) -> Arc<TestAppState> {
     Arc::new(TestAppState {
         event_streaming: Some(event_streaming as Arc<dyn EventStreamingOperations>),
     })
@@ -132,14 +139,17 @@ async fn list_tables_direct(
     state: &Arc<TestAppState>,
     namespace: &[String],
 ) -> anyhow::Result<Vec<String>> {
-    let rw = state.event_streaming.as_ref()
+    let rw = state
+        .event_streaming
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("event-streaming not enabled"))?;
 
     let all_tables = rw.list_hosted_iceberg_tables().await?;
 
     // Filter by namespace
     let namespace_str = namespace.join(".");
-    let filtered: Vec<String> = all_tables.into_iter()
+    let filtered: Vec<String> = all_tables
+        .into_iter()
         .filter(|t| t.table_namespace == namespace_str)
         .map(|t| t.table_name)
         .collect();

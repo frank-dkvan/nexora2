@@ -464,8 +464,10 @@ fn bench_expr(c: &mut Criterion) {
         }
 
         if [
-            "approx_percentile(double precision) -> double precision"  // cannot accept empty AggCall.direct_args
-        ].contains(&format!("{sig:?}").as_str()) {
+            "approx_percentile(double precision) -> double precision", // cannot accept empty AggCall.direct_args
+        ]
+        .contains(&format!("{sig:?}").as_str())
+        {
             println!("ignore: {sig:?}");
             continue;
         }

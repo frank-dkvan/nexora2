@@ -1353,8 +1353,8 @@ mod tests {
                     &[T::Float64, T::Int32, T::Float32, T::Timestamp],     // 1 exact 1 preferred
                     &[T::Float32, T::Float32, T::Int32, T::Timestamptz],   // 1 exact 0 preferred
                     &[T::Int32, T::Float64, T::Float32, T::Timestamptz],   // 1 exact 1 preferred
-                    &[T::Int32, T::Int16, T::Int32, T::Timestamptz], // 2 exact 1 non-castable
-                    &[T::Int32, T::Float64, T::Float32, T::Date],    // 1 exact 1 preferred
+                    &[T::Int32, T::Int16, T::Int32, T::Timestamptz],       // 2 exact 1 non-castable
+                    &[T::Int32, T::Float64, T::Float32, T::Date],          // 1 exact 1 preferred
                 ],
                 &[Some(T::Int32), Some(T::Int32), Some(T::Int32), None],
                 Ok(&[T::Int32, T::Float64, T::Float32, T::Timestamptz]),

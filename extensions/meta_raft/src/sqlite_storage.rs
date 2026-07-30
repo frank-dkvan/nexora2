@@ -89,7 +89,10 @@ impl SqliteStorage {
     ///
     /// Returns an error if storage initialization fails.
     pub async fn new(config: SqliteStorageConfig) -> Result<Self> {
-        info!("Initializing Raft storage (in-memory) at {:?}", config.db_path);
+        info!(
+            "Initializing Raft storage (in-memory) at {:?}",
+            config.db_path
+        );
 
         // Create parent directory if it doesn't exist (for future SQLite use)
         if let Some(parent) = config.db_path.parent() {
@@ -194,15 +197,8 @@ impl SqliteStorage {
     }
 
     /// Get log entries in range [start_index, end_index).
-    pub async fn get_log_entries(
-        &self,
-        start_index: u64,
-        end_index: u64,
-    ) -> Result<Vec<LogEntry>> {
-        debug!(
-            "Fetching log entries: [{}, {})",
-            start_index, end_index
-        );
+    pub async fn get_log_entries(&self, start_index: u64, end_index: u64) -> Result<Vec<LogEntry>> {
+        debug!("Fetching log entries: [{}, {})", start_index, end_index);
 
         let log = self.log.read().await;
         let entries = log

@@ -217,7 +217,9 @@ pub async fn list_materialized_views(
 /// curl http://localhost:8080/api/event-streaming/status
 /// ```
 #[cfg(feature = "event-streaming")]
-pub async fn get_status(State(state): State<AppState>) -> Result<Json<EventStreamingStatus>, ApiError> {
+pub async fn get_status(
+    State(state): State<AppState>,
+) -> Result<Json<EventStreamingStatus>, ApiError> {
     let rw = state
         .event_streaming
         .as_ref()
@@ -310,7 +312,9 @@ pub async fn get_cluster_status(
     }
 
     // No Event Streaming running
-    Err(ApiError::FeatureNotEnabled("event-streaming embedded".to_string()))
+    Err(ApiError::FeatureNotEnabled(
+        "event-streaming embedded".to_string(),
+    ))
 }
 
 /// Node status in cluster

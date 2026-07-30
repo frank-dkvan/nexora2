@@ -145,10 +145,7 @@ meta_addr = "127.0.0.1:5690"
 
         let final_path = config_path.or(env_path);
 
-        assert_eq!(
-            final_path.unwrap(),
-            "/opt/risingwave/bin/risingwave"
-        );
+        assert_eq!(final_path.unwrap(), "/opt/risingwave/bin/risingwave");
 
         // 2. Environment variable (when config is None)
         let config_path: Option<String> = None;
@@ -202,9 +199,7 @@ meta_addr = "invalid-address"  # Missing port
 
         // But the address validation would fail later
         let config = config.unwrap();
-        let addr = config["risingwave"]["meta_addr"]
-            .as_str()
-            .unwrap();
+        let addr = config["risingwave"]["meta_addr"].as_str().unwrap();
         let parsed: Result<std::net::SocketAddr, _> = addr.parse();
         assert!(parsed.is_err());
     }

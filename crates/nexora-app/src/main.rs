@@ -3045,7 +3045,12 @@ async fn main() -> anyhow::Result<()> {
             get(handlers::distributed_cluster::list_cluster_nodes),
         );
 
+    #[cfg(feature = "event-streaming")]
+    let iceberg_routes = handlers::iceberg_catalog::routes();
+
     let mut app = Router::new().merge(public_routes);
+
+    // Add cluster stats endpoint if in cluster mode
 
     // Add cluster stats endpoint if in cluster mode
     if let Some(ref cm) = cluster_manager {
@@ -3159,6 +3164,13 @@ async fn main() -> anyhow::Result<()> {
                 }),
             );
         }
+    }
+
+    // Add Iceberg REST catalog routes if event-streaming is enabled
+    #[cfg(feature = "event-streaming")]
+    {
+        let state_arc = Arc::new(state.clone());
+        app = app.nest("/api/iceberg/catalog", iceberg_routes.with_state(state_arc));
     }
 
     // Apply RBAC to admin routes if auth is enabled

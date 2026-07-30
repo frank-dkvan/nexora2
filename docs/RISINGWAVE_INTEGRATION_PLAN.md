@@ -632,31 +632,36 @@ vim nexora.toml
 - [ ] 3-node Raft HA cluster works without external dependencies
 - [ ] Minimal patches (<100 lines total) to RisingWave
 
-### Phase 4: Event Pipeline (In Progress 🚀)
+### Phase 4: Event Pipeline (Complete ✅)
 
-**Architecture Decision**: Use external Lakekeeper as Iceberg REST catalog (Option 2 - REQUIRED)
+**Architecture Decision (final)**: Nexora hosts its OWN Iceberg REST catalog
+endpoint (served by nexora-app at `/api/iceberg/catalog`), backed by RisingWave's
+internal hosted-catalog metadata. No external Lakekeeper required — one catalog
+is shared by nexora-eventlog (via iceberg-rust REST client) and RisingWave sinks
+(via `hosted_catalog=true`).
 
-**Critical Finding**: RisingWave does NOT provide an Iceberg REST catalog HTTP endpoint. All RisingWave e2e tests use external Lakekeeper at port 8181.
+This supersedes the earlier Lakekeeper-based plan: RisingWave's
+`HostedIcebergCatalogService` metadata is queryable over pgwire
+(`rw_catalog.iceberg_tables`), so nexora-app re-exposes it as a standard Iceberg
+REST v1 API rather than deploying a separate catalog service.
 
 **Tasks**:
-- [x] Task 1: Investigate REST catalog endpoint (1.5 hours) - **COMPLETED**
-- [x] Architecture decision revised based on findings
-- [ ] Task 2: Deploy Lakekeeper stack (PostgreSQL + Lakekeeper + MinIO) (3 hours)
-- [ ] Task 3: Integrate nexora-eventlog with Lakekeeper (3 hours)
-- [ ] Task 4: Configure RisingWave sink to Lakekeeper (2 hours)
-- [ ] Task 5: End-to-end pipeline test: Kafka → RisingWave → Lakekeeper → Graph (4 hours)
-- [ ] Task 6: Documentation updates (2 hours)
-
-**Total Estimated Time**: 15.5 hours (~2 days)
+- [x] Task 1: Iceberg REST catalog HTTP endpoints in nexora-app - **COMPLETE**
+- [x] Task 2: Configure nexora-eventlog to use the local REST catalog - **COMPLETE**
+- [x] Task 3: Wire real RisingWave hosted-table listing (pgwire query) - **COMPLETE**
+- [x] Task 4: End-to-end test (integration test + HTTP smoke script) - **COMPLETE**
+- [x] Task 5: Documentation - **COMPLETE**
 
 **Key Discoveries**:
-1. RisingWave has built-in Iceberg sink at `vendor/risingwave/src/connector/src/sink/iceberg/`
-2. RisingWave Meta manages Iceberg table metadata internally (compaction, maintenance)
-3. RisingWave connects TO external REST catalogs (does not provide one)
-4. HostedIcebergCatalogService is gRPC for internal ops, not HTTP REST catalog
-5. External Lakekeeper is REQUIRED (6 services total, cannot reduce)
+1. RisingWave has a built-in Iceberg sink at `vendor/risingwave/src/connector/src/sink/iceberg/`
+2. RisingWave Meta manages Iceberg table metadata internally (`iceberg_tables`)
+3. That metadata is queryable over pgwire via `rw_catalog.iceberg_tables`
+4. nexora-app re-exposes it as an Iceberg REST v1 catalog — no external service
+5. nexora-eventlog reaches it through `StorageConfig::rest(uri, …)` (existing CLI flags)
 
-**Reference**: 
+**Reference**:
+- [Phase 4 Complete](PHASE4_COMPLETE.md)
+- [Phase 4 Task 1 Complete](PHASE4_TASK1_COMPLETE.md)
 - [Phase 4 Architecture Decision](PHASE4_ARCHITECTURE_DECISION.md)
 - [Task 1 Findings](PHASE4_TASK1_FINDINGS.md)
 
@@ -673,11 +678,13 @@ vim nexora.toml
 | 1 | Repository Setup | Git Subtree, scripts, Cargo config | ✅ Complete |
 | 2 | Library Mode (Phase 1) | Stable Rust compilation of RisingWave | ✅ Complete |
 | 3 | Distributed Library (Phase 2) | Multi-node in-process cluster | ✅ Complete |
-| 4 | Event Pipeline (Phase 4) | Unified catalog integration, E2E test | 🚀 In Progress |
+| 4 | Event Pipeline (Phase 4) | Unified catalog integration, E2E test | ✅ Complete |
 | - | Shared Infrastructure (Phase 3) | nexora-consensus, nexora-rpc | 📝 Optional |
 | - | Raft HA Extension | extensions/meta_raft, patches | 📝 Optional |
 
-**Phase 4 Progress**: Architecture decided (Option 1), implementation starting
+**Phase 4 Progress**: Complete — nexora-hosted Iceberg REST catalog serving
+RisingWave's internal metadata; nexora-eventlog and RisingWave sinks share it.
+See [PHASE4_COMPLETE.md](PHASE4_COMPLETE.md).
 
 ## Next Steps
 

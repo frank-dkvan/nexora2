@@ -1,0 +1,46 @@
+# Nexora configuration: event-first storage using a REST Iceberg catalog.
+#
+# This example wires nexora-eventlog at Nexora's OWN locally-hosted Iceberg
+# REST catalog endpoint (served by nexora-app at /api/iceberg/catalog), so the
+# event store and RisingWave sinks share one catalog with no external
+# Lakekeeper required.
+#
+# Most event-store settings are supplied on the command line (see the CLI flags
+# in `nexora-app --help`, section "Event Store Configuration"). This file covers
+# the server + event-streaming portion; the matching CLI invocation is shown at
+# the bottom.
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[graph]
+num_shards = 256
+
+[storage.rocksdb]
+path = "./nexora-data"
+
+# Event streaming engine (RisingWave), library mode (in-process, single node).
+[event_streaming]
+enabled = true
+meta_addr = "127.0.0.1:5690"
+frontend_addr = "127.0.0.1:4566"
+data_dir = "./nexora-data/event-streaming"
+
+# ----------------------------------------------------------------------------
+# Event store (nexora-eventlog) — configured via CLI flags, shown here for
+# reference. The REST catalog URI points back at THIS node's hosted catalog.
+#
+#   nexora \
+#     --config config/examples/nexora.iceberg-rest.toml \
+#     --event-store-backend rest \
+#     --event-store-rest-uri http://localhost:8080/api/iceberg/catalog \
+#     --event-store-rest-warehouse nexora \
+#     --event-store-s3-endpoint http://localhost:9000 \
+#     --event-store-s3-bucket nexora-events \
+#     --event-store-s3-access-key minioadmin \
+#     --event-store-s3-secret-key minioadmin \
+#     --event-store-s3-path-style
+#
+# Build with:  cargo build --features event-first,event-streaming,library
+# ----------------------------------------------------------------------------

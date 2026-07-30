@@ -98,7 +98,7 @@ pub use config::EventStreamingConfig;
 pub use ddl_parser::{ColumnDef, DdlParser, ParsedSchema};
 pub use error::{Result, EventStreamingError};
 pub use event_sink::{Change, ColumnValue, EventLogSink, Row};
-pub use event_streaming_trait::EventStreamingOperations;
+pub use event_streaming_trait::{EventStreamingOperations, IcebergTable};
 pub use module::EventStreamingModule;
 
 #[cfg(feature = "library")]

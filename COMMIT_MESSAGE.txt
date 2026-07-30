@@ -1,0 +1,66 @@
+feat(phase4): Implement Iceberg REST catalog endpoints
+
+Integrate RisingWave's hosted Iceberg catalog with nexora-app's REST API,
+enabling external query engines (Spark, Trino, DuckDB) to discover and
+query Iceberg tables created by RisingWave sinks.
+
+## Changes
+
+- Implement all Iceberg REST Catalog v1 core endpoints
+  - GET /v1/config - catalog configuration
+  - GET /v1/namespaces - list namespaces
+  - GET /v1/namespaces/{ns}/tables - list tables
+  - GET /v1/namespaces/{ns}/tables/{table} - load metadata
+  - POST /v1/namespaces/{ns}/register - register table
+
+- Add EventStreamingOperations.list_hosted_iceberg_tables() trait method
+  - New IcebergTable struct with 5 fields
+  - Implemented for LibraryEventStreamingModule
+
+- Wire LibraryClient to query rw_catalog.iceberg_tables via pgwire
+  - Real data from RisingWave's system catalog
+  - Returns structured Vec<IcebergTable>
+
+- Add integration tests (5/5 passing) and E2E test
+  - test_get_config, test_list_namespaces, test_list_tables
+  - test_load_table, test_register_table
+  - Full RisingWave → catalog → REST flow validation
+
+- Feature-gated compilation (#[cfg(feature = "event-streaming")])
+  - Prevents dependency bloat when feature disabled
+  - Clean conditional compilation
+
+## Testing
+
+Integration: cargo test --test iceberg_catalog_test (5/5 pass)
+E2E: cargo test --test risingwave_iceberg_e2e_test --no-run (compiles)
+Build: cargo check --features event-first,event-streaming,library (pass)
+
+## Documentation
+
+- docs/PHASE4_COMPLETE.md - Architecture and full summary (650 lines)
+- docs/PHASE4_TASK1_COMPLETE.md - Implementation details (450 lines)
+- docs/PHASE4_FINAL_SUMMARY.md - Final verification report
+- Inline doc comments for all public APIs
+
+## Files Changed
+
+New files (7):
+- crates/nexora-app/src/handlers/iceberg_catalog.rs (287 lines)
+- crates/nexora-app/tests/iceberg_catalog_test.rs (158 lines)
+- crates/nexora-app/tests/risingwave_iceberg_e2e_test.rs (145 lines)
+- docs/PHASE4_*.md (3 files, 1,300+ lines)
+
+Modified files (11):
+- crates/nexora-app/src/handlers/mod.rs (+3)
+- crates/nexora-app/src/main.rs (+7)
+- crates/nexora-app/src/error.rs (+22)
+- crates/nexora-risingwave/src/event_streaming_trait.rs (+18)
+- crates/nexora-risingwave/src/library_client.rs (+38)
+- crates/nexora-risingwave/src/library_module.rs (+3)
+- crates/nexora-risingwave/src/module.rs (+6)
+- Others (minor)
+
+Total: ~1,788 lines added
+
+Co-authored-by: Claude <noreply@anthropic.com>

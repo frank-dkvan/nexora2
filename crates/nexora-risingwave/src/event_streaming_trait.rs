@@ -6,6 +6,16 @@ use crate::error::Result;
 use crate::catalog::{MaterializedViewInfo, SourceInfo};
 use async_trait::async_trait;
 
+/// Iceberg table metadata from RisingWave's hosted catalog
+#[derive(Debug, Clone)]
+pub struct IcebergTable {
+    pub catalog_name: String,
+    pub table_namespace: String,
+    pub table_name: String,
+    pub metadata_location: Option<String>,
+    pub previous_metadata_location: Option<String>,
+}
+
 /// Common interface for Event Streaming operations.
 ///
 /// Implemented by both `EventStreamingModule` (client-server mode) and
@@ -26,4 +36,7 @@ pub trait EventStreamingOperations: Send + Sync {
 
     /// Check if meta node is leader
     async fn is_leader(&self) -> bool;
+
+    /// List all Iceberg tables hosted by RisingWave's internal catalog
+    async fn list_hosted_iceberg_tables(&self) -> Result<Vec<IcebergTable>>;
 }

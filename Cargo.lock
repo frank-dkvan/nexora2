@@ -9539,6 +9539,8 @@ dependencies = [
  "futures",
  "hex",
  "hmac 0.12.1",
+ "http-body-util",
+ "hyper 1.10.1",
  "include_dir",
  "nexora-core",
  "nexora-cypher",

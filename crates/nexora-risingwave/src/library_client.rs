@@ -6,6 +6,7 @@
 
 use crate::error::{Result, EventStreamingError};
 use crate::catalog::{MaterializedViewInfo, SourceInfo};
+use crate::event_streaming_trait::IcebergTable;
 use tokio_postgres::{Client, NoTls};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -122,6 +123,46 @@ impl LibraryClient {
             });
         }
         Ok(mvs)
+    }
+
+    /// List all Iceberg tables from RisingWave's hosted catalog.
+    ///
+    /// Queries the `rw_catalog.iceberg_tables` system table over the pgwire
+    /// protocol. This table is populated by RisingWave when Iceberg sinks are
+    /// created with `hosted_catalog = true`, and mirrors the meta node's
+    /// internal `iceberg_tables` store (see vendor RisingWave
+    /// `HostedIcebergCatalogService`).
+    ///
+    /// The `iceberg_type` column is optional and may be absent on older
+    /// RisingWave builds, so it is selected defensively.
+    pub async fn list_hosted_iceberg_tables(&self) -> Result<Vec<IcebergTable>> {
+        let client = self.client.lock().await;
+        let rows = client
+            .query(
+                "SELECT catalog_name, table_namespace, table_name, \
+                 metadata_location, previous_metadata_location \
+                 FROM rw_catalog.iceberg_tables",
+                &[],
+            )
+            .await
+            .map_err(|e| {
+                EventStreamingError::QueryFailed(format!(
+                    "Failed to query rw_catalog.iceberg_tables: {}",
+                    e
+                ))
+            })?;
+
+        let mut tables = Vec::with_capacity(rows.len());
+        for row in rows {
+            tables.push(IcebergTable {
+                catalog_name: row.try_get(0).unwrap_or_default(),
+                table_namespace: row.try_get(1).unwrap_or_default(),
+                table_name: row.try_get(2).unwrap_or_default(),
+                metadata_location: row.try_get(3).ok(),
+                previous_metadata_location: row.try_get(4).ok(),
+            });
+        }
+        Ok(tables)
     }
 
     /// Get the frontend address this client is connected to

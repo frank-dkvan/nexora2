@@ -185,6 +185,21 @@ impl ApiError {
     pub fn FeatureNotEnabled(feature: String) -> Self {
         Self::feature_not_enabled(feature)
     }
+
+    #[allow(non_snake_case)]
+    pub fn InternalServerError(msg: String) -> Self {
+        Self::new(ErrorCode::InternalError, msg)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn NotFound(msg: String) -> Self {
+        Self::new(ErrorCode::NotFound, msg)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn NotImplemented(msg: &str) -> Self {
+        Self::new(ErrorCode::FeatureNotEnabled, msg)
+    }
 }
 
 /// Generate a new request ID.

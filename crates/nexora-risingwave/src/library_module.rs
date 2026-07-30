@@ -60,4 +60,10 @@ impl EventStreamingOperations for LibraryEventStreamingModule {
     async fn is_leader(&self) -> bool {
         true // Always true in single-node library mode
     }
+
+    async fn list_hosted_iceberg_tables(&self) -> Result<Vec<crate::event_streaming_trait::IcebergTable>> {
+        // Library mode connects to the embedded RisingWave over pgwire and reads
+        // the hosted Iceberg catalog directly from `rw_catalog.iceberg_tables`.
+        self.client.list_hosted_iceberg_tables().await
+    }
 }

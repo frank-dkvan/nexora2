@@ -14,6 +14,8 @@ pub mod query_mgmt;
 pub mod event_streaming;
 #[cfg(all(feature = "event-streaming", feature = "library"))]
 pub mod distributed_cluster;
+#[cfg(feature = "event-streaming")]
+pub mod iceberg_catalog;
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},

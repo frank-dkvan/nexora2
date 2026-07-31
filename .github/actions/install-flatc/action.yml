@@ -1,0 +1,31 @@
+name: 'Install flatc'
+description: 'Install the correct version of FlatBuffers compiler (flatc)'
+
+inputs:
+  version:
+    description: 'flatc version to install'
+    required: false
+    default: '25.12.19'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install flatc from GitHub release
+      shell: bash
+      run: |
+        set -euo pipefail
+        FLATC_VERSION="${{ inputs.version }}"
+        echo "Installing flatc v${FLATC_VERSION}..."
+
+        # Download prebuilt Linux binary from FlatBuffers GitHub releases
+        FLATC_URL="https://github.com/google/flatbuffers/releases/download/v${FLATC_VERSION}/Linux.flatc.binary.g++-13.zip"
+
+        cd /tmp
+        curl -fsSL -o flatc.zip "${FLATC_URL}"
+        unzip -o flatc.zip
+        chmod +x flatc
+        sudo mv flatc /usr/local/bin/flatc
+
+        # Verify installation
+        flatc --version
+        echo "flatc installed successfully"

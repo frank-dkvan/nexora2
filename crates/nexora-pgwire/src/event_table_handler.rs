@@ -9,8 +9,7 @@
 //! as text-format rows. Running the SQL over the union (rather than merging
 //! per-node results) keeps aggregates and GROUP BY correct across the cluster.
 
-use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
-use pgwire::api::Type;
+use pgwire::api::results::{DataRowEncoder, FieldInfo, Response};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use sqlparser::ast::{Query, SetExpr, Statement, TableFactor};
 use std::sync::Arc;

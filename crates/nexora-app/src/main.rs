@@ -780,7 +780,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("   Build:  {}", env!("CARGO_PKG_VERSION"));
 
     // Load configuration file (optional)
-    let config_file = config_loader::load_config(cli.config.as_deref())
+    let _config_file = config_loader::load_config(cli.config.as_deref())
         .context("Failed to load configuration file")?;
 
     // Graph configuration
@@ -2133,9 +2133,9 @@ async fn main() -> anyhow::Result<()> {
         None
     };
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
-    let library_event_streaming: Option<()> = None;
+    let _library_event_streaming: Option<()> = None;
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
-    let library_event_streaming_client: Option<()> = None;
+    let _library_event_streaming_client: Option<()> = None;
 
     // ============================================================
     // Distributed library mode: multi-node in-process cluster
@@ -2264,7 +2264,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
-    let distributed_library_cluster: Option<()> = None;
+    let _distributed_library_cluster: Option<()> = None;
 
     let state = AppState {
         graph: graph.clone(),

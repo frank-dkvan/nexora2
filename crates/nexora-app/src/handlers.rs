@@ -649,7 +649,7 @@ pub async fn execute_cypher(
             let day: i64 = d[6..8].parse().ok()?;
             // Use proper epoch calculation (accounting for leap years)
             let epoch_days = date_to_epoch_days(y, m, day)?;
-            Some((epoch_days as u64) * 86400 * 1_000_000)
+            Some(epoch_days * 86400 * 1_000_000)
         } else {
             None
         }

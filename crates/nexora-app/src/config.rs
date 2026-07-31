@@ -41,7 +41,7 @@ pub fn parse_wal_sync_policy(policy: &str, sync_interval: u64) -> Result<WalSync
 }
 
 /// Complete application configuration, matching the reference nexora.toml format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppTomlConfig {
     #[serde(default)]
     pub server: ServerConfig,

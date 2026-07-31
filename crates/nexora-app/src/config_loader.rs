@@ -43,19 +43,6 @@ pub fn load_config(config_path: Option<&Path>) -> Result<AppTomlConfig> {
     Ok(AppTomlConfig::default())
 }
 
-impl Default for AppTomlConfig {
-    fn default() -> Self {
-        Self {
-            server: Default::default(),
-            graph: Default::default(),
-            storage: None,
-            blob: None,
-            cluster: None,
-            ingest: None,
-            logging: Default::default(),
-            metrics: Default::default(),
-            #[cfg(feature = "event-streaming")]
-            event_streaming: None,
-        }
-    }
-}
+// AppTomlConfig derives Default (see config.rs). All fields implement Default,
+// including the cfg-gated event_streaming (Option<_>), so a manual impl is
+// redundant (clippy::derivable_impls).

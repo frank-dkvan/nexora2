@@ -3300,7 +3300,7 @@ pub async fn admin_status(State(state): State<AppState>) -> Json<serde_json::Val
         },
         "queries": {
             "total": total_queries,
-            "avg_us": if total_queries > 0 { q_sum_us / total_queries } else { 0 },
+            "avg_us": q_sum_us.checked_div(total_queries).unwrap_or(0),
             "slow_count": slow_queries,
         },
         "standing_queries": {
@@ -3309,7 +3309,7 @@ pub async fn admin_status(State(state): State<AppState>) -> Json<serde_json::Val
         },
         "wal": {
             "appends_total": wal_total,
-            "avg_append_us": if wal_total > 0 { wal_sum_us / wal_total } else { 0 },
+            "avg_append_us": wal_sum_us.checked_div(wal_total).unwrap_or(0),
             "enabled": state.config.wal_dir.is_some(),
             "path": state.config.wal_dir,
         },

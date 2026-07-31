@@ -399,6 +399,9 @@ impl ReplicationTarget for TcpRaftTarget {
 }
 
 /// Send a framed Raft request over a TCP stream and parse the response.
+// Part of the experimental Raft log-shipping path; its sole caller is not yet
+// wired into an active code path under this feature set.
+#[allow(dead_code)]
 async fn send_raft_request(
     stream: tokio::net::TcpStream,
     payload: &[u8],

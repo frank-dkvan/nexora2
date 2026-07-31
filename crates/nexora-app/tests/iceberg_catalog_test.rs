@@ -20,13 +20,9 @@ mod tests {
 
 #[cfg(not(feature = "event-streaming"))]
 mod tests {
-    /// Placeholder test when event-streaming feature is disabled
+    /// Placeholder test when event-streaming feature is disabled.
+    /// Reaching this point (the file compiling and the test running) is the
+    /// assertion; the Iceberg catalog tests require --features event-streaming.
     #[test]
-    fn test_feature_disabled() {
-        // This test exists to ensure cargo test passes even without the feature
-        assert!(
-            true,
-            "Iceberg catalog tests require --features event-streaming"
-        );
-    }
+    fn test_feature_disabled() {}
 }

@@ -110,6 +110,8 @@ async fn setup_cluster() -> Cluster {
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         query_pool.clone(),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -549,6 +551,8 @@ async fn distributed_insert_triggers_sq_for_remote_owned_node() {
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         std::sync::Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -645,6 +649,8 @@ async fn owner_down_errors_instead_of_returning_partial_data() {
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         query_pool.clone(),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -922,6 +928,8 @@ async fn setup_cluster_with_sq(
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         std::sync::Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -1131,6 +1139,8 @@ async fn distributed_write_to_down_owner_errors_not_false_success() {
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         query_pool.clone(),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -1457,6 +1467,8 @@ async fn setup_cluster_with_mv(
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         std::sync::Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -1736,6 +1748,8 @@ async fn distributed_aggregate_mv_incremental_deltas_across_owners() {
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         std::sync::Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await
@@ -1938,6 +1952,8 @@ async fn setup_cluster3(rf: usize) -> Cluster3 {
         Some(router),
         None, // C2 replication_progress: tests exercise reads without a live progress tracker
         std::sync::Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+        #[cfg(feature = "event-first")]
+        None, // event_store: tests run without an event store
         pg_config,
     )
     .await

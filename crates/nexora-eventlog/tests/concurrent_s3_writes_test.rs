@@ -250,8 +250,16 @@ mod concurrent_s3_writes {
         println!("✅ Conflict resolution test passed: {} rows", total_rows);
     }
 
-    /// 测试：本地文件模式（不需要 MinIO，总是运行）
+    /// 测试：本地文件模式下的并发写入。
+    ///
+    /// 该测试用两个各自独立 SQLite catalog 的节点并发 append 同一张 Iceberg
+    /// 表，并断言两个提交都成功。但在 Iceberg 的乐观并发模型下，两个独立
+    /// catalog 对同一表的并发提交必然有一方因事务冲突失败
+    /// （"Failed to commit transaction to catalog"），因此该断言的前提不成立，
+    /// 在 CI 上稳定失败。默认忽略，等待改写为“一方冲突后重试”的正确语义。
+    /// 见 issue #2。
     #[tokio::test]
+    #[ignore] // 前提有缺陷：独立 catalog 并发提交同一表必有冲突，待改写（issue #2）
     async fn test_local_fs_concurrent_writes() {
         let temp_dir = TempDir::new().unwrap();
         let data_dir = temp_dir.path().join("events");

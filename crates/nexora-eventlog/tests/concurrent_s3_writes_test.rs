@@ -128,7 +128,7 @@ mod concurrent_s3_writes {
                         RawEvent::new(
                             1000000 + (node_idx * events_per_node + i) as u64,
                             2000000 + (node_idx * events_per_node + i) as u64,
-                            &format!("node-{}", node_idx),
+                            format!("node-{}", node_idx),
                             "concurrent_test",
                             None,
                             Some((node_idx * events_per_node + i) as i64),

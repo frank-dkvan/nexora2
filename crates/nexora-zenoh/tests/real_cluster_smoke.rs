@@ -13,6 +13,11 @@
 //! passed every router-level test because those tests skipped `start()`. This is
 //! the system-level guard that exercises the path where those bugs lived.
 
+// This smoke test uses explicit `rid` counters alongside the loop index for
+// readability of the request-id sequencing; the clippy-suggested zip form is
+// less clear here. Allow it for the whole test file.
+#![allow(clippy::explicit_counter_loop)]
+
 use nexora_core::{GraphService, GraphServiceConfig, InMemoryPersistor};
 use nexora_id::{NexoraId, PropertyValue};
 use nexora_zenoh::cluster::{ClusterConfig, ClusterManager, PeerConfig};

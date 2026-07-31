@@ -678,9 +678,9 @@ impl EventLogStore {
         use arrow_schema::DataType;
 
         let mut fields = Vec::new();
-        let mut field_id = 1;
-
-        for field in arrow_schema.fields() {
+        for (idx, field) in arrow_schema.fields().iter().enumerate() {
+            // Iceberg field ids are 1-based.
+            let field_id = idx as i32 + 1;
             let iceberg_type = match field.data_type() {
                 DataType::Utf8 | DataType::LargeUtf8 => Type::Primitive(PrimitiveType::String),
                 DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => {
@@ -705,7 +705,6 @@ impl EventLogStore {
             };
 
             fields.push(nested.into());
-            field_id += 1;
         }
 
         IcebergSchema::builder()

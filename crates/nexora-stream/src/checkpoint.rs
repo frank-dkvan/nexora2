@@ -134,7 +134,7 @@ impl FileCheckpointStore {
         }
 
         // Sort by epoch descending
-        checkpoints.sort_by(|a, b| b.0.cmp(&a.0));
+        checkpoints.sort_by_key(|(epoch, _)| std::cmp::Reverse(*epoch));
 
         // Remove all except the latest `keep`
         for (_epoch, path) in checkpoints.iter().skip(keep) {

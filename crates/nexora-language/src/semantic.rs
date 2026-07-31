@@ -451,16 +451,15 @@ impl SemanticAnalyzer {
                     });
                 }
             }
-            BinaryOp::StartsWith | BinaryOp::EndsWith | BinaryOp::Contains => {
+            BinaryOp::StartsWith | BinaryOp::EndsWith | BinaryOp::Contains
                 if !matches!(lt, ValueType::String | ValueType::Any)
-                    || !matches!(rt, ValueType::String | ValueType::Any)
-                {
-                    return Err(SemanticError::TypeMismatch {
-                        op: format!("{op}"),
-                        left_type: lt.to_string(),
-                        right_type: rt.to_string(),
-                    });
-                }
+                    || !matches!(rt, ValueType::String | ValueType::Any) =>
+            {
+                return Err(SemanticError::TypeMismatch {
+                    op: format!("{op}"),
+                    left_type: lt.to_string(),
+                    right_type: rt.to_string(),
+                });
             }
             _ => {}
         }

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// SQLite storage configuration for Raft.
 #[derive(Debug, Clone)]
@@ -52,6 +52,9 @@ impl Default for SqliteStorageConfig {
 /// └─ catalog: HashMap<K,V>    → Meta catalog snapshot
 /// ```
 pub struct SqliteStorage {
+    // Retained for the pending on-disk SQLite backend; the current
+    // implementation runs in-memory and does not read it back yet.
+    #[allow(dead_code)]
     config: SqliteStorageConfig,
     state: Arc<RwLock<StorageState>>,
     log: Arc<RwLock<Vec<LogEntry>>>,
@@ -72,7 +75,10 @@ struct StorageState {
     /// Applied log index
     applied_index: u64,
 
-    /// Whether database is initialized
+    /// Whether database is initialized.
+    /// Set during init for the pending on-disk backend; not read while the
+    /// storage runs in-memory.
+    #[allow(dead_code)]
     db_initialized: bool,
 }
 
@@ -101,8 +107,10 @@ impl SqliteStorage {
                 .map_err(|e| Error::storage(format!("Failed to create db dir: {}", e)))?;
         }
 
-        let mut state_data = StorageState::default();
-        state_data.db_initialized = true;
+        let state_data = StorageState {
+            db_initialized: true,
+            ..Default::default()
+        };
 
         let state = Arc::new(RwLock::new(state_data));
         let log = Arc::new(RwLock::new(Vec::new()));

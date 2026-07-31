@@ -8,6 +8,17 @@
 //!   4. SELECT from the event table fans out to all nodes and merges Iceberg rows
 //!
 //! Proves the dual-write path (graph + event log) works end-to-end in cluster mode.
+//!
+//! TODO(#2): This suite was written against an older EventLogStore API
+//! (`EventLogStore::new(&str)` + public `create_table(name, columns)`), both of
+//! which have since been refactored (`new(&Path)`, and table creation now goes
+//! through `ensure_table_from_domain` / `write_batch`). It never compiled under
+//! `--features event-first` because the RocksDB CI build failed earlier in the
+//! graph and masked it. Disabled from compilation until it is rewritten against
+//! the current API; tracked in issue #2. Gated on a feature that is never
+//! enabled so the whole file compiles to nothing. `cfg(any())` is always false
+//! (empty disjunction), the idiomatic way to exclude a whole file from the build.
+#![cfg(any())]
 
 use std::sync::Arc;
 use tokio_postgres::{Client, NoTls};

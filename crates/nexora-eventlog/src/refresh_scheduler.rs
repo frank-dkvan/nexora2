@@ -165,7 +165,7 @@ impl Drop for RefreshScheduler {
     fn drop(&mut self) {
         // 尝试清理任务 (best-effort)
         if let Ok(tasks) = self.tasks.try_read() {
-            for (_, task) in tasks.iter() {
+            for task in tasks.values() {
                 task.abort();
             }
         }

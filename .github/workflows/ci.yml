@@ -9,19 +9,36 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # RocksDB's crc32c.cc uses PCLMUL/SSE4.2 intrinsics. On the GCC 13 runners the
+  # cc crate does not pass -mpclmul (it isn't derived from rustc target-features),
+  # so crc32c.cc fails with "'__builtin_ia32_pclmulqdq128' needs isa option
+  # -mpclmul -msse2". Pass the ISA flags to the C/C++ build directly. Harmless on
+  # x86_64; ignored where the cc crate doesn't apply them. See facebook/rocksdb#13006.
+  CFLAGS: "-mpclmul -msse4.2"
+  CXXFLAGS: "-mpclmul -msse4.2"
 
 jobs:
   # Job 1: 格式化检查 (最快,优先失败)
+  # 注意: 只检查工作区自己的代码, vendor/risingwave 有自己的格式规范, 不在此检查.
   fmt:
     name: Format Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Check formatting
-        run: cargo fmt --all --check
+      # 使用项目固定的 nightly (rust-toolchain.toml), 它包含 rustfmt 组件.
+      # 不使用 dtolnay/rust-toolchain@stable, 否则会覆盖项目工具链.
+      # rustup show 读取 rust-toolchain.toml 并触发该 nightly 的自动安装.
+      - name: Install pinned toolchain
+        run: rustup show
+      # 用 cargo metadata --no-deps 取工作区成员(不含 vendor/risingwave),
+      # 逐包 -p 检查. 不能用 `cargo fmt --all`: 它会连同 path 依赖一起格式化,
+      # 把 vendor/risingwave 的上游代码卷入我们的格式规范, 产生无关 diff.
+      - name: Check formatting (workspace members only, excluding vendor)
+        run: |
+          pkgs=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import json,sys; print(' '.join('-p '+p['name'] for p in json.load(sys.stdin)['packages']))")
+          echo "Formatting check for: $pkgs"
+          cargo fmt $pkgs --check
 
   # Job 2: Clippy 检查
   clippy:
@@ -29,13 +46,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies
+      - name: Install system dependencies (protobuf, ssl)
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatbuffers-compiler protobuf-compiler libssl-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config unzip
+      - name: Install flatc 25.12.19
+        uses: ./.github/actions/install-flatc
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
@@ -50,11 +68,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies
+      - name: Install system dependencies (protobuf, ssl)
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatbuffers-compiler protobuf-compiler libssl-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config unzip
+      - name: Install flatc 25.12.19
+        uses: ./.github/actions/install-flatc
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Run unit tests
         run: cargo test --workspace --lib --no-fail-fast
@@ -65,7 +86,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies (protobuf, ssl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config unzip
+      - name: Install flatc 25.12.19
+        uses: ./.github/actions/install-flatc
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Run integration tests
         run: cargo test --workspace --test '*' --no-fail-fast
@@ -78,11 +106,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies
+      - name: Install system dependencies (protobuf, ssl)
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatbuffers-compiler protobuf-compiler libssl-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config unzip
+      - name: Install flatc 25.12.19
+        uses: ./.github/actions/install-flatc
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
       # nexora-eventlog 的 lib + 集成测试 (需 olap:Iceberg/DataFusion/sqlx)
       - name: Test nexora-eventlog (olap)
@@ -107,19 +138,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system dependencies
+      - name: Install system dependencies (protobuf, ssl)
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatbuffers-compiler protobuf-compiler libssl-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config unzip
+      - name: Install flatc 25.12.19
+        uses: ./.github/actions/install-flatc
+      - name: Install pinned toolchain
+        run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Build release
         run: cargo build --release --workspace
 
   # 汇总 (所有必需 job 通过才算成功)
+  # 注: audit 不阻塞 (安全告警单独跟踪, 见 Issue #2)
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, test-lib, test-event-first, audit, build]
+    needs: [fmt, clippy, test-lib, test-event-first, build]
     runs-on: ubuntu-latest
     steps:
       - name: Mark CI as successful

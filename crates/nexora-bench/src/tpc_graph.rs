@@ -259,7 +259,7 @@ impl TpcGraphBenchmark {
             iterations: iters,
             throughput_qps: iters as f64 / elapsed.as_secs_f64(),
             latency: stats,
-            result_size: if found > 0 { total_path_len / found } else { 0 },
+            result_size: total_path_len.checked_div(found).unwrap_or(0),
         }
     }
 
@@ -324,7 +324,7 @@ impl TpcGraphBenchmark {
             iterations: iters,
             throughput_qps: iters as f64 / elapsed.as_secs_f64(),
             latency: stats,
-            result_size: if iters > 0 { total_common / iters } else { 0 },
+            result_size: total_common.checked_div(iters).unwrap_or(0),
         }
     }
 
@@ -406,11 +406,7 @@ impl TpcGraphBenchmark {
             iterations: sample_size,
             throughput_qps: sample_size as f64 / elapsed.as_secs_f64(),
             latency: stats,
-            result_size: if sample_size > 0 {
-                total_recs / sample_size
-            } else {
-                0
-            },
+            result_size: total_recs.checked_div(sample_size).unwrap_or(0),
         }
     }
 

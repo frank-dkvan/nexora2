@@ -34,8 +34,32 @@ echo ""
 # --event-streaming-frontend-addr: Frontend地址（PostgreSQL协议）
 # 单节点测试不需要 --library-meta-peer
 
+# --- Binary preparation --------------------------------------------------
+# The full-feature debug binary (event-streaming,library, ~2.2GB) has debug
+# segments so large that macOS dyld refuses to map it ("dyld cache '(null)'
+# not loaded: syscall to map cache into shared region failed"). Stripping the
+# debug symbols drops it to ~1GB, which dyld loads fine. We strip a COPY so the
+# original (with symbols, for debugging under lldb) is left intact.
+BIN_SRC="./target/debug/nexora"
+BIN_RUN="./target/debug/nexora-run"
+
+if [ ! -x "$BIN_SRC" ]; then
+    echo "❌ $BIN_SRC not found. Build first:"
+    echo "   cargo build --features event-first,event-streaming,library"
+    exit 1
+fi
+
+# Re-strip only when the source binary is newer than the stripped copy.
+if [ ! -x "$BIN_RUN" ] || [ "$BIN_SRC" -nt "$BIN_RUN" ]; then
+    echo "🔧 Stripping debug symbols (works around macOS dyld size limit)..."
+    cp "$BIN_SRC" "$BIN_RUN"
+    strip "$BIN_RUN"
+    echo "   $(ls -la "$BIN_RUN" | awk '{print $5}') bytes after strip"
+fi
+
 RUST_LOG=info,nexora_risingwave=debug \
-./target/debug/nexora \
+"$BIN_RUN" \
+  --enable-event-streaming \
   --distributed-library-event-streaming \
   --library-node-id meta-1 \
   --library-meta-addr "0.0.0.0:5690" \
@@ -44,7 +68,8 @@ RUST_LOG=info,nexora_risingwave=debug \
   --allow-unauthenticated \
   --host 0.0.0.0 \
   --port 8080 \
-  --no-rocksdb
+  --no-rocksdb \
+  --no-wal
 
 echo ""
 echo "Server stopped."

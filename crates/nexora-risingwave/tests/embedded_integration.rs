@@ -6,7 +6,10 @@
 //! 3. Execute basic DDL
 //! 4. Shutdown cleanly
 
-#[cfg(all(feature = "embedded", feature = "event-streaming"))]
+// The embedded types (EmbeddedConfig / EmbeddedEventStreaming) are provided by
+// the `embedded` feature. There is no `event-streaming` feature in this crate
+// (that one lives in nexora-app), so gate solely on `embedded`.
+#[cfg(feature = "embedded")]
 mod embedded_integration_tests {
     use nexora_risingwave::{
         EmbeddedConfig, EmbeddedEventStreaming, EventStreamingConfig, EventStreamingModule,

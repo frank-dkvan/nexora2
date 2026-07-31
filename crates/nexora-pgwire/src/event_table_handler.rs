@@ -9,10 +9,19 @@
 //! as text-format rows. Running the SQL over the union (rather than merging
 //! per-node results) keeps aggregates and GROUP BY correct across the cluster.
 
-use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
+use pgwire::api::results::Response;
+use pgwire::error::PgWireResult;
+use sqlparser::ast::Statement;
+// These are only used by the event-first query path below.
+#[cfg(feature = "event-first")]
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse};
+#[cfg(feature = "event-first")]
 use pgwire::api::Type;
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
-use sqlparser::ast::{Query, SetExpr, Statement, TableFactor};
+#[cfg(feature = "event-first")]
+use pgwire::error::{ErrorInfo, PgWireError};
+#[cfg(feature = "event-first")]
+use sqlparser::ast::{Query, SetExpr, TableFactor};
+#[cfg(feature = "event-first")]
 use std::sync::Arc;
 
 /// Check if a SELECT query targets an event table and route to DataFusion if so.
@@ -181,6 +190,7 @@ fn decode_ipc_batches(hex_str: &str) -> Result<Vec<arrow::record_batch::RecordBa
 }
 
 /// Extract the table name from a single-table SELECT query.
+#[cfg(feature = "event-first")]
 fn extract_table_name_from_query(query: &Query) -> Option<String> {
     let select = match query.body.as_ref() {
         SetExpr::Select(s) => s,
@@ -198,6 +208,7 @@ fn extract_table_name_from_query(query: &Query) -> Option<String> {
     }
 }
 
+#[cfg(feature = "event-first")]
 fn user_error(msg: String) -> PgWireError {
     PgWireError::UserError(Box::new(ErrorInfo::new(
         "ERROR".to_string(),
@@ -263,6 +274,7 @@ fn arrow_batches_to_response(
 }
 
 /// Encode a pre-rendered text row into a PG DataRow.
+#[cfg(feature = "event-first")]
 fn encode_text_row(
     row: Vec<Option<String>>,
     schema: Arc<Vec<FieldInfo>>,
@@ -301,8 +313,5 @@ fn arrow_cell_to_text(array: &arrow::array::ArrayRef, row: usize) -> Option<Stri
         return None;
     }
     // arrow's display formatter renders every supported type in a readable way.
-    match arrow::util::display::array_value_to_string(array, row) {
-        Ok(s) => Some(s),
-        Err(_) => None,
-    }
+    arrow::util::display::array_value_to_string(array, row).ok()
 }

@@ -5,6 +5,11 @@
 //! - Frontend pool load balancing
 //! - Compute cluster registration and heartbeat
 //! - End-to-end DDL and query execution
+//!
+//! The distributed cluster types are gated behind the `library` feature, so
+//! the whole test file only compiles when that feature is enabled. Without it
+//! (e.g. a default `cargo clippy --all-targets`) the file compiles to nothing.
+#![cfg(feature = "library")]
 
 use nexora_risingwave::{
     DistributedComputeCluster, DistributedFrontendPool, DistributedLibraryConfig,

@@ -1348,10 +1348,9 @@ fn json_to_property_value(v: &serde_json::Value) -> Option<PropertyValue> {
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 PropertyValue::Integer(i)
-            } else if let Some(f) = n.as_f64() {
-                PropertyValue::Float(f)
             } else {
-                return None;
+                let f = n.as_f64()?;
+                PropertyValue::Float(f)
             }
         }
         serde_json::Value::String(s) => PropertyValue::String(s.clone()),

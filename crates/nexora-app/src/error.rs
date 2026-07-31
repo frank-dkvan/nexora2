@@ -176,7 +176,7 @@ impl ApiError {
         )
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, non_snake_case)]
     pub fn Internal(msg: String) -> Self {
         Self::new(ErrorCode::InternalError, msg)
     }

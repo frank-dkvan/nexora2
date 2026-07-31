@@ -131,7 +131,7 @@ pub fn render_metrics(metrics: &Metrics) -> String {
     ));
     let total = metrics.wal_append_total.load(Ordering::Relaxed);
     let sum_us = metrics.wal_append_sum_us.load(Ordering::Relaxed);
-    let avg_us = if total > 0 { sum_us / total } else { 0 };
+    let avg_us = sum_us.checked_div(total).unwrap_or(0);
     out.push_str(&format!(
         "# HELP deepstreaming_wal_append_total Total WAL append count\n# TYPE deepstreaming_wal_append_total counter\ndeepstreaming_wal_append_total {}\n",
         total
@@ -142,7 +142,7 @@ pub fn render_metrics(metrics: &Metrics) -> String {
     ));
     let q_total = metrics.queries_total.load(Ordering::Relaxed);
     let q_sum_us = metrics.query_duration_sum_us.load(Ordering::Relaxed);
-    let q_avg_us = if q_total > 0 { q_sum_us / q_total } else { 0 };
+    let q_avg_us = q_sum_us.checked_div(q_total).unwrap_or(0);
     out.push_str(&format!(
         "# HELP deepstreaming_queries_total Total Cypher queries executed\n# TYPE deepstreaming_queries_total counter\ndeepstreaming_queries_total {}\n",
         q_total
@@ -184,9 +184,9 @@ pub fn render_json(metrics: &Metrics) -> Json<serde_json::Value> {
         "errors_total": metrics.errors_total.load(Ordering::Relaxed),
         "fragment_count": metrics.fragment_count.load(Ordering::Relaxed),
         "wal_append_total": total,
-        "wal_append_avg_us": if total > 0 { sum_us / total } else { 0 },
+        "wal_append_avg_us": sum_us.checked_div(total).unwrap_or(0),
         "queries_total": q_total,
-        "query_avg_us": if q_total > 0 { q_sum_us / q_total } else { 0 },
+        "query_avg_us": q_sum_us.checked_div(q_total).unwrap_or(0),
         "slow_queries_total": metrics.slow_queries_total.load(Ordering::Relaxed),
         "watermark_current_ms": metrics.watermark_current_ms.load(Ordering::Relaxed),
         "late_events_dropped_total": metrics.late_events_dropped_total.load(Ordering::Relaxed),

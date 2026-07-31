@@ -237,7 +237,7 @@ mod disabled_tests {
     /// When features are disabled, tests are skipped
     #[test]
     fn test_features_disabled() {
-        // This test runs when risingwave or embedded features are not enabled
-        assert!(true, "RisingWave features not enabled");
+        // Placeholder so the test binary is non-empty when the risingwave /
+        // embedded features are disabled. Reaching this point is the assertion.
     }
 }

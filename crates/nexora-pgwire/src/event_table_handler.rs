@@ -14,7 +14,9 @@ use pgwire::error::PgWireResult;
 use sqlparser::ast::Statement;
 // These are only used by the event-first query path below.
 #[cfg(feature = "event-first")]
-use pgwire::api::results::{DataRowEncoder, FieldInfo};
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse};
+#[cfg(feature = "event-first")]
+use pgwire::api::Type;
 #[cfg(feature = "event-first")]
 use pgwire::error::{ErrorInfo, PgWireError};
 #[cfg(feature = "event-first")]
@@ -311,8 +313,5 @@ fn arrow_cell_to_text(array: &arrow::array::ArrayRef, row: usize) -> Option<Stri
         return None;
     }
     // arrow's display formatter renders every supported type in a readable way.
-    match arrow::util::display::array_value_to_string(array, row) {
-        Ok(s) => Some(s),
-        Err(_) => None,
-    }
+    arrow::util::display::array_value_to_string(array, row).ok()
 }

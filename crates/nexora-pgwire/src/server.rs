@@ -139,6 +139,9 @@ pub async fn spawn_pg_server(
 /// for `router` to get the single-node behaviour (identical to `spawn_pg_server`).
 ///
 /// [`HybridRouter`]: nexora_zenoh::router::HybridRouter
+// Each argument is a distinct collaborator the server needs; bundling them into
+// a struct would only move the arity elsewhere without improving clarity.
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_pg_server_with_router(
     graph: Arc<nexora_core::GraphService>,
     mv_manager: Arc<nexora_core::materialized_view::MaterializedViewManager>,

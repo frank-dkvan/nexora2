@@ -366,6 +366,39 @@ impl EventStreamingOperations for EventStreamingModule {
     }
 }
 
+/// Helper function to convert JSON value to ColumnValue
+fn json_to_column_value(value: &serde_json::Value) -> ColumnValue {
+    match value {
+        serde_json::Value::Null => ColumnValue::Null,
+        serde_json::Value::Bool(b) => ColumnValue::Boolean(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                    ColumnValue::Int32(i as i32)
+                } else {
+                    ColumnValue::Int64(i)
+                }
+            } else if let Some(f) = n.as_f64() {
+                ColumnValue::Float64(f)
+            } else {
+                ColumnValue::String(n.to_string())
+            }
+        }
+        serde_json::Value::String(s) => {
+            // Try to parse as timestamp (RFC3339 format)
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                ColumnValue::Timestamp(dt.with_timezone(&chrono::Utc))
+            } else {
+                ColumnValue::String(s.clone())
+            }
+        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            // Complex types stored as JSON
+            ColumnValue::Json(value.clone())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,38 +450,5 @@ mod tests {
         assert_eq!(result.unwrap(), "[]");
 
         rw.shutdown().await.unwrap();
-    }
-}
-
-/// Helper function to convert JSON value to ColumnValue
-fn json_to_column_value(value: &serde_json::Value) -> ColumnValue {
-    match value {
-        serde_json::Value::Null => ColumnValue::Null,
-        serde_json::Value::Bool(b) => ColumnValue::Boolean(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
-                    ColumnValue::Int32(i as i32)
-                } else {
-                    ColumnValue::Int64(i)
-                }
-            } else if let Some(f) = n.as_f64() {
-                ColumnValue::Float64(f)
-            } else {
-                ColumnValue::String(n.to_string())
-            }
-        }
-        serde_json::Value::String(s) => {
-            // Try to parse as timestamp (RFC3339 format)
-            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-                ColumnValue::Timestamp(dt.with_timezone(&chrono::Utc))
-            } else {
-                ColumnValue::String(s.clone())
-            }
-        }
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            // Complex types stored as JSON
-            ColumnValue::Json(value.clone())
-        }
     }
 }

@@ -350,7 +350,7 @@ mod tests {
         // the router routes through the RemoteGraphClient
         let mut shard_map = crate::shard_map::ShardMap::new_local(4);
         shard_map.local_node = "this-node".to_string();
-        for (_shard_id, assignment) in shard_map.assignments.iter_mut() {
+        for assignment in shard_map.assignments.values_mut() {
             assignment.owner = "remote-node".to_string();
         }
         let router = HybridRouter::new_clustered(shard_map, client);
@@ -388,7 +388,7 @@ mod tests {
 
         let mut shard_map = crate::shard_map::ShardMap::new_local(4);
         shard_map.local_node = "this-node".to_string();
-        for (_shard_id, assignment) in shard_map.assignments.iter_mut() {
+        for assignment in shard_map.assignments.values_mut() {
             assignment.owner = "remote-node".to_string();
         }
         let router = HybridRouter::new_clustered(shard_map, client);

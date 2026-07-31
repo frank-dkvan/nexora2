@@ -186,7 +186,8 @@ impl QuorumReader {
             .into_iter()
             .map(|(replica, (result, version))| (replica, result, version))
             .collect();
-        sorted_responses.sort_by(|a, b| b.2.cmp(&a.2)); // Sort by version descending
+        // Sort by version descending
+        sorted_responses.sort_by_key(|(_, _, version)| std::cmp::Reverse(*version));
 
         if sorted_responses.is_empty() {
             return Err(RouterError::Remote("no valid responses".to_string()));

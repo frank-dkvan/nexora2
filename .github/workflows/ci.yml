@@ -23,8 +23,15 @@ jobs:
       # rustup show 读取 rust-toolchain.toml 并触发该 nightly 的自动安装.
       - name: Install pinned toolchain
         run: rustup show
-      - name: Check formatting (workspace only, excluding vendor)
-        run: cargo fmt --all --check
+      # 用 cargo metadata --no-deps 取工作区成员(不含 vendor/risingwave),
+      # 逐包 -p 检查. 不能用 `cargo fmt --all`: 它会连同 path 依赖一起格式化,
+      # 把 vendor/risingwave 的上游代码卷入我们的格式规范, 产生无关 diff.
+      - name: Check formatting (workspace members only, excluding vendor)
+        run: |
+          pkgs=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import json,sys; print(' '.join('-p '+p['name'] for p in json.load(sys.stdin)['packages']))")
+          echo "Formatting check for: $pkgs"
+          cargo fmt $pkgs --check
 
   # Job 2: Clippy 检查
   clippy:

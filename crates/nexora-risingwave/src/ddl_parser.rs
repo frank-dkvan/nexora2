@@ -250,7 +250,7 @@ mod tests {
         let schema = DdlParser::parse_create_mv(sql).unwrap();
         assert_eq!(schema.name, "enriched");
         // Phase 6: Basic parsing extracts column aliases
-        assert!(schema.columns.len() > 0);
+        assert!(!schema.columns.is_empty());
     }
 
     #[test]

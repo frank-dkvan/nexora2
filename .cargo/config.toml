@@ -8,13 +8,13 @@
 # RisingWave cannot compile without SIMD (#7259). For some targets a SIMD
 # feature is on by default; for others it must be enabled manually.
 
-# +avx2 is required by RisingWave (#7259). +pclmul must accompany it: with avx
-# enabled but pclmul absent, RocksDB's crc32c.cc fails to compile on GCC 13
-# ("'__builtin_ia32_pclmulqdq128' needs isa option -mpclmul -msse2"), because
-# rust-librocksdb-sys forwards the rustc target-features to the C++ compiler.
-# See facebook/rocksdb#13006.
+# +avx2 is required by RisingWave (#7259). The rustc feature for the carryless
+# multiply instruction is `pclmulqdq` (not `pclmul`, which rustc rejects as an
+# unknown feature). Note this only affects Rust codegen; RocksDB's C++ build
+# needs `-mpclmul` passed via CXXFLAGS (set in CI), because the cc crate does
+# not derive it from rustc target-features. See facebook/rocksdb#13006.
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-Ctarget-feature=+avx2,+pclmul"]
+rustflags = ["-Ctarget-feature=+avx2,+pclmulqdq"]
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-Ctarget-feature=+neon"]

@@ -9,6 +9,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # RocksDB's crc32c.cc uses PCLMUL/SSE4.2 intrinsics. On the GCC 13 runners the
+  # cc crate does not pass -mpclmul (it isn't derived from rustc target-features),
+  # so crc32c.cc fails with "'__builtin_ia32_pclmulqdq128' needs isa option
+  # -mpclmul -msse2". Pass the ISA flags to the C/C++ build directly. Harmless on
+  # x86_64; ignored where the cc crate doesn't apply them. See facebook/rocksdb#13006.
+  CFLAGS: "-mpclmul -msse4.2"
+  CXXFLAGS: "-mpclmul -msse4.2"
 
 jobs:
   # Job 1: 格式化检查 (最快,优先失败)

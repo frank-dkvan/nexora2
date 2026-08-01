@@ -4,6 +4,9 @@
 
 set -e
 
+# Fix PATH to prioritize rustup toolchain
+export PATH=/Users/frank/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
+
 echo "🚀 Nexora 2.0 快速验证测试"
 echo "================================"
 
@@ -48,7 +51,7 @@ check_step "nexora-cypher 测试"
 if cargo tree -p nexora-app --features event-streaming 2>/dev/null | grep -q "nexora-risingwave"; then
     echo ""
     echo "🌊 Step 3: 测试 Event Streaming..."
-    cargo test -p nexora-risingwave --release --features event-streaming -- --test-threads=1
+    cargo test -p nexora-risingwave --release -- --test-threads=1
     check_step "nexora-risingwave 测试"
 else
     echo -e "${YELLOW}⏭️  Step 3: Event Streaming 未启用，跳过${NC}"
@@ -57,7 +60,7 @@ fi
 # 4. 启动单节点服务器（后台）
 echo ""
 echo "🖥️  Step 4: 启动单节点服务器..."
-cargo run --release --features event-first -- --config nexora.toml &
+cargo run --release --bin nexora --features event-first -- --config nexora.toml --allow-unauthenticated &
 SERVER_PID=$!
 sleep 5
 
@@ -75,7 +78,7 @@ echo "🌐 Step 5: 测试 HTTP API..."
 sleep 2
 
 # Health check
-curl -f http://localhost:8080/health > /dev/null 2>&1
+curl -f http://localhost:8080/api/health > /dev/null 2>&1
 check_step "Health check"
 
 # Cypher query

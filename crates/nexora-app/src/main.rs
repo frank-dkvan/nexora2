@@ -172,9 +172,9 @@ struct Cli {
     #[arg(long, default_value_t = 10_000)]
     max_nodes_per_shard: usize,
 
-    /// RocksDB data directory
-    #[arg(long, default_value = "./nexora-data")]
-    rocksdb_path: PathBuf,
+    /// RocksDB data directory (falls back to config file if not provided)
+    #[arg(long)]
+    rocksdb_path: Option<PathBuf>,
 
     /// Use in-memory storage instead of RocksDB
     #[arg(long)]
@@ -809,6 +809,18 @@ async fn main() -> anyhow::Result<()> {
     let config_file = config_loader::load_config(cli.config.as_deref())
         .context("Failed to load configuration file")?;
 
+    // Resolve RocksDB path: CLI arg > config file > default
+    let rocksdb_path = if cli.rocksdb_path.is_some() {
+        cli.rocksdb_path.clone().unwrap()
+    } else {
+        config_file.storage.as_ref()
+            .and_then(|s| s.rocksdb.as_ref())
+            .map(|r| PathBuf::from(&r.path))
+            .unwrap_or_else(|| PathBuf::from("./nexora-data"))
+    };
+
+    tracing::info!("RocksDB path resolved to: {}", rocksdb_path.display());
+
     // Graph configuration
     let graph_config = GraphServiceConfig {
         num_shards: cli.num_shards,
@@ -829,7 +841,7 @@ async fn main() -> anyhow::Result<()> {
     let control_plane_store: Arc<dyn ControlPlaneStore> = if cli.no_rocksdb {
         Arc::new(InMemoryControlPlaneStore::new())
     } else {
-        let cp_path = cli.rocksdb_path.join("control_plane");
+        let cp_path = rocksdb_path.join("control_plane");
         match RocksDbControlPlaneStore::open(&cp_path) {
             Ok(s) => Arc::new(s),
             Err(e) => {
@@ -1179,7 +1191,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let graph: Arc<GraphService> = if !cli.no_rocksdb {
-        let path = &cli.rocksdb_path;
+        let path = &rocksdb_path;
         tracing::info!("   RocksDB: {}", path.display());
         let persistor = Arc::new(nexora_persistor_rocksdb::RocksDbPersistor::open(path)?);
 
@@ -1345,7 +1357,7 @@ async fn main() -> anyhow::Result<()> {
                 ..s3_config
             };
             let hot = Arc::new(nexora_storage::LocalStorage::new(
-                cli.rocksdb_path.join("hot"),
+                rocksdb_path.join("hot"),
                 nexora_storage::StorageTier::Hot,
             ));
             let warm: Arc<dyn nexora_storage::StorageBackend> =
@@ -1371,21 +1383,21 @@ async fn main() -> anyhow::Result<()> {
         }
         "local" => {
             let hot = Arc::new(nexora_storage::LocalStorage::new(
-                cli.rocksdb_path.join("hot"),
+                rocksdb_path.join("hot"),
                 nexora_storage::StorageTier::Hot,
             ));
             let warm = Arc::new(nexora_storage::LocalStorage::new(
-                cli.rocksdb_path.join("warm"),
+                rocksdb_path.join("warm"),
                 nexora_storage::StorageTier::Warm,
             ));
             let cold = Arc::new(nexora_storage::LocalStorage::new(
-                cli.rocksdb_path.join("cold"),
+                rocksdb_path.join("cold"),
                 nexora_storage::StorageTier::Cold,
             ));
             let store = nexora_storage::TieredStore::new(hot, warm, cold);
             tracing::info!(
                 "   Storage: local (tiered under {})",
-                cli.rocksdb_path.display()
+                rocksdb_path.display()
             );
             Some(Arc::new(store))
         }
@@ -1394,6 +1406,9 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
+
+    // Fragment store for time-travel queries (created when tiered storage is enabled)
+    let mut fragment_store: Option<Arc<nexora_fragment::TieredFragmentStore>> = None;
 
     // Sealing pipeline (P2-B): if tiered storage is enabled, drain SealEvents
     // from the mutation callback into a FragmentSealer, sealing a time-windowed
@@ -1407,10 +1422,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|d| d.as_micros() as u64)
             .unwrap_or(0);
         let registry = Arc::new(FragmentStore::new(
-            cli.rocksdb_path.join("fragments"),
+            rocksdb_path.join("fragments"),
             "graph",
         ));
         let frag_store = Arc::new(TieredFragmentStore::new(registry, ts, "graph"));
+        fragment_store = Some(frag_store.clone());
         let sealer = Arc::new(FragmentSealer::new(frag_store.clone(), "graph", now_us));
         let seal_interval = std::time::Duration::from_secs(cli.seal_interval_secs);
         let idle_ttl = if cli.idle_evict_secs > 0 {
@@ -1522,7 +1538,7 @@ async fn main() -> anyhow::Result<()> {
                 current_term: 1,
                 node_id: node_id.clone(),
                 shard_id: 0,
-                state_dir: Some(cli.rocksdb_path.join("raft_state")),
+                state_dir: Some(rocksdb_path.join("raft_state")),
                 // is_leader gates the replication loop (a non-leader skips it, so
                 // followers never push stale AppendEntries). It is hardcoded true
                 // here as a deliberate placeholder for this EXPERIMENTAL path, not
@@ -1544,7 +1560,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Ensure the Raft state dir exists so the applied-index watermark
             // can be persisted (see RaftHandler::new / persist_applied_index).
-            let raft_state_dir = cli.rocksdb_path.join("raft_state");
+            let raft_state_dir = rocksdb_path.join("raft_state");
             if let Err(e) = std::fs::create_dir_all(&raft_state_dir) {
                 tracing::warn!(error = %e, path = %raft_state_dir.display(),
                     "failed to create Raft state dir; applied_index will not persist");
@@ -1635,7 +1651,7 @@ async fn main() -> anyhow::Result<()> {
             let replication_log_dir = if cli.no_rocksdb {
                 None
             } else {
-                Some(cli.rocksdb_path.join("replog"))
+                Some(rocksdb_path.join("replog"))
             };
 
             // A0: durable shard-map snapshot under the data dir (unless in-memory
@@ -1644,7 +1660,7 @@ async fn main() -> anyhow::Result<()> {
             let shard_map_dir = if cli.no_rocksdb {
                 None
             } else {
-                Some(cli.rocksdb_path.join("shardmap"))
+                Some(rocksdb_path.join("shardmap"))
             };
 
             ClusterConfig {
@@ -1842,7 +1858,7 @@ async fn main() -> anyhow::Result<()> {
 
                     let data_dir = rw_config
                         .and_then(|c| Some(std::path::PathBuf::from(&c.data_dir)))
-                        .unwrap_or_else(|| cli.rocksdb_path.join("event-streaming-cluster"));
+                        .unwrap_or_else(|| rocksdb_path.join("event-streaming-cluster"));
 
                     let binary_path = rw_config
                         .and_then(|c| c.binary_path.as_ref().map(std::path::PathBuf::from));
@@ -1954,7 +1970,7 @@ async fn main() -> anyhow::Result<()> {
 
                         let data_dir = rw_config
                             .and_then(|c| Some(std::path::PathBuf::from(&c.data_dir)))
-                            .unwrap_or_else(|| cli.rocksdb_path.join("event-streaming"));
+                            .unwrap_or_else(|| rocksdb_path.join("event-streaming"));
 
                         let binary_path = rw_config
                             .and_then(|c| c.binary_path.as_ref().map(std::path::PathBuf::from));
@@ -2116,7 +2132,7 @@ async fn main() -> anyhow::Result<()> {
                 .with_frontend_listen_addr(&frontend_addr)
                 .in_memory()
         } else {
-            let store_dir = cli.rocksdb_path.join("event-streaming-library");
+            let store_dir = rocksdb_path.join("event-streaming-library");
             nexora_risingwave::EmbeddedLibraryConfig::new()
                 .with_frontend_listen_addr(&frontend_addr)
                 .with_store_directory(store_dir)
@@ -2159,9 +2175,7 @@ async fn main() -> anyhow::Result<()> {
         None
     };
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
-    let _library_event_streaming: Option<()> = None;
-    #[cfg(not(all(feature = "event-streaming", feature = "library")))]
-    let _library_event_streaming_client: Option<()> = None;
+    let library_event_streaming: Option<()> = None;
 
     // ============================================================
     // Distributed library mode: multi-node in-process cluster
@@ -2319,7 +2333,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                     MetaBackendType::Sqlite => {
                         let path = cli.meta_backend_sqlite_path.clone().unwrap_or_else(|| {
-                            let default_path = cli.rocksdb_path.join(format!("meta-{}.db", node_id));
+                            let default_path = rocksdb_path.join(format!("meta-{}.db", node_id));
                             tracing::info!("Using default SQLite path: {:?}", default_path);
                             default_path
                         });
@@ -2355,7 +2369,7 @@ async fn main() -> anyhow::Result<()> {
                         parallelism: Some(num_cpus::get()),
                         internal_rpc_addr: None,
                     },
-                    data_dir: cli.rocksdb_path.join("event-streaming-distributed"),
+                    data_dir: rocksdb_path.join("event-streaming-distributed"),
                 };
 
                 lib_dist_config.validate().map_err(|e| {
@@ -2401,7 +2415,7 @@ async fn main() -> anyhow::Result<()> {
             rocksdb_path: if cli.no_rocksdb {
                 None
             } else {
-                Some(cli.rocksdb_path.to_string_lossy().to_string())
+                Some(rocksdb_path.to_string_lossy().to_string())
             },
             wal_dir: if cli.no_wal {
                 None
@@ -2426,6 +2440,7 @@ async fn main() -> anyhow::Result<()> {
         )),
         udf_manager,
         tiered_store,
+        fragment_store,
         mv_manager: mv_manager.clone(),
         ontology_manager: ontology_manager.clone(),
         #[cfg(feature = "event-first")]
@@ -2447,11 +2462,22 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(64),
         )),
         #[cfg(feature = "event-streaming")]
-        event_streaming: library_event_streaming_client.or_else(|| {
-            event_streaming_module
-                .as_ref()
-                .map(|m| m.clone() as Arc<dyn nexora_risingwave::EventStreamingOperations>)
-        }),
+        event_streaming: {
+            #[cfg(feature = "library")]
+            {
+                library_event_streaming_client.or_else(|| {
+                    event_streaming_module
+                        .as_ref()
+                        .map(|m| m.clone() as Arc<dyn nexora_risingwave::EventStreamingOperations>)
+                })
+            }
+            #[cfg(not(feature = "library"))]
+            {
+                event_streaming_module
+                    .as_ref()
+                    .map(|m| m.clone() as Arc<dyn nexora_risingwave::EventStreamingOperations>)
+            }
+        },
         #[cfg(all(feature = "event-streaming", feature = "embedded"))]
         distributed_event_streaming: distributed_event_streaming.map(Arc::new),
         #[cfg(all(feature = "event-streaming", feature = "library"))]
@@ -2544,7 +2570,7 @@ async fn main() -> anyhow::Result<()> {
                     // consumer back to the flushed offset (see IngestionPipeline
                     // run/seek) — replaying anything past it (idempotent by qid).
                     let checkpoint_recovery = if !cli.no_rocksdb && cli.checkpoint_secs > 0 {
-                        let ckpt_dir = cli.rocksdb_path.join("checkpoints");
+                        let ckpt_dir = rocksdb_path.join("checkpoints");
                         match nexora_stream::FileCheckpointStore::new(&ckpt_dir) {
                             Ok(store) => {
                                 let coordinator =
@@ -2771,7 +2797,7 @@ async fn main() -> anyhow::Result<()> {
             // never committed, so it re-read everything on every restart).
             #[cfg(feature = "rocksdb-offsets")]
             let offset_store: Arc<dyn nexora_stream::OffsetStore> = {
-                let dir = cli.rocksdb_path.join("kinesis_offsets");
+                let dir = rocksdb_path.join("kinesis_offsets");
                 match nexora_stream::RocksDbOffsetStore::open(&dir) {
                     Ok(s) => Arc::new(s),
                     Err(e) => {

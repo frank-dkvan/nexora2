@@ -184,11 +184,32 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
+  # Job 7: E2E 冒烟测试 (真实 HTTP 端到端流水线)
+  # 构建 event-first 二进制, 启动服务器, 跑 scripts/test-e2e-full-pipeline.sh:
+  # Cypher 建图 → 图查询/遍历 → Graph SQL OLAP 聚合 → 吞吐 → 数据一致性。
+  # 覆盖 unit/integration test 无法覆盖的真实 HTTP 请求路径。
+  test-e2e:
+    name: E2E Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies (protobuf, ssl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libssl-dev pkg-config unzip
+      - name: Install flatc 25.12.19
+        uses: ./.github/actions/install-flatc
+      - name: Install pinned toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Run E2E full pipeline
+        run: bash scripts/test-e2e-full-pipeline.sh
+
   # 汇总 (所有必需 job 通过才算成功)
   # 注: audit 不阻塞 (安全告警单独跟踪, 见 Issue #2)
   ci-success:
     name: CI Success
-    needs: [fmt, clippy, test-lib, test-event-first, build]
+    needs: [fmt, clippy, test-lib, test-event-first, build, test-e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Mark CI as successful

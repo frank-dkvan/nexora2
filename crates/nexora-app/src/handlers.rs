@@ -156,6 +156,8 @@ pub struct AppState {
     pub udf_manager: Arc<Mutex<UdfManager>>,
     /// Tiered storage backend (optional — None when using default in-memory)
     pub tiered_store: Option<Arc<nexora_storage::TieredStore>>,
+    /// Fragment store for time-travel queries (optional — None when tiered storage disabled)
+    pub fragment_store: Option<Arc<nexora_fragment::TieredFragmentStore>>,
     /// Materialized view manager for query acceleration
     pub mv_manager: Arc<MaterializedViewManager>,
     /// Ontology manager for domain package (schema) definitions — stage 6.
@@ -858,6 +860,58 @@ pub async fn execute_cypher(
                     "Failed to query materialized view, falling back to Cypher"
                 );
                 // 失败则继续执行原始 Cypher
+            }
+        }
+    }
+
+    // Time-travel query path: if AS OF timestamp is present and fragment store available
+    if let (Some(ts), Some(ref frag_store)) = (as_of_ts, &state.fragment_store) {
+        use nexora_fragment::time_travel::{execute_time_travel, TimeTravelQuery};
+
+        let query = TimeTravelQuery::at(ts);
+        let registry = frag_store.registry();
+
+        match execute_time_travel(&*registry, query).await {
+            Ok(result) => {
+                // Convert TimeTravelResult to CypherResponse format
+                let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
+
+                // Add nodes with their embedded edges
+                for node in result.nodes {
+                    let mut row = vec![
+                        serde_json::json!({"type": "node"}),
+                        serde_json::json!(node.id),
+                    ];
+                    if !node.properties.is_empty() {
+                        row.push(serde_json::json!(node.properties));
+                    }
+                    if !node.edges.is_empty() {
+                        row.push(serde_json::json!(node.edges.iter().map(|e| json!({
+                            "type": e.edge_type,
+                            "direction": e.direction,
+                            "other": e.other,
+                            "timestamp": e.timestamp,
+                        })).collect::<Vec<_>>()));
+                    }
+                    rows.push(row);
+                }
+
+                let row_count = rows.len();
+                return build_response(
+                    StatusCode::OK,
+                    CypherResponse {
+                        columns: vec!["type".to_string(), "id".to_string(), "properties".to_string(), "edges".to_string()],
+                        rows,
+                        error: None,
+                        as_of: Some(ts),
+                        write_stats: None,
+                    },
+                    row_count,
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Time-travel query failed: {}, falling back to current state", e);
+                // Fall through to regular Cypher execution
             }
         }
     }
@@ -3776,8 +3830,110 @@ fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
-pub async fn time_travel(State(state): State<AppState>) -> Json<serde_json::Value> {
-    Json(json!({"active_nodes":state.graph.active_node_count().await,"time_travel":"enabled"}))
+/// Time-travel query endpoint: reconstruct graph state at a specific timestamp
+///
+/// Query parameters:
+/// - as_of: timestamp in microseconds since epoch, or YYYYMMDD date
+/// - qid: optional node ID to filter (return only specific node's history)
+/// - namespace: optional namespace filter
+///
+/// Example: GET /api/graph/history?as_of=1722528000000000
+#[derive(Deserialize)]
+pub struct TimeTravelParams {
+    pub as_of: Option<String>,
+    pub qid: Option<String>,
+    pub namespace: Option<String>,
+}
+
+pub async fn time_travel(
+    State(state): State<AppState>,
+    Query(params): Query<TimeTravelParams>,
+) -> Json<serde_json::Value> {
+    // Check if fragment store is available
+    let Some(ref frag_store) = state.fragment_store else {
+        return Json(json!({
+            "error": "Time-travel queries require tiered storage (start with --storage-backend=local or --storage-backend=s3)"
+        }));
+    };
+
+    // Parse timestamp
+    let as_of_ts = match params.as_of {
+        Some(ref ts_str) => {
+            // Try parsing as microseconds
+            if let Ok(us) = ts_str.parse::<u64>() {
+                us
+            } else {
+                // Try parsing as YYYYMMDD date
+                let digits: String = ts_str.chars().filter(|c| c.is_ascii_digit()).collect();
+                if digits.len() >= 8 {
+                    if let (Ok(y), Ok(m), Ok(d)) = (
+                        digits[..4].parse::<i64>(),
+                        digits[4..6].parse::<i64>(),
+                        digits[6..8].parse::<i64>(),
+                    ) {
+                        if let Some(epoch_days) = date_to_epoch_days(y, m, d) {
+                            epoch_days * 86400 * 1_000_000
+                        } else {
+                            return Json(json!({"error": "Invalid date format"}));
+                        }
+                    } else {
+                        return Json(json!({"error": "Invalid date format"}));
+                    }
+                } else {
+                    return Json(json!({"error": "Invalid timestamp format. Use microseconds or YYYYMMDD"}));
+                }
+            }
+        }
+        None => {
+            return Json(json!({
+                "error": "Missing 'as_of' parameter (timestamp in microseconds or YYYYMMDD date)"
+            }));
+        }
+    };
+
+    use nexora_fragment::time_travel::{execute_time_travel, TimeTravelQuery};
+
+    let mut query = TimeTravelQuery::at(as_of_ts);
+
+    if let Some(ref qid_str) = params.qid {
+        // Try parsing as hex string first, then as u64
+        let qid = if let Ok(id) = NexoraId::from_hex(qid_str) {
+            id
+        } else if let Ok(num) = qid_str.parse::<u64>() {
+            // Treat as raw u64 bytes (little-endian)
+            NexoraId::from_bytes(num.to_le_bytes().to_vec())
+        } else {
+            return Json(json!({"error": "Invalid qid format (expected hex or u64)"}));
+        };
+        query = query.for_node(qid);
+    }
+
+    if let Some(ref ns) = params.namespace {
+        query = query.in_namespace(ns);
+    }
+
+    let frag_store_clone = Arc::clone(frag_store);
+    match execute_time_travel(&*frag_store_clone.registry(), query).await {
+        Ok(result) => {
+            Json(json!({
+                "as_of_us": as_of_ts,
+                "nodes": result.nodes.iter().map(|n| json!({
+                    "id": n.id,
+                    "properties": n.properties,
+                    "edges": n.edges.iter().map(|e| json!({
+                        "type": e.edge_type,
+                        "direction": e.direction,
+                        "other": e.other,
+                        "timestamp": e.timestamp,
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+                "node_count": result.nodes.len(),
+            }))
+        }
+        Err(e) => Json(json!({
+            "error": format!("Time-travel query failed: {}", e)
+        })),
+    }
 }
 
 pub async fn readiness(State(state): State<AppState>) -> Json<serde_json::Value> {

@@ -9059,6 +9059,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.11.0",
  "include_dir",
+ "nexora-consensus",
  "nexora-core",
  "nexora-cypher",
  "nexora-eventlog",

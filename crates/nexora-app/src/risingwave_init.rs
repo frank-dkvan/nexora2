@@ -8,7 +8,6 @@
 use crate::config::{AppTomlConfig, EventStreamingMode};
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Initialize RisingWave based on CLI args and configuration
@@ -239,16 +238,19 @@ async fn init_distributed_node(
 }
 
 /// Adapter to implement ElectionClientTrait for RaftElectionClient
+#[cfg(feature = "library")]
 struct RaftElectionAdapter {
-    inner: extensions_meta_raft::RaftElectionClient,
+    inner: nexora_consensus::RaftElectionClient,
 }
 
+#[cfg(feature = "library")]
 impl RaftElectionAdapter {
-    fn new(client: extensions_meta_raft::RaftElectionClient) -> Self {
+    fn new(client: nexora_consensus::RaftElectionClient) -> Self {
         Self { inner: client }
     }
 }
 
+#[cfg(feature = "library")]
 #[async_trait::async_trait]
 impl nexora_risingwave::meta_wrapper::ElectionClientTrait for RaftElectionAdapter {
     async fn init(&self) -> nexora_risingwave::Result<()> {

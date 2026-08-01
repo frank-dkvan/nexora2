@@ -36,6 +36,7 @@ nexora-output = { path = "../nexora-output" }
 nexora-stream = { path = "../nexora-stream" }
 nexora-eventlog = { path = "../nexora-eventlog", optional = true }
 nexora-risingwave = { path = "../nexora-risingwave", optional = true }
+nexora-consensus = { path = "../nexora-consensus", optional = true }
 nexora-udf = { path = "../nexora-udf" }
 nexora-recipe = { path = "../nexora-recipe" }
 nexora-storage = { path = "../nexora-storage" }
@@ -98,7 +99,7 @@ event-first = ["dep:nexora-eventlog", "nexora-eventlog/olap", "nexora-pgwire/eve
 event-streaming = ["dep:nexora-risingwave", "nexora-risingwave/default"]
 embedded = ["event-streaming", "nexora-risingwave/embedded"]
 # Library mode: event streaming engine compiled in-process (single-node), no external binary.
-library = ["event-streaming", "nexora-risingwave/library"]
+library = ["event-streaming", "nexora-risingwave/library", "dep:nexora-consensus"]
 encrypt = ["nexora-core/encrypt"]
 wasm = ["nexora-udf/wasm"]
 # Distributed tracing export via OpenTelemetry OTLP (gRPC).

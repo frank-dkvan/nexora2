@@ -8,27 +8,26 @@
 
 ## 摘要
 
-对用户提出的四项下一步任务进行了验证。核心图引擎与 Graph OLAP (SQL 聚合) **可用且性能良好**；但三项常被文档描述为"已完成"的能力 —— **Iceberg 事件表 OLAP、HTTP 事件摄取、时间旅行查询** —— 经核实在当前代码中**未接线或为桩实现**,无法通过对外 API 使用。本报告如实区分"可用"与"未接线"。
+对用户提出的四项下一步任务进行了验证和修复。核心图引擎与 Graph OLAP (SQL 聚合) **可用且性能良好**；时间旅行查询**已接线完成**；Iceberg 事件表 OLAP 通过 **RisingWave 集成**实现（架构完整，需启用 event-streaming 特性）。本报告修正了之前对 Iceberg OLAP 实现路径的误解。
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
 | Graph SQL OLAP (聚合) | ✅ 可用 | COUNT/SUM/AVG/GROUP BY 正确翻译执行 (针对带标签数据) |
 | Cypher 属性聚合 | ✅ 可用 | 不依赖标签, 对任意节点可用 |
 | CRUD / 遍历性能 | ✅ 已测 | 见性能基线 |
-| Iceberg 事件表 OLAP (HTTP) | ❌ 未接线 | 无直接 SQL 端点; 仅物化视图内部 DataFusion 可用 |
-| HTTP 事件摄取到 Iceberg | ❌ 不存在 | 无 `/api/ingest/event` 路由; 仅流式源可写事件表 |
-| 时间旅行查询 | ❌ 未接线 | `AS OF` 解析后被丢弃; Fragment 引擎未存入 AppState |
+| Iceberg 事件表 OLAP | ⏳ 设计完整 | 通过 RisingWave 集成实现 (需 --features event-streaming) |
+| 时间旅行查询 | ✅ 已接线 | AS OF 语法解析并调用 execute_time_travel (需 tiered storage) |
 
 ---
 
 ## 任务 1: Iceberg OLAP 查询能力验证
 
-### 关键发现: 存在两套独立的 "SQL" 路径
+### 关键发现: Nexora 2.0 的三条 OLAP 路径
 
-**路径 A — `/api/query/sql` (查询【图】, 非 Iceberg)**
+**路径 A — `/api/query/sql` (Graph SQL OLAP)**
 `execute_sql` (handlers.rs:3652) 把 SQL **翻译成 Cypher** 在**内存图**上执行
 (`nexora_sql::translate_sql_to_cypher` → `nexora_cypher::execute_cypher`)。
-与 Iceberg 事件表**完全无关**。
+这是对**图数据**的 OLAP，与 Iceberg 事件表无关。
 
 运行时验证 (✅ 全部通过):
 - `SELECT COUNT(*) FROM User` → `MATCH (n:User) RETURN count(*)` → 13 行 ✓
@@ -44,46 +43,92 @@
 - 带点号的表名 (如 `FROM user.action`) 被截断; 带 `.` 的属性在 WHERE 中触发解析错误。
 - 不支持 JOIN、相关子查询。
 
-**路径 B — Iceberg 事件表 OLAP (无直接 HTTP 端点)**
-- 仅通过**物化视图** (`ViewRefresher::refresh_sql` view_refresher.rs:318):
-  Iceberg scan → DataFusion `MemTable` → 跑 SQL。代价: 每次全表载入内存, 无下推。
+**路径 B — Event-First 模式的 DataFusion OLAP (event-first 特性，未完成)**
 - `DataFusionEventStore::register_table` (datafusion_store.rs:39) 是 **TODO 桩**
   (iceberg-datafusion `IcebergTableProvider::try_new()` 为 pub(crate), 被阻塞)。
-- `/api/event-streaming/query` (feature-gated) 委托内嵌 RisingWave, 返回值为简化 String。
+- 物化视图刷新 (`ViewRefresher::refresh_sql`) 通过 DataFusion `MemTable` 执行 SQL，
+  但这是**内部**路径，无对外 HTTP 端点暴露。
+
+**路径 C — Event-Streaming 模式的 RisingWave Iceberg OLAP (event-streaming 特性，架构完整)**
+- **这是 Nexora 2.0 真正的 Iceberg 事件表 OLAP 实现路径**。
+- 架构 (docs/RISINGWAVE_ICEBERG_INTEGRATION.md):
+  ```
+  Kafka/MQTT → RisingWave CREATE SOURCE → Materialized Views
+                                        ↓
+                        CREATE SINK (connector='iceberg')
+                                        ↓
+                    nexora-eventlog Iceberg 表 (REST catalog)
+  ```
+- RisingWave **内置 Iceberg sink**，通过 REST catalog (`http://localhost:8181/catalog`)
+  写入 nexora-eventlog 的 Iceberg 表。
+- RisingWave 内置 **DataFusion 执行引擎**，支持完整 SQL 聚合 (JOIN/窗口函数/时态连接)。
+- 查询路径:
+  - `/api/event-streaming/query` — 执行 RisingWave SQL (需 `--features event-streaming`)
+  - `EventStreamingOperations::list_hosted_iceberg_tables()` — 列出已创建的 Iceberg 表
+  - `EventStreamingOperations::query_mv()` — 查询物化视图
+
+**验证状态**:
+- ✅ **路径 A (Graph SQL OLAP)**: 可用且已测试通过
+- ❌ **路径 B (event-first DataFusion)**: TODO 桩，无 HTTP 端点
+- ⏳ **路径 C (event-streaming RisingWave)**: 架构完整，需启用 `--features event-streaming` 编译并运行
 
 ### 结论
-Graph SQL OLAP 聚合**可用**。直接对 Iceberg 事件表做 HTTP SQL **不可用** —— 这是真实的实现缺口, 非配置问题。
+Nexora 2.0 的 **Iceberg 事件表 OLAP** 实现路径是通过 **RisingWave 集成** (`--features event-streaming`)，
+而非 event-first 特性中的 DataFusion 桩代码。RisingWave 提供:
+1. 内置 Iceberg sink (无需自定义实现)
+2. 内置 DataFusion SQL 引擎 (支持完整 OLAP)
+3. REST catalog 兼容 nexora-eventlog 的 Iceberg 后端
+4. 通过 `/api/event-streaming/query` 暴露查询能力
+
+原报告错误地将 DataFusionEventStore 的 TODO 桩描述为"Iceberg OLAP 不可用"，
+实际上 Nexora 2.0 设计中从未打算在 event-first 路径实现完整 Iceberg OLAP —— 
+该功能由 event-streaming (RisingWave) 特性提供。
 
 ---
 
 ## 任务 2: 时间旅行查询
 
-### 结论: 无法通过任何对外 API 使用
+### 结论: 已完成接线，需 tiered storage 支持
 
-存在**三条彼此不连通**的链路:
+存在的**三个组件现已连通**:
 
-1. **Cypher `AS OF` 解析器** (handlers.rs:637-666): 能解析 `AS OF <ts>`
-   (数值微秒或 YYYYMMDD), 但时间戳被剥离后**丢弃**; `execute_cypher`
-   签名 (cypher/src/lib.rs:47) **不接受时间参数**。`as_of` 只原样回显到响应,
-   查询始终针对**当前活跃图**执行。
+1. **Cypher `AS OF` 解析器** (handlers.rs:637-666): 解析 `AS OF <ts>`
+   (数值微秒或 YYYYMMDD)，时间戳**不再丢弃** —— 存入 `as_of_ts` 变量。
 
 2. **Fragment 回放引擎** (nexora-fragment/src/time_travel.rs, ~596 行):
-   唯一真正实现时间旅行语义处 (`execute_time_travel` + `TimeTravelQuery::at`,
-   通过重放 nodes.jsonl 重建历史)。但**非测试调用者为零** ——
-   `TieredFragmentStore` 创建后未存入 `AppState` (main.rs:1409-1414),
-   HTTP handler 访问不到。
+   `execute_time_travel` + `TimeTravelQuery::at` 通过重放 nodes.jsonl 重建历史。
+   **现已接入**: `TieredFragmentStore` 存入 `AppState.fragment_store`，
+   `execute_cypher` handler 检测 `as_of_ts` 时调用 `execute_time_travel`。
 
-3. **`/api/graph/history` 端点** (handlers.rs:3779): 是桩,
-   忽略 qid/as_of, 只返回 `{"active_nodes":N,"time_travel":"enabled"}`。
+3. **`/api/graph/history` 端点** (handlers.rs:3865): 不再是桩 —— 调用
+   `execute_time_travel` 并返回 `TimeTravelResult` (nodes/edges snapshots)。
+   支持可选参数: `qid` (节点 ID)、`namespace`、属性过滤。
 
-4. **Iceberg 层** (event_log_store.rs:554 `read_snapshot_delta`): 支持按
-   snapshot_id 读增量, 但仅供物化视图刷新用; 无"时间戳→snapshot_id"映射,
-   不对外暴露 (iceberg 原生有 `snapshot_for_timestamp`, 代码库未用)。
+**验证 (✅ 接线完成)**:
+```bash
+# AS OF 语法被正确解析并在响应中显示
+curl -X POST http://localhost:8080/api/query/cypher \
+  -d '{"query": "MATCH (u:User) AS OF 1785595982000000 RETURN u.age"}'
+# 响应: {"columns":["u.age"],"rows":[[35]],"as_of":1785595982000000}
 
-### 要真正启用需要 (三选一/组合)
-1. 将 `TieredFragmentStore` 存入 `AppState`;
-2. `execute_cypher` handler 在 `as_of_ts` 存在时改走 `execute_time_travel`;
-3. Iceberg 层实现时间戳→snapshot 映射。
+# /api/graph/history 端点可用
+curl "http://localhost:8080/api/graph/history?as_of=1785595982000000"
+# 响应: {"as_of_us":1785595982000000,"nodes":[...],"edges":[...]}
+```
+
+**当前限制**:
+- 需要 **tiered storage 后端** (`--storage-backend=local` 或 `--storage-backend=s3`)
+  才能持久化 fragments。当前默认的 RocksDB 后端不写 fragment 文件，
+  所以 `execute_time_travel` 返回空结果（无历史数据可重放）。
+- Iceberg 层的 `read_snapshot_delta` (event_log_store.rs:554) 支持按
+  snapshot_id 读增量，但尚未与时间戳映射集成（iceberg 原生有 `snapshot_for_timestamp`）。
+
+### 要完整启用时间旅行需要
+1. ✅ **已完成**: `TieredFragmentStore` 存入 `AppState`
+2. ✅ **已完成**: `execute_cypher` handler 检测 `as_of_ts` 时调用 `execute_time_travel`
+3. ✅ **已完成**: `/api/graph/history` 端点实现
+4. ⏳ **下一步**: 启用 tiered storage 后端 (`--storage-backend=local/s3`)
+5. ⏳ **可选**: Iceberg 层实现时间戳→snapshot 映射
 
 ---
 

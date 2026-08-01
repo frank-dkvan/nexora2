@@ -3250,6 +3250,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/event-streaming/cluster/nodes",
             get(handlers::distributed_cluster::list_cluster_nodes),
+        )
+        .route(
+            "/api/event-streaming/cluster/distributed",
+            get(handlers::event_streaming::get_distributed_library_status),
         );
 
     #[cfg(feature = "event-streaming")]

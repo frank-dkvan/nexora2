@@ -317,6 +317,100 @@ pub async fn get_cluster_status(
     ))
 }
 
+/// Get distributed library cluster status (Phase 5.3)
+///
+/// GET /api/event-streaming/cluster/distributed
+///
+/// Returns detailed status for distributed library mode (in-process multi-node cluster).
+///
+/// # Example
+///
+/// ```bash
+/// curl http://localhost:8080/api/event-streaming/cluster/distributed
+/// ```
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+pub async fn get_distributed_library_status(
+    State(state): State<AppState>,
+) -> Result<Json<DistributedLibraryStatusResponse>, ApiError> {
+    let cluster = state
+        .distributed_library_cluster
+        .as_ref()
+        .ok_or_else(|| ApiError::FeatureNotEnabled("distributed library mode".to_string()))?;
+
+    let (meta_cluster, frontend_pool, compute_cluster) = cluster.as_ref();
+
+    // Get Meta cluster state
+    let meta_state = meta_cluster.get_state().await;
+    let is_leader = meta_cluster.is_leader().await;
+    let leader_id = meta_state.leader_id;
+
+    // Get Frontend pool health
+    let frontend_health = frontend_pool.health_check().await;
+
+    // Get Compute cluster health
+    let compute_health = compute_cluster.health_check().await;
+
+    Ok(Json(DistributedLibraryStatusResponse {
+        mode: "distributed_library".to_string(),
+        meta: MetaClusterStatus {
+            is_leader,
+            leader_id,
+            raft_state: format!("{:?}", meta_state.raft_state),
+            node_count: meta_state.peer_count + 1,
+        },
+        frontend: FrontendPoolStatus {
+            active_nodes: frontend_health.active_count,
+            total_nodes: frontend_health.total_count,
+            healthy: frontend_health.is_healthy,
+        },
+        compute: ComputeClusterStatus {
+            active_nodes: compute_health.active_count,
+            total_nodes: compute_health.total_count,
+            healthy: compute_health.is_healthy,
+            total_parallelism: compute_health.total_parallelism,
+        },
+    }))
+}
+
+/// Distributed library cluster status response
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Serialize)]
+pub struct DistributedLibraryStatusResponse {
+    pub mode: String,
+    pub meta: MetaClusterStatus,
+    pub frontend: FrontendPoolStatus,
+    pub compute: ComputeClusterStatus,
+}
+
+/// Meta cluster status
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Serialize)]
+pub struct MetaClusterStatus {
+    pub is_leader: bool,
+    pub leader_id: Option<u64>,
+    pub raft_state: String,
+    pub node_count: usize,
+}
+
+/// Frontend pool status
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Serialize)]
+pub struct FrontendPoolStatus {
+    pub active_nodes: usize,
+    pub total_nodes: usize,
+    pub healthy: bool,
+}
+
+/// Compute cluster status
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Serialize)]
+pub struct ComputeClusterStatus {
+    pub active_nodes: usize,
+    pub total_nodes: usize,
+    pub healthy: bool,
+    pub total_parallelism: usize,
+}
+
 /// Node status in cluster
 #[cfg(all(feature = "event-streaming", feature = "embedded"))]
 #[derive(Debug, Serialize)]

@@ -7,7 +7,7 @@ edition.workspace = true
 [dependencies]
 tokio = { workspace = true }
 async-trait = "0.1"
-bytes = { workspace = true }
+bytes = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

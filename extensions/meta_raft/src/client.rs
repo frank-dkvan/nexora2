@@ -175,10 +175,18 @@ impl RaftElectionClient {
     /// Check if this node is the leader.
     ///
     /// This queries the underlying Raft consensus layer.
+    ///
+    /// Note: This is a synchronous wrapper around the async consensus client.
+    /// It blocks the current thread to query leadership status.
     pub fn is_leader(&self) -> bool {
-        // Phase 4: For tests, return false as default
-        // In production, this would query the consensus layer properly
-        false
+        // Phase 4: Query consensus layer synchronously
+        // RisingWave's ElectionClient trait requires sync is_leader(),
+        // but our ConsensusClient is async. We use block_in_place to bridge.
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(self.consensus.is_leader())
+                .unwrap_or(false)
+        })
     }
 
     /// Run one election cycle.
@@ -251,30 +259,52 @@ impl RaftElectionClient {
 
     /// Get the current leader information.
     ///
-    /// Phase 4: Simplified implementation.
-    /// Future: Query actual Raft cluster state.
+    /// Returns the current leader's member information, or None if no leader is elected.
     pub async fn leader(&self) -> Result<Option<ElectionMember>> {
-        if self.is_leader() {
-            Ok(Some(ElectionMember {
-                id: self.config.node_id.clone(),
-                is_leader: true,
-            }))
-        } else {
-            // TODO: Query Raft cluster for actual leader
-            Ok(None)
+        let leader_id = self.consensus.current_leader().await?;
+
+        match leader_id {
+            Some(id) => {
+                // Check if this node is the leader
+                let is_self = id == self.config.raft_node_id;
+                let node_id = if is_self {
+                    self.config.node_id.clone()
+                } else {
+                    // Map Raft node ID to string node ID
+                    // For now, use numeric ID as string
+                    format!("meta-node-{}", id)
+                };
+
+                Ok(Some(ElectionMember {
+                    id: node_id,
+                    is_leader: is_self,
+                }))
+            }
+            None => Ok(None),
         }
     }
 
     /// Get all cluster members.
     ///
-    /// Phase 4: Simplified implementation.
-    /// Future: Query actual Raft cluster membership.
+    /// Returns a list of all members in the Raft cluster with their current leadership status.
     pub async fn get_members(&self) -> Result<Vec<ElectionMember>> {
-        let is_leader = self.is_leader();
-        Ok(vec![ElectionMember {
+        let mut members = Vec::new();
+
+        // Add self
+        members.push(ElectionMember {
             id: self.config.node_id.clone(),
-            is_leader,
-        }])
+            is_leader: self.consensus.is_leader().await.unwrap_or(false),
+        });
+
+        // Add peers
+        for peer_id in &self.config.peer_node_ids {
+            members.push(ElectionMember {
+                id: format!("meta-node-{}", peer_id),
+                is_leader: false, // Only this node knows its own status
+            });
+        }
+
+        Ok(members)
     }
 
     /// Shutdown the election client.
@@ -305,7 +335,7 @@ pub struct ElectionMember {
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_election_client_lifecycle() {
         let config = RaftElectionConfig {
             node_id: "test-node-1".to_string(),
@@ -321,14 +351,14 @@ mod tests {
         assert_eq!(client.id().unwrap(), "test-node-1");
 
         // Test leader status (single node is always leader)
-        // Note: This may be false until Raft initializes
-        let _ = client.is_leader();
+        let is_leader = client.is_leader();
+        assert!(is_leader, "Single-node cluster should be leader");
 
         // Test shutdown
         client.shutdown().await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_election_client_members() {
         let config = RaftElectionConfig {
             node_id: "test-node-2".to_string(),
@@ -348,7 +378,7 @@ mod tests {
         client.shutdown().await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_election_client_subscribe() {
         let config = RaftElectionConfig::default();
         let client = RaftElectionClient::new(config).await.unwrap();

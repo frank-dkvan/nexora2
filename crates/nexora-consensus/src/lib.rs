@@ -19,6 +19,8 @@
 //!                  v
 //! ┌─────────────────────────────────────────┐
 //! │    RaftConsensusClient (openraft 0.9)   │
+//! │      ├─ RaftStorage (persistence)       │
+//! │      └─ RaftNetwork (communication)     │
 //! └─────────────────────────────────────────┘
 //! ```
 //!
@@ -47,10 +49,14 @@
 
 pub mod client;
 pub mod error;
+pub mod network;
 pub mod raft_impl;
+pub mod storage;
 pub mod types;
 
 pub use client::ConsensusClient;
 pub use error::{ConsensusError, Result};
+pub use network::{NetworkConfig, RaftNetwork};
 pub use raft_impl::{RaftConfig, RaftConsensusClient};
+pub use storage::{LogEntry, RaftStorage};
 pub use types::{LogIndex, NodeId};

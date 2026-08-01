@@ -17,6 +17,8 @@ mod openapi;
 mod query_rewriter;
 mod raft_handler;
 mod request_id;
+#[cfg(feature = "event-streaming")]
+mod risingwave_init;
 mod security;
 mod sq_mv_bridge;
 mod sql_ddl_parser;

@@ -655,10 +655,13 @@ async fn test_risingwave_ha_cluster_e2e() {
 - [x] `ConsensusTomlConfig` structure
 - [x] Configuration test suite
 
-### Phase 5.2
-- [ ] Application initialization with Raft HA
-- [ ] RaftElectionAdapter implementation
-- [ ] Single-node and distributed mode support
+### Phase 5.2 ✅
+- [x] Application initialization with Raft HA
+- [x] RaftElectionAdapter implementation
+- [x] Single-node and distributed mode support
+- [x] Configuration merging (CLI + TOML)
+- [x] Error handling with anyhow::Context
+- [x] Feature-gated compilation
 
 ### Phase 5.3
 - [ ] HTTP API endpoints for RisingWave

@@ -228,6 +228,10 @@ pub struct EventStreamingConfig {
     #[serde(default)]
     pub enabled: bool,
 
+    /// Event Streaming mode: single or distributed
+    #[serde(default = "default_event_streaming_mode")]
+    pub mode: EventStreamingMode,
+
     /// Enable embedded mode (starts event stream engine as subprocess)
     #[cfg(feature = "embedded")]
     #[serde(default)]
@@ -281,10 +285,21 @@ pub struct EventStreamingConfig {
     #[serde(default)]
     pub compute_nodes: Option<Vec<ComputeNodeTomlConfig>>,
 
-    /// Distributed library mode configuration (Phase 2)
+    /// Distributed library mode configuration (Phase 5)
     #[cfg(feature = "library")]
     #[serde(default)]
     pub distributed: Option<DistributedLibraryTomlConfig>,
+}
+
+/// Event Streaming mode: single-node or distributed cluster
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EventStreamingMode {
+    /// Single-node mode (default): Meta runs standalone, always leader
+    Single,
+    /// Distributed mode: 3+ Meta nodes with Raft HA
+    Distributed,
 }
 
 #[cfg(all(feature = "event-streaming", feature = "embedded"))]
@@ -303,7 +318,7 @@ pub struct ComputeNodeTomlConfig {
     pub parallelism: usize,
 }
 
-/// Distributed library mode configuration (Phase 2)
+/// Distributed library mode configuration (Phase 5)
 #[cfg(all(feature = "event-streaming", feature = "library"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistributedLibraryTomlConfig {
@@ -314,8 +329,15 @@ pub struct DistributedLibraryTomlConfig {
     /// Node ID (e.g., "meta-1", "meta-2", "meta-3")
     pub node_id: String,
 
+    /// Raft node ID (unique numeric identifier for Raft, e.g., 1, 2, 3)
+    pub raft_node_id: u64,
+
     /// Meta node configuration
     pub meta: MetaNodeLibraryConfig,
+
+    /// Consensus (Raft) configuration
+    #[serde(default)]
+    pub consensus: Option<ConsensusTomlConfig>,
 
     /// Frontend node configuration
     #[serde(default)]
@@ -336,32 +358,33 @@ pub struct MetaNodeLibraryConfig {
     /// Address to bind Meta service (e.g., "0.0.0.0:5690")
     pub listen_addr: String,
 
-    /// Address other nodes use to reach this Meta node (e.g., "node1.local:5690")
-    pub advertise_addr: String,
-
-    /// Peer Meta nodes for Raft cluster (format: "node_id@advertise_addr")
+    /// Peer Meta nodes for Raft cluster (format: "node_id@addr")
     #[serde(default)]
-    pub raft_peers: Vec<String>,
+    pub peers: Vec<PeerNodeTomlConfig>,
+}
 
-    /// Meta backend storage type ("etcd", "sqlite", or "memory")
-    #[serde(default = "default_meta_backend")]
-    pub backend: String,
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerNodeTomlConfig {
+    /// Raft node ID
+    pub node_id: u64,
+    /// Peer address (host:port)
+    pub addr: String,
+}
 
-    /// Etcd endpoints (only for "etcd" backend)
-    #[serde(default)]
-    pub etcd_endpoints: Option<Vec<String>>,
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusTomlConfig {
+    /// Data directory for Raft storage
+    pub data_dir: String,
 
-    /// SQLite path (only for "sqlite" backend)
-    #[serde(default)]
-    pub sqlite_path: Option<String>,
+    /// Heartbeat interval in seconds (default: 1)
+    #[serde(default = "default_consensus_heartbeat_interval")]
+    pub heartbeat_interval_secs: u64,
 
-    /// Raft election timeout in milliseconds (default: 3000)
-    #[serde(default = "default_election_timeout")]
-    pub election_timeout_ms: u64,
-
-    /// Raft heartbeat interval in milliseconds (default: 1000)
-    #[serde(default = "default_heartbeat_interval")]
-    pub heartbeat_interval_ms: u64,
+    /// Election timeout in seconds (default: 5)
+    #[serde(default = "default_consensus_election_timeout")]
+    pub election_timeout_secs: u64,
 }
 
 #[cfg(all(feature = "event-streaming", feature = "library"))]
@@ -450,6 +473,10 @@ fn default_true() -> bool {
 }
 
 #[cfg(feature = "event-streaming")]
+fn default_event_streaming_mode() -> EventStreamingMode {
+    EventStreamingMode::Single
+}
+#[cfg(feature = "event-streaming")]
 fn default_event_streaming_meta_addr() -> String {
     "127.0.0.1:5690".into()
 }
@@ -475,16 +502,12 @@ fn default_distributed_data_dir() -> String {
     "./nexora-data/event-streaming-distributed".into()
 }
 #[cfg(all(feature = "event-streaming", feature = "library"))]
-fn default_meta_backend() -> String {
-    "sqlite".into()
+fn default_consensus_heartbeat_interval() -> u64 {
+    1
 }
 #[cfg(all(feature = "event-streaming", feature = "library"))]
-fn default_election_timeout() -> u64 {
-    3000
-}
-#[cfg(all(feature = "event-streaming", feature = "library"))]
-fn default_heartbeat_interval() -> u64 {
-    1000
+fn default_consensus_election_timeout() -> u64 {
+    5
 }
 
 impl Default for ServerConfig {

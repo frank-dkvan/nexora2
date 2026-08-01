@@ -406,6 +406,15 @@ struct Cli {
     #[arg(long)]
     enable_event_streaming: bool,
 
+    /// Event Streaming mode: single or distributed
+    #[cfg(feature = "event-streaming")]
+    #[arg(
+        long,
+        default_value = "single",
+        value_parser = ["single", "distributed"]
+    )]
+    event_streaming_mode: String,
+
     /// Run event stream engine as embedded subprocess
     #[cfg(all(feature = "event-streaming", feature = "embedded"))]
     #[arg(long, requires = "enable_event_streaming")]

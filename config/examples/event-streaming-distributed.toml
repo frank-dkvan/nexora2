@@ -1,0 +1,64 @@
+# Nexora Event Streaming - Distributed Mode Example Configuration
+#
+# This example shows a 3-node RisingWave Meta cluster with Raft HA.
+# Each node runs this configuration with different values for node_id,
+# raft_node_id, and listen_addr.
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[storage.rocksdb]
+path = "./nexora-data/node1/graph"
+
+[storage.wal]
+dir = "./nexora-data/node1/wal"
+sync_policy = "group"
+
+# Event Streaming with Distributed Mode (Raft HA)
+[event_streaming]
+enabled = true
+mode = "distributed"  # "single" or "distributed"
+
+# Single-node mode fields (not used in distributed mode)
+# meta_addr = "127.0.0.1:5690"
+# frontend_addr = "127.0.0.1:4566"
+
+# Distributed library mode configuration
+[event_streaming.distributed]
+enabled = true
+node_id = "meta-1"        # Unique node identifier
+raft_node_id = 1          # Raft numeric ID (1, 2, 3, ...)
+data_dir = "./nexora-data/node1/event-streaming"
+
+# Meta node configuration
+[event_streaming.distributed.meta]
+listen_addr = "127.0.0.1:5690"
+
+# Peer Meta nodes for Raft cluster
+[[event_streaming.distributed.meta.peers]]
+node_id = 2
+addr = "127.0.0.1:5691"
+
+[[event_streaming.distributed.meta.peers]]
+node_id = 3
+addr = "127.0.0.1:5692"
+
+# Consensus (Raft) configuration
+[event_streaming.distributed.consensus]
+data_dir = "./nexora-data/node1/raft"
+heartbeat_interval_secs = 1
+election_timeout_secs = 5
+
+# Optional: Frontend node (PostgreSQL wire protocol)
+# [event_streaming.distributed.frontend]
+# listen_addr = "127.0.0.1:4566"
+
+# Optional: Compute node
+# [event_streaming.distributed.compute]
+# listen_addr = "127.0.0.1:5688"
+# parallelism = 4
+
+[logging]
+level = "info"
+format = "json"

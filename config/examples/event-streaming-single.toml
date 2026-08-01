@@ -1,0 +1,30 @@
+# Nexora Event Streaming - Single-Node Mode Example Configuration
+#
+# This is the default mode: one Meta node that is always the leader.
+# No Raft election required.
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[storage.rocksdb]
+path = "./nexora-data/graph"
+
+[storage.wal]
+dir = "./nexora-data/wal"
+sync_policy = "group"
+
+# Event Streaming with Single-Node Mode (default)
+[event_streaming]
+enabled = true
+mode = "single"  # Single-node mode (default)
+
+# Meta node address
+meta_addr = "127.0.0.1:5690"
+
+# Frontend node address (PostgreSQL wire protocol)
+frontend_addr = "127.0.0.1:4566"
+
+[logging]
+level = "info"
+format = "json"

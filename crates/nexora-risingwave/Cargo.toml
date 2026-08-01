@@ -78,6 +78,8 @@ toml = "0.8"
 num_cpus = "1"
 tokio-postgres = "0.7"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+extensions-meta-raft = { path = "../../extensions/meta_raft" }
+async-trait = "0.1"
 
 [[example]]
 name = "distributed_risingwave_demo"

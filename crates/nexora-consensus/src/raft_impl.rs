@@ -221,6 +221,29 @@ impl RaftConsensusClient {
     pub fn mode(&self) -> RaftMode {
         self.mode
     }
+
+    /// Manually set leadership status (for testing only).
+    pub async fn set_leader(&self, is_leader: bool) {
+        let mut state = self.state.write().await;
+        state.is_leader = is_leader;
+        if is_leader {
+            state.current_leader = Some(self.node_id);
+        }
+    }
+
+    /// Check if storage is initialized (for testing).
+    pub fn has_storage(&self) -> bool {
+        self.storage.is_some()
+    }
+
+    /// Get storage log count (for testing).
+    pub async fn storage_log_count(&self) -> usize {
+        if let Some(storage) = &self.storage {
+            storage.log_count().await
+        } else {
+            0
+        }
+    }
 }
 
 #[async_trait]

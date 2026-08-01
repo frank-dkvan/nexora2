@@ -1,0 +1,18 @@
+# Phase 5.1: CLI Arguments and Configuration - Test Suite
+#
+# This file validates the CLI and configuration structures for Phase 5.1
+# It tests parsing of TOML configurations with single and distributed modes.
+
+[package]
+name = "nexora-app-config-test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[test]]
+name = "config_phase5"
+path = "config_test.rs"
+
+[dependencies]
+nexora-app = { path = "../..", features = ["event-streaming"] }
+toml = "0.8"

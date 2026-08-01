@@ -383,8 +383,8 @@ impl MetaNode {
 ```
 
 3. **Configuration**:
-```rust
-// nexora.toml
+```toml
+# nexora.toml
 [event_streaming]
 enabled = true
 mode = "distributed"  # vs "single-node"
@@ -398,6 +398,64 @@ peers = ["127.0.0.1:5691", "127.0.0.1:5692"]
 data_dir = "/data/nexora/raft"
 heartbeat_interval_secs = 1
 election_timeout_secs = 5
+```
+
+**Configuration Loading Example**:
+```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct EventStreamingConfig {
+    enabled: bool,
+    mode: String,
+    meta: MetaNodeConfig,
+    consensus: ConsensusConfig,
+}
+
+#[derive(Deserialize)]
+struct MetaNodeConfig {
+    node_id: u64,
+    listen_addr: String,
+    peers: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ConsensusConfig {
+    data_dir: String,
+    heartbeat_interval_secs: u64,
+    election_timeout_secs: u64,
+}
+
+// Load from configuration file
+async fn create_raft_config_from_file(
+    config_path: &str
+) -> Result<RaftConfig> {
+    let config_str = std::fs::read_to_string(config_path)?;
+    let config: EventStreamingConfig = toml::from_str(&config_str)?;
+    
+    let listen_addr = config.meta.listen_addr.parse()?;
+    let mut raft_config = RaftConfig::new(config.meta.node_id, listen_addr)
+        .mode(RaftMode::MultiNode)
+        .data_dir(PathBuf::from(&config.consensus.data_dir))
+        .heartbeat_interval(config.consensus.heartbeat_interval_secs * 1000)
+        .election_timeout(
+            config.consensus.election_timeout_secs * 1000,
+            config.consensus.election_timeout_secs * 3000,
+        );
+    
+    // Add peers from configuration
+    for (peer_idx, peer_addr_str) in config.meta.peers.iter().enumerate() {
+        let peer_id = config.meta.node_id + peer_idx as u64 + 1;
+        let peer_addr = peer_addr_str.parse()?;
+        raft_config = raft_config.add_peer(peer_id, peer_addr);
+    }
+    
+    Ok(raft_config)
+}
+
+// Usage
+let config = create_raft_config_from_file("nexora.toml").await?;
+let client = RaftConsensusClient::new(config).await?;
 ```
 
 4. **End-to-End Test**:

@@ -31,11 +31,13 @@ use risingwave_common::util::addr::HostAddr;
 use risingwave_jni_core::call_static_method;
 use risingwave_jni_core::jvm_runtime::execute_with_jni_env;
 use risingwave_pb::connector_service::{SourceType, ValidateSourceRequest, ValidateSourceResponse};
+#[cfg(feature = "sink-sqlserver")]
 use tiberius::Config;
 use tokio_postgres::types::PgLsn;
 
 use crate::connector_common::{SslMode, create_pg_client, pg_connection_config_from_properties};
 use crate::error::ConnectorResult;
+#[cfg(feature = "sink-sqlserver")]
 use crate::sink::sqlserver::SqlServerClient;
 use crate::source::cdc::external::mysql::build_mysql_connection_pool;
 use crate::source::cdc::split::{extract_binlog_file_seq, parse_sql_server_lsn_str};
@@ -274,6 +276,7 @@ impl<T: CdcSourceTypeTrait> DebeziumSplitEnumerator<T> {
     }
 
     /// Query min/max LSNs from SQL Server CDC.
+    #[cfg(feature = "sink-sqlserver")]
     async fn query_sql_server_lsns(&self) -> ConnectorResult<Option<(String, String)>> {
         let hostname = self
             .properties
@@ -356,6 +359,7 @@ impl<T: CdcSourceTypeTrait> DebeziumSplitEnumerator<T> {
         Ok(Some((min_lsn, max_lsn)))
     }
 
+    #[cfg(feature = "sink-sqlserver")]
     async fn monitor_sql_server_lsns(&mut self) -> ConnectorResult<()> {
         let lsns = self.query_sql_server_lsns().await.with_context(|| {
             format!(
@@ -630,6 +634,7 @@ impl ListCdcSplits for DebeziumSplitEnumerator<Mongodb> {
     }
 }
 
+#[cfg(feature = "sink-sqlserver")]
 impl ListCdcSplits for DebeziumSplitEnumerator<SqlServer> {
     type CdcSourceType = SqlServer;
 
@@ -642,6 +647,7 @@ impl ListCdcSplits for DebeziumSplitEnumerator<SqlServer> {
     }
 }
 
+#[cfg(feature = "sink-sqlserver")]
 #[async_trait]
 impl CdcMonitor for DebeziumSplitEnumerator<SqlServer> {
     async fn monitor_cdc(&mut self) -> ConnectorResult<()> {

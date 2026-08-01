@@ -90,7 +90,7 @@ rust-rocksdb = "0.50"
 # the madsim fork (re-exports real tonic outside sim mode) and prost is pinned to
 # 0.14.3, redirected to RisingWave's prost fork via [patch.crates-io] below.
 openraft = { version = "0.9", features = ["serde"] }
-tonic = { package = "madsim-tonic", git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646", features = ["tls"] }
+tonic = { package = "madsim-tonic", git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646", features = ["tls-webpki-roots"] }
 prost = { version = "=0.14.3" }
 tonic-build = { package = "madsim-tonic-build", git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
 tower = "0.4"
@@ -99,12 +99,14 @@ tower = "0.4"
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 
+# HTTP client (force rustls-tls to avoid native-tls and CoreFoundation on macOS)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
+
 # RisingWave dependencies
 tokio-postgres = "0.7"
 num_cpus = "1.16"
 which = "6.0"
 nix = { version = "0.29", features = ["signal"] }
-reqwest = { version = "0.12", features = ["json"] }
 
 # Replicated verbatim from vendor/risingwave/Cargo.toml. Because library-mode
 # integration links RisingWave crates into this workspace's build graph, the root
@@ -138,3 +140,4 @@ prost = { git = "https://github.com/risingwavelabs/prost.git", package = "prost"
 prost-derive = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-derive", rev = "040a192409e45069158300baec4f402ad1fe101a" }
 prost-build = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-build", rev = "040a192409e45069158300baec4f402ad1fe101a" }
 prost-types = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-types", rev = "040a192409e45069158300baec4f402ad1fe101a" }
+

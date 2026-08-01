@@ -24,6 +24,7 @@ pub mod prelude {
     pub use crate::source::mqtt::MqttSplitEnumerator;
     pub use crate::source::nats::NatsSplitEnumerator;
     pub use crate::source::nexmark::NexmarkSplitEnumerator;
+    #[cfg(feature = "source-pulsar")]
     pub use crate::source::pulsar::PulsarSplitEnumerator;
     pub use crate::source::test_source::TestSourceSplitEnumerator as TestSplitEnumerator;
     pub type AzblobSplitEnumerator =
@@ -56,6 +57,7 @@ pub mod monitor;
 pub mod mqtt;
 pub mod nats;
 pub mod nexmark;
+#[cfg(feature = "source-pulsar")]
 pub mod pulsar;
 pub mod utils;
 
@@ -98,7 +100,9 @@ pub use crate::source::filesystem::opendal_source::{
     POSIX_FS_CONNECTOR,
 };
 pub use crate::source::nexmark::NEXMARK_CONNECTOR;
+#[cfg(feature = "source-pulsar")]
 pub use crate::source::pulsar::PULSAR_CONNECTOR;
+#[cfg(feature = "source-pulsar")]
 use crate::source::pulsar::source::reader::PULSAR_ACK_CHANNEL;
 
 pub fn should_copy_to_format_encode_options(key: &str, connector: &str) -> bool {
@@ -186,6 +190,7 @@ impl WaitCheckpointTask {
                     }
                 }
             }
+            #[cfg(feature = "source-pulsar")]
             WaitCheckpointTask::AckPulsarMessage(ack_array) => {
                 if let Some((ack_channel_id, to_cumulative_ack)) = ack_array.last() {
                     let Some(encode_message_id_data) = to_cumulative_ack

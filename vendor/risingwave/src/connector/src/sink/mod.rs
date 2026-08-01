@@ -23,6 +23,8 @@ feature_gated_sink_mod!(doris, "doris");
 #[cfg(any(feature = "sink-doris", feature = "sink-starrocks"))]
 pub mod doris_starrocks_connector;
 pub mod dynamodb;
+// NEXORA PATCH: Feature gate elasticsearch_opensearch module
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 pub mod elasticsearch_opensearch;
 pub mod encoder;
 pub mod file_sink;
@@ -45,6 +47,7 @@ pub mod pulsar;
 pub mod redis;
 pub mod remote;
 pub mod snowflake_redshift;
+#[cfg(feature = "sink-sqlserver")]
 pub mod sqlserver;
 feature_gated_sink_mod!(starrocks, "starrocks");
 pub mod test_sink;
@@ -119,6 +122,54 @@ use crate::sink::snowflake_redshift::snowflake::SNOWFLAKE_SINK_V2;
 use crate::sink::utils::feature_gated_sink_mod;
 
 const BOUNDED_CHANNEL_SIZE: usize = 16;
+// NEXORA PATCH: Conditionally include elasticsearch/opensearch sinks based on features
+#[cfg(not(any(feature = "sink-elasticsearch", feature = "sink-opensearch")))]
+#[macro_export]
+macro_rules! for_all_sinks {
+    ($macro:path $(, $arg:tt)*) => {
+        $macro! {
+            {
+                { Redis, $crate::sink::redis::RedisSink, $crate::sink::redis::RedisConfig },
+                { Kafka, $crate::sink::kafka::KafkaSink, $crate::sink::kafka::KafkaConfig },
+                { Pulsar, $crate::sink::pulsar::PulsarSink, $crate::sink::pulsar::PulsarConfig },
+                { BlackHole, $crate::sink::trivial::BlackHoleSink, () },
+                { Http, $crate::sink::http::HttpSink, $crate::sink::http::HttpConfig },
+                { Turbopuffer, $crate::sink::turbopuffer::TurbopufferSink, $crate::sink::turbopuffer::TurbopufferConfig },
+                { Kinesis, $crate::sink::kinesis::KinesisSink, $crate::sink::kinesis::KinesisSinkConfig },
+                { ClickHouse, $crate::sink::clickhouse::ClickHouseSink, $crate::sink::clickhouse::ClickHouseConfig },
+                { Iceberg, $crate::sink::iceberg::IcebergSink, $crate::sink::iceberg::IcebergConfig },
+                { Mqtt, $crate::sink::mqtt::MqttSink, $crate::sink::mqtt::MqttConfig },
+                { GooglePubSub, $crate::sink::google_pubsub::GooglePubSubSink, $crate::sink::google_pubsub::GooglePubSubConfig },
+                { Nats, $crate::sink::nats::NatsSink, $crate::sink::nats::NatsConfig },
+                { Jdbc, $crate::sink::remote::JdbcSink, () },
+                { Cassandra, $crate::sink::remote::CassandraSink, () },
+                { Doris, $crate::sink::doris::DorisSink, $crate::sink::doris::DorisConfig },
+                { Starrocks, $crate::sink::starrocks::StarrocksSink, $crate::sink::starrocks::StarrocksConfig },
+                { S3, $crate::sink::file_sink::opendal_sink::FileSink<$crate::sink::file_sink::s3::S3Sink>, $crate::sink::file_sink::s3::S3Config },
+
+                { Gcs, $crate::sink::file_sink::opendal_sink::FileSink<$crate::sink::file_sink::gcs::GcsSink>, $crate::sink::file_sink::gcs::GcsConfig },
+                { Azblob, $crate::sink::file_sink::opendal_sink::FileSink<$crate::sink::file_sink::azblob::AzblobSink>, $crate::sink::file_sink::azblob::AzblobConfig },
+                { Webhdfs, $crate::sink::file_sink::opendal_sink::FileSink<$crate::sink::file_sink::webhdfs::WebhdfsSink>, $crate::sink::file_sink::webhdfs::WebhdfsConfig },
+
+                { Fs, $crate::sink::file_sink::opendal_sink::FileSink<FsSink>, $crate::sink::file_sink::fs::FsConfig },
+                { SnowflakeV2, $crate::sink::snowflake_redshift::snowflake::SnowflakeV2Sink, $crate::sink::snowflake_redshift::snowflake::SnowflakeV2Config },
+                { Snowflake, $crate::sink::file_sink::opendal_sink::FileSink<$crate::sink::file_sink::s3::SnowflakeSink>, $crate::sink::file_sink::s3::SnowflakeConfig },
+                { RedShift, $crate::sink::snowflake_redshift::redshift::RedshiftSink, $crate::sink::snowflake_redshift::redshift::RedShiftConfig },
+                { DeltaLake, $crate::sink::deltalake::DeltaLakeSink, $crate::sink::deltalake::DeltaLakeConfig },
+                { BigQuery, $crate::sink::big_query::BigQuerySink, $crate::sink::big_query::BigQueryConfig },
+                { DynamoDb, $crate::sink::dynamodb::DynamoDbSink, $crate::sink::dynamodb::DynamoDbConfig },
+                { Mongodb, $crate::sink::mongodb::MongodbSink, $crate::sink::mongodb::MongodbConfig },
+                { Postgres, $crate::sink::postgres::PostgresSink, $crate::sink::postgres::PostgresConfig },
+
+                { Test, $crate::sink::test_sink::TestSink, () },
+                { Table, $crate::sink::trivial::TableSink, () }
+            }
+            $(,$arg)*
+        }
+    };
+}
+
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 #[macro_export]
 macro_rules! for_all_sinks {
     ($macro:path $(, $arg:tt)*) => {
@@ -156,11 +207,25 @@ macro_rules! for_all_sinks {
                 { BigQuery, $crate::sink::big_query::BigQuerySink, $crate::sink::big_query::BigQueryConfig },
                 { DynamoDb, $crate::sink::dynamodb::DynamoDbSink, $crate::sink::dynamodb::DynamoDbConfig },
                 { Mongodb, $crate::sink::mongodb::MongodbSink, $crate::sink::mongodb::MongodbConfig },
-                { SqlServer, $crate::sink::sqlserver::SqlServerSink, $crate::sink::sqlserver::SqlServerConfig },
                 { Postgres, $crate::sink::postgres::PostgresSink, $crate::sink::postgres::PostgresConfig },
 
                 { Test, $crate::sink::test_sink::TestSink, () },
                 { Table, $crate::sink::trivial::TableSink, () }
+            }
+            $(,$arg)*
+        }
+    };
+}
+
+// NEXORA PATCH: Separate macro for elasticsearch/opensearch sinks (feature-gated)
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
+#[macro_export]
+macro_rules! for_all_es_sinks {
+    ($macro:path $(, $arg:tt)*) => {
+        $macro! {
+            {
+                { ElasticSearch, $crate::sink::elasticsearch_opensearch::elasticsearch::ElasticSearchSink, $crate::sink::elasticsearch_opensearch::elasticsearch_opensearch_config::ElasticSearchConfig },
+                { Opensearch, $crate::sink::elasticsearch_opensearch::opensearch::OpenSearchSink, $crate::sink::elasticsearch_opensearch::elasticsearch_opensearch_config::OpenSearchConfig }
             }
             $(,$arg)*
         }
@@ -1149,6 +1214,7 @@ pub enum SinkError {
         #[backtrace]
         anyhow::Error,
     ),
+    #[cfg(feature = "sink-sqlserver")]
     #[error("SQL Server error: {0}")]
     SqlServer(
         #[source]
@@ -1230,18 +1296,21 @@ impl From<RedisError> for SinkError {
     }
 }
 
+#[cfg(feature = "sink-sqlserver")]
 impl From<tiberius::error::Error> for SinkError {
     fn from(err: tiberius::error::Error) -> Self {
         SinkError::SqlServer(anyhow!(err))
     }
 }
 
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 impl From<::elasticsearch::Error> for SinkError {
     fn from(err: ::elasticsearch::Error) -> Self {
         SinkError::ElasticSearchOpenSearch(anyhow!(err))
     }
 }
 
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 impl From<::opensearch::Error> for SinkError {
     fn from(err: ::opensearch::Error) -> Self {
         SinkError::ElasticSearchOpenSearch(anyhow!(err))

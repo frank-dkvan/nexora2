@@ -172,7 +172,7 @@ hashbrown0_16 = { package = "hashbrown", version = "0.16.1", features = [
 ] }
 hytra = "0.1"
 # branch dev_rebase_main_20260303
-iceberg = { git = "https://github.com/risingwavelabs/iceberg-rust.git", rev = "08a18f4116382e7c9691d63a91f1b0a0342a40b1", features = [
+iceberg = { git = "https://github.com/risingwavelabs/iceberg-rust.git", rev = "08a18f4116382e7c9691d63a91f1b0a0342a40b1", default-features = false, features = [
     "storage-s3",
     "storage-gcs",
     "storage-azblob",
@@ -189,8 +189,8 @@ linkme = { version = "0.3.32", features = ["used_linker"] }
 lru = "0.16"
 madsim = { git = "https://github.com/risingwavelabs/madsim.git", rev = "595455fd05058b3b48bf281bea3ada1bca3d6646" }
 mixtrics = { version = "0.2", features = ["prometheus"] }
-mysql_async = { version = "0.36", features = [
-    "native-tls-tls",
+mysql_async = { version = "0.36", default-features = false, features = [
+    "rustls-tls",
     "rust_decimal",
 ] }
 opendal = "0.55"
@@ -219,7 +219,7 @@ rdkafka = { package = "madsim-rdkafka", git = "https://github.com/risingwavelabs
 ] }
 redis = { version = "1.0" }
 regex = "1.12"
-reqwest = { version = "0.12.2", features = ["json", "stream"] }
+reqwest = { version = "0.12.2", default-features = false, features = ["json", "stream", "rustls-tls", "multipart"] }
 risingwave_backup = { path = "./src/storage/backup" }
 risingwave_batch = { path = "./src/batch" }
 risingwave_batch_executors = { path = "./src/batch/executors" }
@@ -273,7 +273,7 @@ rw_resource_util = { path = "src/utils/resource_util" }
 # for compatibility with madsim.
 sea-orm = { version = "=1.1.1", features = [
     "sqlx-all",
-    "runtime-tokio-native-tls",
+    "runtime-tokio-rustls",
     "with-uuid",
 ] }
 sea-orm-migration = "=1.1.1"
@@ -285,7 +285,7 @@ sqlx = { version = "=0.8.2", default-features = false, features = [
     "json",
     "mysql",
     "postgres",
-    "runtime-tokio-native-tls",
+    "runtime-tokio-rustls",
     "rust_decimal",
     "sqlite",
     "time",
@@ -471,3 +471,6 @@ prost = { git = "https://github.com/risingwavelabs/prost.git", package = "prost"
 prost-derive = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-derive", rev = "040a192409e45069158300baec4f402ad1fe101a" }
 prost-build = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-build", rev = "040a192409e45069158300baec4f402ad1fe101a" }
 prost-types = { git = "https://github.com/risingwavelabs/prost.git", package = "prost-types", rev = "040a192409e45069158300baec4f402ad1fe101a" }
+
+# NEXORA PATCH: Force reqwest to use rustls-tls instead of native-tls to avoid CoreFoundation/Security frameworks on macOS
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

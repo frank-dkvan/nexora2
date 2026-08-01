@@ -231,6 +231,7 @@ pub static SINK_ALLOW_ALTER_ON_FLY_FIELDS: LazyLock<HashMap<String, HashSet<Stri
         ].into_iter().collect(),
     ).unwrap();
     // ElasticSearchConfig
+    #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
     map.try_insert(
         std::any::type_name::<ElasticSearchConfig>().to_owned(),
         [
@@ -306,6 +307,7 @@ pub static SINK_ALLOW_ALTER_ON_FLY_FIELDS: LazyLock<HashMap<String, HashSet<Stri
         ].into_iter().collect(),
     ).unwrap();
     // OpenSearchConfig
+    #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
     map.try_insert(
         std::any::type_name::<OpenSearchConfig>().to_owned(),
         [

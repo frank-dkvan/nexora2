@@ -40,6 +40,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+use clap::ValueEnum;
+
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MetaBackendType {
+    Memory,
+    Sqlite,
+    Etcd,
+}
+
 // Ingestion handlers are now built via `AppState::make_ingest_handler` (see
 // handlers.rs), which honors event-first mode using the shared EventLogStore +
 // TopicRouter singletons. The old per-source `create_ingest_handler` factory
@@ -463,6 +474,21 @@ struct Cli {
     #[arg(long, requires = "event_streaming_ha", value_delimiter = ',')]
     event_streaming_raft_peers: Vec<u64>,
 
+    /// Meta backend storage type (memory, sqlite, etcd)
+    #[cfg(all(feature = "event-streaming", feature = "library"))]
+    #[arg(long, value_enum, default_value = "memory")]
+    meta_backend: MetaBackendType,
+
+    /// SQLite database path for Meta backend (required when --meta-backend=sqlite)
+    #[cfg(all(feature = "event-streaming", feature = "library"))]
+    #[arg(long, requires_if("sqlite", "meta_backend"))]
+    meta_backend_sqlite_path: Option<PathBuf>,
+
+    /// Etcd endpoints for Meta backend (comma-separated, e.g. "http://etcd1:2379,http://etcd2:2379")
+    #[cfg(all(feature = "event-streaming", feature = "library"))]
+    #[arg(long, requires_if("etcd", "meta_backend"), value_delimiter = ',')]
+    meta_backend_etcd_endpoints: Vec<String>,
+
     // ============================================================
     // Kinesis
     // ============================================================
@@ -780,7 +806,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("   Build:  {}", env!("CARGO_PKG_VERSION"));
 
     // Load configuration file (optional)
-    let _config_file = config_loader::load_config(cli.config.as_deref())
+    let config_file = config_loader::load_config(cli.config.as_deref())
         .context("Failed to load configuration file")?;
 
     // Graph configuration
@@ -2254,6 +2280,107 @@ async fn main() -> anyhow::Result<()> {
                     }
                 } else {
                     None
+                }
+            } else if cli.distributed_library_event_streaming {
+                // CLI-driven distributed library mode
+                tracing::info!(
+                    "   Event Streaming: starting distributed library mode (CLI-driven)"
+                );
+
+                use nexora_risingwave::{
+                    ComputeNodeConfig, DistributedLibraryConfig, FrontendNodeConfig,
+                    MetaBackend, MetaNodeConfig,
+                };
+
+                let node_id = cli.library_node_id.ok_or_else(|| {
+                    anyhow::anyhow!("--library-node-id is required for distributed library mode")
+                })?;
+
+                let meta_addr_str = cli.library_meta_addr.ok_or_else(|| {
+                    anyhow::anyhow!("--library-meta-addr is required for distributed library mode")
+                })?;
+                let meta_listen: std::net::SocketAddr = meta_addr_str.parse()?;
+
+                let meta_advertise = cli.library_meta_advertise.ok_or_else(|| {
+                    anyhow::anyhow!("--library-meta-advertise is required for distributed library mode")
+                })?;
+
+                let frontend_addr_str = cli
+                    .event_streaming_frontend_addr
+                    .clone()
+                    .unwrap_or_else(|| "127.0.0.1:4566".to_string());
+                let frontend_listen: std::net::SocketAddr = frontend_addr_str.parse()?;
+
+                // Determine Meta backend from CLI args
+                let backend = match cli.meta_backend {
+                    MetaBackendType::Memory => {
+                        tracing::warn!("Using in-memory Meta backend - data will not persist across restarts!");
+                        MetaBackend::Memory
+                    }
+                    MetaBackendType::Sqlite => {
+                        let path = cli.meta_backend_sqlite_path.clone().unwrap_or_else(|| {
+                            let default_path = cli.rocksdb_path.join(format!("meta-{}.db", node_id));
+                            tracing::info!("Using default SQLite path: {:?}", default_path);
+                            default_path
+                        });
+                        tracing::info!("Using SQLite Meta backend: {:?}", path);
+                        MetaBackend::Sqlite { path }
+                    }
+                    MetaBackendType::Etcd => {
+                        if cli.meta_backend_etcd_endpoints.is_empty() {
+                            anyhow::bail!("--meta-backend-etcd-endpoints is required when using etcd backend");
+                        }
+                        tracing::info!("Using Etcd Meta backend: {:?}", cli.meta_backend_etcd_endpoints);
+                        MetaBackend::Etcd {
+                            endpoints: cli.meta_backend_etcd_endpoints.clone(),
+                        }
+                    }
+                };
+
+                let lib_dist_config = DistributedLibraryConfig {
+                    node_id: node_id.clone(),
+                    meta: MetaNodeConfig {
+                        listen_addr: meta_listen,
+                        advertise_addr: meta_advertise,
+                        raft_peers: cli.library_meta_peers.clone(),
+                        backend,
+                        election_timeout_ms: 3000,
+                        heartbeat_interval_ms: 1000,
+                    },
+                    frontend: FrontendNodeConfig {
+                        listen_addr: frontend_listen,
+                    },
+                    compute: ComputeNodeConfig {
+                        listen_addr: frontend_listen, // Reuse frontend addr for compute
+                        parallelism: Some(num_cpus::get()),
+                        internal_rpc_addr: None,
+                    },
+                    data_dir: cli.rocksdb_path.join("event-streaming-distributed"),
+                };
+
+                lib_dist_config.validate().map_err(|e| {
+                    anyhow::anyhow!("Invalid distributed library configuration: {}", e)
+                })?;
+
+                // Start cluster components
+                match nexora_risingwave::start_distributed_library_cluster(lib_dist_config)
+                    .await
+                {
+                    Ok((meta, frontend, compute)) => {
+                        tracing::info!(
+                            "   Event Streaming: distributed library cluster started (node_id={}, backend={:?})",
+                            node_id,
+                            cli.meta_backend
+                        );
+                        Some(Arc::new((meta, frontend, compute)))
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start distributed library cluster: {}", e);
+                        anyhow::bail!(
+                            "Distributed library cluster initialization failed: {}",
+                            e
+                        );
+                    }
                 }
             } else {
                 None

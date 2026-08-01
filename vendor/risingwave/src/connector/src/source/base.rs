@@ -44,6 +44,7 @@ use super::kinesis::KinesisMeta;
 use super::monitor::SourceMetrics;
 use super::nats::source::NatsMeta;
 use super::nexmark::source::message::NexmarkMeta;
+#[cfg(feature = "source-pulsar")]
 use super::pulsar::source::PulsarMeta;
 use crate::enforce_secret::EnforceSecret;
 use crate::error::ConnectorResult as Result;
@@ -935,6 +936,7 @@ impl SourceMessage {
 pub enum SourceMeta {
     Kafka(KafkaMeta),
     Kinesis(KinesisMeta),
+    #[cfg(feature = "source-pulsar")]
     Pulsar(PulsarMeta),
     Nexmark(NexmarkMeta),
     GooglePubsub(GooglePubsubMeta),

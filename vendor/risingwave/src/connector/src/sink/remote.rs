@@ -59,9 +59,12 @@ use tokio::task::spawn_blocking;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::warn;
 
+// NEXORA PATCH: Conditionally import elasticsearch_opensearch module
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 use super::elasticsearch_opensearch::elasticsearch_converter::{
     StreamChunkConverter, is_remote_es_sink,
 };
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 use super::elasticsearch_opensearch::elasticsearch_opensearch_config::ES_OPTION_DELIMITER;
 use crate::connector_common::IcebergSinkCompactionUpdate;
 use crate::enforce_secret::EnforceSecret;
@@ -185,6 +188,7 @@ async fn validate_remote_sink(param: &SinkParam, sink_name: &str) -> ConnectorRe
     //         .check_available()
     //         .map_err(|e| anyhow::anyhow!(e))?;
     // }
+    #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
     if is_remote_es_sink(sink_name)
         && param.downstream_pk_or_empty().len() > 1
         && !param.properties.contains_key(ES_OPTION_DELIMITER)
@@ -210,33 +214,39 @@ async fn validate_remote_sink(param: &SinkParam, sink_name: &str) -> ConnectorRe
                     | DataType::Jsonb
                     | DataType::Bytea => Ok(()),
             DataType::List(list) => {
+                #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
                 if is_remote_es_sink(sink_name) || matches!(list.elem(), DataType::Int16 | DataType::Int32 | DataType::Int64 | DataType::Float32 | DataType::Float64 | DataType::Varchar){
-                    Ok(())
-                } else{
-                    Err(SinkError::Remote(anyhow!(
-                        "Remote sink only supports list<int16, int32, int64, float, double, varchar>, got {:?}: {:?}",
-                        col.name,
-                        col.data_type,
-                    )))
+                    return Ok(());
                 }
-            },
+                #[cfg(not(any(feature = "sink-elasticsearch", feature = "sink-opensearch")))]
+                if matches!(list.elem(), DataType::Int16 | DataType::Int32 | DataType::Int64 | DataType::Float32 | DataType::Float64 | DataType::Varchar){
+                    return Ok(());
+                }
+                Err(SinkError::Remote(anyhow!(
+                    "Remote sink only supports list<int16, int32, int64, float, double, varchar>, got {:?}: {:?}",
+                    col.name,
+                    col.data_type,
+                )))
+            }
             DataType::Struct(_) => {
+                #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
                 if is_remote_es_sink(sink_name){
-                    Ok(())
-                }else{
-                    Err(SinkError::Remote(anyhow!(
-                        "Only Es sink supports struct, got {:?}: {:?}",
-                        col.name,
-                        col.data_type,
-                    )))
+                    return Ok(());
                 }
-            },
+                Err(SinkError::Remote(anyhow!(
+                    "Only Es sink supports struct, got {:?}: {:?}",
+                    col.name,
+                    col.data_type,
+                )))
+            }
             DataType::Vector(_) |
             DataType::Serial | DataType::Int256 | DataType::Map(_) => Err(SinkError::Remote(anyhow!(
                             "remote sink supports Int16, Int32, Int64, Float32, Float64, Boolean, Decimal, Time, Date, Interval, Jsonb, Timestamp, Timestamptz, Bytea, List and Varchar, (Es sink support Struct) got {:?}: {:?}",
                             col.name,
                             col.data_type,
-                        )))}})?;
+                        )))
+        }
+    })?;
 
     let jvm = Jvm::get_or_init()?;
     let sink_param = param.to_proto();
@@ -275,6 +285,7 @@ async fn validate_remote_sink(param: &SinkParam, sink_name: &str) -> ConnectorRe
 pub struct RemoteLogSinker {
     request_sender: BidiStreamSender<JniSinkWriterStreamRequest>,
     response_stream: BidiStreamReceiver<SinkWriterStreamResponse>,
+    #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
     stream_chunk_converter: StreamChunkConverter,
     sink_writer_metrics: SinkWriterMetrics,
 }
@@ -286,6 +297,7 @@ impl RemoteLogSinker {
         sink_name: &str,
     ) -> Result<Self> {
         let sink_proto = sink_param.to_proto();
+        #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
         let payload_schema = if is_remote_es_sink(sink_name) {
             let columns = vec![
                 ColumnDesc::unnamed(ColumnId::from(0), DataType::Varchar).to_protobuf(),
@@ -300,6 +312,8 @@ impl RemoteLogSinker {
         } else {
             sink_proto.table_schema.clone()
         };
+        #[cfg(not(any(feature = "sink-elasticsearch", feature = "sink-opensearch")))]
+        let payload_schema = sink_proto.table_schema.clone();
 
         let SinkWriterStreamHandle {
             request_sender,
@@ -312,6 +326,7 @@ impl RemoteLogSinker {
             request_sender,
             response_stream,
             sink_writer_metrics: SinkWriterMetrics::new(&writer_param),
+            #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
             stream_chunk_converter: StreamChunkConverter::new(
                 sink_name,
                 sink_param.schema(),
@@ -464,7 +479,11 @@ impl LogSinker for RemoteLogSinker {
                                     .connector_sink_rows_received
                                     .inc_by(cardinality as _);
 
+                                #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
                                 let chunk = self.stream_chunk_converter.convert_chunk(chunk)?;
+                                #[cfg(not(any(feature = "sink-elasticsearch", feature = "sink-opensearch")))]
+                                let chunk = chunk;
+
                                 request_tx
                                     .send_request(JniSinkWriterStreamRequest::Chunk {
                                         epoch,

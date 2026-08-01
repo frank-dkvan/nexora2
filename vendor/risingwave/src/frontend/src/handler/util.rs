@@ -36,6 +36,7 @@ use risingwave_common::types::{
 };
 use risingwave_common::util::epoch::Epoch;
 use risingwave_common::util::iter_util::ZipEqFast;
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 use risingwave_connector::sink::elasticsearch_opensearch::elasticsearch::ES_SINK;
 use risingwave_connector::sink::file_sink::fs::FS_SINK;
 use risingwave_connector::source::iceberg::ICEBERG_CONNECTOR;
@@ -311,7 +312,10 @@ fn connection_type_to_connector(connection_type: &PbConnectionType) -> &str {
     match connection_type {
         PbConnectionType::Kafka => KAFKA_CONNECTOR,
         PbConnectionType::Iceberg => ICEBERG_CONNECTOR,
+        #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
         PbConnectionType::Elasticsearch => ES_SINK,
+        #[cfg(not(any(feature = "sink-elasticsearch", feature = "sink-opensearch")))]
+        PbConnectionType::Elasticsearch => unreachable!("Elasticsearch connection not supported without sink-elasticsearch feature"),
         _ => unreachable!(),
     }
 }

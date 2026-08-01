@@ -14,6 +14,7 @@
 
 pub mod mock_external_table;
 pub mod postgres;
+#[cfg(feature = "sink-sqlserver")]
 pub mod sql_server;
 
 pub mod mysql;
@@ -43,6 +44,7 @@ use crate::source::cdc::external::mysql::{
     MySqlExternalTable, MySqlExternalTableReader, MySqlOffset,
 };
 use crate::source::cdc::external::postgres::{PostgresExternalTableReader, PostgresOffset};
+#[cfg(feature = "sink-sqlserver")]
 use crate::source::cdc::external::sql_server::{
     SqlServerExternalTable, SqlServerExternalTableReader, SqlServerOffset,
 };
@@ -53,6 +55,7 @@ pub enum ExternalCdcTableType {
     Mock,
     MySql,
     Postgres,
+    #[cfg(feature = "sink-sqlserver")]
     SqlServer,
     Citus,
     Mongo,
@@ -65,6 +68,7 @@ impl ExternalCdcTableType {
             "mysql-cdc" => Self::MySql,
             "postgres-cdc" => Self::Postgres,
             "citus-cdc" => Self::Citus,
+            #[cfg(feature = "sink-sqlserver")]
             "sqlserver-cdc" => Self::SqlServer,
             "mongodb-cdc" => Self::Mongo,
             _ => Self::Undefined,
@@ -271,6 +275,7 @@ pub struct CdcTableSnapshotSplitOption {
 pub enum ExternalTableReaderImpl {
     MySql(MySqlExternalTableReader),
     Postgres(PostgresExternalTableReader),
+    #[cfg(feature = "sink-sqlserver")]
     SqlServer(SqlServerExternalTableReader),
     Mock(MockExternalTableReader),
 }
@@ -493,6 +498,7 @@ impl ExternalTableReaderImpl {
 pub enum ExternalTableImpl {
     MySql(MySqlExternalTable),
     Postgres(PostgresExternalTable),
+    #[cfg(feature = "sink-sqlserver")]
     SqlServer(SqlServerExternalTable),
 }
 

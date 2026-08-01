@@ -16,7 +16,7 @@ chrono = { workspace = true }
 bytes = { workspace = true }
 async-trait = "0.1"
 # S3 backend (legacy, self-written): plain HTTP + AWS SigV4 (no AWS SDK).
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { workspace = true }
 # S3 backend (opendal-based, spike): unified VFS via OpenDAL. Pinned to match the
 # opendal already pulled in transitively by iceberg-storage-opendal (0.55).
 opendal = { version = "0.55", default-features = false, features = ["services-s3", "services-fs", "services-memory"], optional = true }

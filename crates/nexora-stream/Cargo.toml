@@ -19,7 +19,7 @@ async-trait = "0.1"
 chrono = { workspace = true }
 uuid = { workspace = true }
 bytes = { workspace = true }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
 
 # Kafka (feature-gated)
 rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }

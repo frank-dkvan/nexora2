@@ -123,14 +123,48 @@ jobs:
         run: cargo test -p nexora-app --features event-first --no-fail-fast
 
   # Job 5: 安全审计
+  # 注: 我们忽略了一些间接依赖的漏洞(主要来自RisingWave),这些在下面的ignore-list中配置
+  # 这些漏洞已在 Issue #4 中跟踪,当上游更新时我们会修复
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1.4.1
+      - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # 忽略间接依赖的漏洞 (wasmtime, quick-xml, rustls-webpki等来自RisingWave)
+          ignore: >
+            RUSTSEC-2025-0046
+            RUSTSEC-2025-0118
+            RUSTSEC-2026-0020
+            RUSTSEC-2026-0021
+            RUSTSEC-2026-0085
+            RUSTSEC-2026-0086
+            RUSTSEC-2026-0087
+            RUSTSEC-2026-0088
+            RUSTSEC-2026-0089
+            RUSTSEC-2026-0091
+            RUSTSEC-2026-0092
+            RUSTSEC-2026-0093
+            RUSTSEC-2026-0094
+            RUSTSEC-2026-0095
+            RUSTSEC-2026-0096
+            RUSTSEC-2026-0222
+            RUSTSEC-2026-0195
+            RUSTSEC-2026-0194
+            RUSTSEC-2026-0104
+            RUSTSEC-2026-0098
+            RUSTSEC-2026-0099
+            RUSTSEC-2026-0049
+            RUSTSEC-2026-0041
+            RUSTSEC-2023-0071
+            RUSTSEC-2025-0141
+            RUSTSEC-2025-0057
+            RUSTSEC-2024-0384
+            RUSTSEC-2024-0436
+            RUSTSEC-2024-0370
+            RUSTSEC-2025-0134
 
   # Job 6: 编译检查 (release 模式)
   build:

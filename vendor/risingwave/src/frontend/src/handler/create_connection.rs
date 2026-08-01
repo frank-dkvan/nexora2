@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use pgwire::pg_response::{PgResponse, StatementType};
 use risingwave_common::system_param::reader::SystemParamsRead;
 use risingwave_connector::connector_common::SCHEMA_REGISTRY_CONNECTION_TYPE;
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 use risingwave_connector::sink::elasticsearch_opensearch::elasticsearch::ES_SINK;
 use risingwave_connector::source::enforce_secret_connection;
 use risingwave_connector::source::iceberg::ICEBERG_CONNECTOR;
@@ -77,6 +78,7 @@ fn resolve_create_connection_payload(
         KAFKA_CONNECTOR => ConnectionType::Kafka,
         ICEBERG_CONNECTOR => ConnectionType::Iceberg,
         SCHEMA_REGISTRY_CONNECTION_TYPE => ConnectionType::SchemaRegistry,
+        #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
         ES_SINK => ConnectionType::Elasticsearch,
         _ => {
             return Err(RwError::from(ProtocolError(format!(

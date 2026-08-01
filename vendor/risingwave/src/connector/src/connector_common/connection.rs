@@ -40,6 +40,7 @@ use crate::connector_common::{
 use crate::enforce_secret::EnforceSecret;
 use crate::error::ConnectorResult;
 use crate::schema::schema_registry::Client as ConfluentSchemaRegistryClient;
+#[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
 use crate::sink::elasticsearch_opensearch::elasticsearch_opensearch_config::ElasticSearchOpenSearchConfig;
 use crate::source::build_connection;
 use crate::source::kafka::{KafkaContextCommon, RwConsumerContext};
@@ -351,6 +352,7 @@ pub struct ElasticsearchConnection(pub BTreeMap<String, String>);
 
 #[async_trait]
 impl Connection for ElasticsearchConnection {
+    #[cfg(any(feature = "sink-elasticsearch", feature = "sink-opensearch"))]
     async fn validate_connection(&self) -> ConnectorResult<()> {
         const CONNECTOR: &str = "elasticsearch";
 
@@ -358,6 +360,11 @@ impl Connection for ElasticsearchConnection {
         let client = config.build_client(CONNECTOR)?;
         client.ping().await?;
         Ok(())
+    }
+
+    #[cfg(not(any(feature = "sink-elasticsearch", feature = "sink-opensearch")))]
+    async fn validate_connection(&self) -> ConnectorResult<()> {
+        bail!("Elasticsearch connection is not supported without sink-elasticsearch feature")
     }
 }
 

@@ -1347,7 +1347,7 @@ impl GraphService {
         // Group by shard to minimize lock acquisitions
         let mut by_shard: HashMap<usize, Vec<NexoraId>> = HashMap::new();
         for qid in qids {
-            let shard_idx = self.shard_for_node(qid);
+            let shard_idx = self.shard_of(qid);
             by_shard.entry(shard_idx).or_default().push(qid.clone());
         }
 

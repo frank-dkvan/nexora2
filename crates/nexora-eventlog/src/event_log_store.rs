@@ -1072,6 +1072,7 @@ impl EventLogStore {
         Ok(rx)
     }
 
+    fn infer_schema_from_event(event: &Event) -> Result<IcebergSchema, EventLogError> {
         // Provenance 列(固定)
         let mut fields = vec![
             NestedField::required(1, "_event_id", Type::Primitive(PrimitiveType::String)).into(),
@@ -1138,6 +1139,34 @@ impl EventLogStore {
                 | "_subject"
                 | "_payload"
         )
+    }
+
+    /// Batch read multiple event streams in one call
+    pub async fn read_batch(
+        &self,
+        requests: Vec<(NexoraId, Option<u64>)>,
+    ) -> Result<Vec<Vec<Event>>, EventLogError> {
+        let mut results = Vec::with_capacity(requests.len());
+        for (id, from_offset) in requests {
+            let events = self.read(&id, from_offset).await?;
+            results.push(events);
+        }
+        Ok(results)
+    }
+
+    /// Batch append multiple events across different streams
+    pub async fn append_batch(
+        &self,
+        requests: Vec<(NexoraId, Vec<Event>)>,
+    ) -> Result<Vec<u64>, EventLogError> {
+        let mut results = Vec::with_capacity(requests.len());
+        for (id, events) in requests {
+            for event in events {
+                let offset = self.append(&id, event).await?;
+                results.push(offset);
+            }
+        }
+        Ok(results)
     }
 }
 
@@ -1274,4 +1303,5 @@ mod tests {
         assert_eq!(schema.as_struct().fields().len(), 5); // 4 provenance + 1 data
         assert!(schema.field_by_name("data").is_some());
     }
+}
 }

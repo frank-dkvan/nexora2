@@ -33,6 +33,7 @@ members = [
     "crates/nexora-mcp",
     "crates/nexora-pgwire", "crates/nexora-etl",
     "crates/nexora-eventlog",
+    "crates/nexora-observability",
     # RisingWave Integration (library mode, main branch)
     "crates/nexora-risingwave",
     "crates/nexora-consensus",

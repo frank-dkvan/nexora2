@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 nexora-sql = { path = "../nexora-sql" }
 nexora-core = { path = "../nexora-core" }
+nexora-observability = { path = "../nexora-observability" }
 nexora-cypher = { path = "../nexora-cypher" }
 nexora-id = { path = "../nexora-id" }
 nexora-value = { path = "../nexora-value" }

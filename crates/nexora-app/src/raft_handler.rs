@@ -274,17 +274,31 @@ impl RaftHandler {
                             continue;
                         }
 
-                        // Build a simple TCP-based replication target for each peer
+                        // P1-2 优化: 并行复制到所有 followers
+                        // 从串行遍历改为并发发送，延迟从 N×RTT 降低到 max(RTT)
+                        use futures::stream::{FuturesUnordered, StreamExt};
+
+                        let mut replication_futures = FuturesUnordered::new();
+
                         for peer in &peers_for_bg {
-                            let target = TcpRaftTarget::new(
-                                peer.clone(),
-                                rpc_timeout,
-                            );
-                            let result = replicator.replicate_to(&target, peer).await;
+                            let target = TcpRaftTarget::new(peer.clone(), rpc_timeout);
+                            let replicator_clone = Arc::clone(&replicator);
+                            let peer_clone = peer.clone();
+                            let node_id_clone = raft_node_id.clone();
+
+                            // 每个 peer 并发复制
+                            replication_futures.push(async move {
+                                let result = replicator_clone.replicate_to(&target, &peer_clone).await;
+                                (peer_clone, result, node_id_clone)
+                            });
+                        }
+
+                        // 流式处理结果（第一个完成立即处理，无需等待全部）
+                        while let Some((peer, result, node_id)) = replication_futures.next().await {
                             if let Err(ref e) = result {
                                 if !matches!(e, ReplicationError::Connection(_)) {
                                     tracing::warn!(
-                                        node = %raft_node_id,
+                                        node = %node_id,
                                         peer = %peer,
                                         error = %e,
                                         "Raft replication failed"

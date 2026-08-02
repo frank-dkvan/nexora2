@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub mod checkpoint;
+pub mod parallel_checkpoint;
 pub mod file_source;
 pub mod graph_sink;
 pub mod reduct_writer;
@@ -34,6 +35,7 @@ pub use checkpoint::{
     CheckpointCoordinator, CheckpointManifest, CheckpointStore, FileCheckpointStore,
     InMemoryCheckpointStore, RecoveryPlan,
 };
+pub use parallel_checkpoint::ParallelCheckpointFlusher;
 pub use watermark::{EventOutcome, TumblingWindow, WatermarkGenerator, WindowAggregate};
 
 pub use reduct_writer::ReductBlobWriter;

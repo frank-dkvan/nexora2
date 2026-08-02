@@ -11,8 +11,6 @@ use crate::module::EventStreamingModule;
 use serde_json::json;
 use std::sync::Arc;
 #[cfg(feature = "event-first")]
-use tokio::sync::mpsc::Receiver;
-#[cfg(feature = "event-first")]
 use tracing::{debug, error, info, warn};
 
 /// Change event from RisingWave materialized view (CDC-like)

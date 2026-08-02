@@ -490,6 +490,14 @@ struct Cli {
     #[arg(long, value_enum, default_value = "memory")]
     meta_backend: MetaBackendType,
 
+    // ============================================================
+    // GraphStreaming (Phase 7.6 - Event-to-Graph Projection)
+    // ============================================================
+    /// Directory containing YAML projection rules for GraphStreaming
+    #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+    #[arg(long)]
+    graph_streaming_rules: Option<PathBuf>,
+
     /// SQLite database path for Meta backend (required when --meta-backend=sqlite)
     #[cfg(all(feature = "event-streaming", feature = "library"))]
     #[arg(long, requires_if("sqlite", "meta_backend"))]
@@ -2493,6 +2501,10 @@ async fn main() -> anyhow::Result<()> {
         distributed_event_streaming: distributed_event_streaming.map(Arc::new),
         #[cfg(all(feature = "event-streaming", feature = "library"))]
         distributed_library: distributed_library_cluster,
+        #[cfg(feature = "event-streaming")]
+        event_sinks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+        #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+        graph_projector: None, // Will be initialized later
     };
 
     // ============================================================
@@ -2922,6 +2934,61 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // ============================================================
+    // Phase 7.6: Initialize GraphStreaming (Event-to-Graph Projection)
+    // ============================================================
+    #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+    if let Some(ref rules_dir) = cli.graph_streaming_rules {
+        if let Some(ref event_store) = state.event_store {
+            tracing::info!("Initializing GraphStreaming from rules directory: {:?}", rules_dir);
+
+            match nexora_graphstreaming::ProjectionRule::load_from_directory(rules_dir) {
+                Ok(rules) => {
+                    if rules.is_empty() {
+                        tracing::warn!("No projection rules found in {:?}", rules_dir);
+                    } else {
+                        tracing::info!("Loaded {} projection rule(s)", rules.len());
+
+                        // Create EventProjector
+                        let projector = match nexora_graphstreaming::EventProjector::new(
+                            rules,
+                            event_store.clone(),
+                            state.graph_service.clone(),
+                        ) {
+                            Ok(p) => Arc::new(p),
+                            Err(e) => {
+                                tracing::error!("Failed to create EventProjector: {}", e);
+                                anyhow::bail!("GraphStreaming initialization failed: {}", e);
+                            }
+                        };
+
+                        // Start projection loops
+                        if let Err(e) = projector.start().await {
+                            tracing::error!("Failed to start EventProjector: {}", e);
+                            anyhow::bail!("GraphStreaming startup failed: {}", e);
+                        }
+
+                        // Store in AppState for HTTP API
+                        let projector_clone = projector.clone();
+                        let mut state_mut = state.clone();
+                        #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+                        {
+                            state_mut.graph_projector = Some(projector_clone);
+                        }
+
+                        tracing::info!("✅ GraphStreaming started successfully");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load projection rules from {:?}: {}", rules_dir, e);
+                    anyhow::bail!("GraphStreaming rule loading failed: {}", e);
+                }
+            }
+        } else {
+            tracing::warn!("GraphStreaming rules provided but event-first is not enabled");
+        }
+    }
+
     let cors = if cli.cors_origin == "none" {
         // CORS disabled - very restrictive, only same-origin requests allowed
         CorsLayer::new()
@@ -3233,6 +3300,31 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/event-streaming/status",
             get(handlers::event_streaming::get_status),
+        )
+        // Phase 6.3: EventLogSink sync management
+        .route(
+            "/api/event-streaming/sync/start",
+            post(handlers::event_streaming::start_sync),
+        )
+        .route(
+            "/api/event-streaming/sync/stop",
+            post(handlers::event_streaming::stop_sync),
+        )
+        .route(
+            "/api/event-streaming/sync/status",
+            get(handlers::event_streaming::get_sync_status),
+        );
+
+    // Phase 7.6: GraphStreaming HTTP endpoints
+    #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+    let operator_routes = operator_routes
+        .route(
+            "/api/graph-streaming/projections",
+            get(nexora_graphstreaming::list_projections),
+        )
+        .route(
+            "/api/graph-streaming/metrics",
+            get(nexora_graphstreaming::get_projection_metrics),
         );
 
     #[cfg(all(feature = "event-streaming", feature = "embedded"))]
@@ -3568,6 +3660,22 @@ async fn main() -> anyhow::Result<()> {
             tracing::error!("Failed to shutdown library event streaming engine: {}", e);
         } else {
             tracing::info!("In-process event streaming engine shut down");
+        }
+    }
+
+    // Phase 6.3: Shutdown all EventLogSink tasks
+    #[cfg(feature = "event-streaming")]
+    {
+        let sinks = state.event_sinks.read().await;
+        let count = sinks.len();
+        if count > 0 {
+            tracing::info!("Stopping {} EventLogSink task(s)...", count);
+            for (mv_name, handle) in sinks.iter() {
+                tracing::debug!("Aborting EventLogSink for MV: {}", mv_name);
+                handle.abort();
+            }
+            drop(sinks);
+            tracing::info!("All EventLogSink tasks stopped");
         }
     }
 

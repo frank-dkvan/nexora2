@@ -38,6 +38,8 @@ members = [
     "crates/nexora-consensus",
     "crates/nexora-rpc",
     "extensions/meta_raft",
+    # GraphStreaming Layer (Phase 7)
+    "crates/nexora-graphstreaming",
 ]
 exclude = [
     # RisingWave source (Phase 7: managed separately, requires nightly Rust)

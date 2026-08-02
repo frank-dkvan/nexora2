@@ -1,0 +1,27 @@
+# Example Projection Rules for User Activity Analytics
+
+projections:
+  # Projection 1: User nodes
+  - name: user_node
+    source_topic: nexora.users
+    node:
+      id: "{{user_id}}"
+      labels: ["User"]
+      properties:
+        user_id: "{{user_id}}"
+        username: "{{username}}"
+        last_seen: "{{timestamp}}"
+        session_count: "{{session_count}}"
+
+  # Projection 2: User action edges
+  - name: user_action_edge
+    source_topic: nexora.actions
+    node:
+      id: "{{user_id}}"
+      labels: ["User"]
+    edge:
+      edge_type: PERFORMED
+      target_id: "{{action_type}}"
+      properties:
+        timestamp: "{{timestamp}}"
+        metadata: "{{metadata}}"

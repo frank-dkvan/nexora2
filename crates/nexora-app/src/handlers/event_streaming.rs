@@ -333,7 +333,7 @@ pub async fn get_distributed_library_status(
     State(state): State<AppState>,
 ) -> Result<Json<DistributedLibraryStatusResponse>, ApiError> {
     let cluster = state
-        .distributed_library_cluster
+        .distributed_library
         .as_ref()
         .ok_or_else(|| ApiError::FeatureNotEnabled("distributed library mode".to_string()))?;
 
@@ -370,6 +370,214 @@ pub async fn get_distributed_library_status(
             total_parallelism: compute_health.total_parallelism,
         },
     }))
+}
+
+// ============================================================
+// Phase 6.3: EventLogSink Sync Management
+// ============================================================
+
+/// Request to start syncing MV to EventLog
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Deserialize)]
+pub struct SyncStartRequest {
+    /// Materialized view name in RisingWave
+    pub mv_name: String,
+    /// EventLogStore topic to write events to
+    pub topic: String,
+}
+
+/// Response from sync start
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Serialize)]
+pub struct SyncStartResponse {
+    pub success: bool,
+    pub mv_name: String,
+    pub topic: String,
+    pub message: String,
+}
+
+/// Request to stop syncing MV
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Deserialize)]
+pub struct SyncStopRequest {
+    /// Materialized view name to stop syncing
+    pub mv_name: String,
+}
+
+/// Response from sync stop
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Serialize)]
+pub struct SyncStopResponse {
+    pub success: bool,
+    pub mv_name: String,
+    pub message: String,
+}
+
+/// Sync status information
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Serialize)]
+pub struct SyncStatus {
+    pub mv_name: String,
+    pub topic: String,
+    pub active: bool,
+}
+
+/// Response from sync status query
+#[cfg(feature = "event-streaming")]
+#[derive(Debug, Serialize)]
+pub struct SyncStatusResponse {
+    pub syncs: Vec<SyncStatus>,
+}
+
+/// Start syncing MV changes to EventLog
+///
+/// POST /api/event-streaming/sync/start
+///
+/// Creates an EventLogSink and starts streaming MV changes to the specified EventLogStore topic.
+///
+/// # Example
+///
+/// ```bash
+/// curl -X POST http://localhost:8080/api/event-streaming/sync/start \
+///   -H "Content-Type: application/json" \
+///   -d '{
+///     "mv_name": "enriched_cargo_events",
+///     "topic": "nexora.cargo"
+///   }'
+/// ```
+#[cfg(feature = "event-streaming")]
+pub async fn start_sync(
+    State(state): State<AppState>,
+    Json(req): Json<SyncStartRequest>,
+) -> Result<Json<SyncStartResponse>, ApiError> {
+    // Verify event-first is enabled
+    #[cfg(not(feature = "event-first"))]
+    {
+        return Err(ApiError::FeatureNotEnabled(
+            "event-first required for sync".to_string(),
+        ));
+    }
+
+    #[cfg(feature = "event-first")]
+    {
+        let event_store = state
+            .event_store
+            .as_ref()
+            .ok_or_else(|| ApiError::FeatureNotEnabled("event-first".to_string()))?;
+
+        let rw_module = state
+            .event_streaming
+            .as_ref()
+            .ok_or_else(|| ApiError::FeatureNotEnabled("event-streaming".to_string()))?;
+
+        // Check if already syncing
+        let sinks = state.event_sinks.read().await;
+        if sinks.contains_key(&req.mv_name) {
+            return Ok(Json(SyncStartResponse {
+                success: false,
+                mv_name: req.mv_name.clone(),
+                topic: req.topic.clone(),
+                message: format!("MV {} is already syncing", req.mv_name),
+            }));
+        }
+        drop(sinks);
+
+        // Create EventLogSink
+        let sink = nexora_risingwave::EventLogSink::new(
+            event_store.clone(),
+            Arc::new(rw_module.clone()),
+        );
+
+        let mv_name = req.mv_name.clone();
+        let topic = req.topic.clone();
+
+        // Start sync in background task
+        let handle = tokio::spawn(async move {
+            if let Err(e) = sink.start_sync(&mv_name, &topic).await {
+                tracing::error!("EventLogSink failed for MV {}: {}", mv_name, e);
+            }
+        });
+
+        // Store abort handle
+        let mut sinks = state.event_sinks.write().await;
+        sinks.insert(req.mv_name.clone(), handle.abort_handle());
+
+        Ok(Json(SyncStartResponse {
+            success: true,
+            mv_name: req.mv_name,
+            topic: req.topic,
+            message: "Sync started successfully".to_string(),
+        }))
+    }
+}
+
+/// Stop syncing MV changes
+///
+/// POST /api/event-streaming/sync/stop
+///
+/// Stops an active EventLogSink for the specified MV.
+///
+/// # Example
+///
+/// ```bash
+/// curl -X POST http://localhost:8080/api/event-streaming/sync/stop \
+///   -H "Content-Type: application/json" \
+///   -d '{
+///     "mv_name": "enriched_cargo_events"
+///   }'
+/// ```
+#[cfg(feature = "event-streaming")]
+pub async fn stop_sync(
+    State(state): State<AppState>,
+    Json(req): Json<SyncStopRequest>,
+) -> Result<Json<SyncStopResponse>, ApiError> {
+    let mut sinks = state.event_sinks.write().await;
+
+    if let Some(handle) = sinks.remove(&req.mv_name) {
+        handle.abort();
+        Ok(Json(SyncStopResponse {
+            success: true,
+            mv_name: req.mv_name,
+            message: "Sync stopped successfully".to_string(),
+        }))
+    } else {
+        Ok(Json(SyncStopResponse {
+            success: false,
+            mv_name: req.mv_name.clone(),
+            message: format!("No active sync found for MV {}", req.mv_name),
+        }))
+    }
+}
+
+/// Get sync status for all active sinks
+///
+/// GET /api/event-streaming/sync/status
+///
+/// Returns the list of all active EventLogSink tasks.
+///
+/// # Example
+///
+/// ```bash
+/// curl http://localhost:8080/api/event-streaming/sync/status
+/// ```
+#[cfg(feature = "event-streaming")]
+pub async fn get_sync_status(
+    State(state): State<AppState>,
+) -> Result<Json<SyncStatusResponse>, ApiError> {
+    let sinks = state.event_sinks.read().await;
+
+    // TODO: Store topic info with abort handle so we can return it here
+    // For now, we only return mv_name and active status
+    let syncs: Vec<SyncStatus> = sinks
+        .keys()
+        .map(|mv_name| SyncStatus {
+            mv_name: mv_name.clone(),
+            topic: "unknown".to_string(), // TODO: Track this
+            active: true,
+        })
+        .collect();
+
+    Ok(Json(SyncStatusResponse { syncs }))
 }
 
 /// Distributed library cluster status response

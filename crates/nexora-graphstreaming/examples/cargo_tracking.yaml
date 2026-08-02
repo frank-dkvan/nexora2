@@ -1,0 +1,31 @@
+# Example Projection Rules for Cargo Tracking
+
+projections:
+  # Projection 1: Create/update Cargo nodes
+  - name: cargo_node
+    source_topic: nexora.cargo
+    event_filter:
+      status: ["IN_TRANSIT", "DELIVERED", "PENDING"]
+    node:
+      id: "{{cargo_id}}"
+      labels: ["Cargo"]
+      properties:
+        cargo_id: "{{cargo_id}}"
+        status: "{{status}}"
+        temperature: "{{temperature}}"
+        last_updated: "{{event_time}}"
+
+  # Projection 2: Create location edges
+  - name: cargo_location_edge
+    source_topic: nexora.cargo
+    event_filter:
+      status: ["IN_TRANSIT", "DELIVERED"]
+    node:
+      id: "{{cargo_id}}"
+      labels: ["Cargo"]
+    edge:
+      edge_type: LOCATED_AT
+      target_id: "{{location_code}}"
+      properties:
+        arrival_time: "{{event_time}}"
+        temperature: "{{temperature}}"

@@ -216,6 +216,13 @@ pub struct AppState {
             nexora_risingwave::DistributedComputeCluster,
         )>,
     >,
+    /// Active EventLogSink tasks (Phase 6.3): mv_name -> abort handle
+    #[cfg(feature = "event-streaming")]
+    pub event_sinks: Arc<tokio::sync::RwLock<HashMap<String, tokio::task::AbortHandle>>>,
+
+    /// GraphStreaming projector for event-to-graph projection (Phase 7.6)
+    #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+    pub graph_projector: Option<Arc<nexora_graphstreaming::EventProjector>>,
 }
 
 impl AppState {

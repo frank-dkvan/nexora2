@@ -2480,6 +2480,7 @@ async fn main() -> anyhow::Result<()> {
                 .map(|n| n.get() * 4)
                 .unwrap_or(64),
         )),
+        mv_refresh_semaphore: Arc::new(tokio::sync::Semaphore::new(2)), // C-14 FIX: Max 2 concurrent MV refreshes
         #[cfg(feature = "event-streaming")]
         event_streaming: {
             #[cfg(feature = "library")]

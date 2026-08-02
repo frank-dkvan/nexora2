@@ -69,10 +69,29 @@ impl TransferCheckpoint {
     /// Save checkpoint to disk (JSON format for simplicity)
     fn save(&self, checkpoint_dir: &std::path::Path) -> Result<(), String> {
         let path = checkpoint_dir.join(format!("transfer_shard_{}.ckpt", self.shard_id));
+        let tmp_path = checkpoint_dir.join(format!("transfer_shard_{}.ckpt.tmp", self.shard_id));
+
         let json =
             serde_json::to_string_pretty(self).map_err(|e| format!("serialize checkpoint: {e}"))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("write checkpoint {}: {e}", path.display()))?;
+
+        // C-8 FIX: Setup cleanup guard BEFORE writing to ensure temp file is always cleaned up
+        // even if write fails. The guard will remove temp file on any error path.
+        let tmp_path_clone = tmp_path.clone();
+        let _cleanup = scopeguard::guard((), move |_| {
+            let _ = std::fs::remove_file(&tmp_path_clone);
+        });
+
+        // Write to temporary file first, then atomic rename
+        std::fs::write(&tmp_path, &json)
+            .map_err(|e| format!("write temp checkpoint {}: {e}", tmp_path.display()))?;
+
+        // Atomic rename (on most filesystems)
+        std::fs::rename(&tmp_path, &path)
+            .map_err(|e| format!("rename checkpoint {}: {e}", path.display()))?;
+
+        // Success - defuse the cleanup guard by forgetting it
+        std::mem::forget(_cleanup);
+
         Ok(())
     }
 

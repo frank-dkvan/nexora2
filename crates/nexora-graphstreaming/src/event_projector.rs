@@ -10,6 +10,17 @@ use nexora_eventlog::EventLogStore;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use serde::{Deserialize, Serialize};
+
+/// C-17 FIX: Dead letter queue entry for failed event projections
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeadLetterEntry {
+    pub event: RawEvent,
+    pub rule_name: String,
+    pub error: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub retry_count: u32,
+}
 
 /// Metrics for a single projection
 #[derive(Debug, Clone, Default)]
@@ -42,6 +53,9 @@ pub struct EventProjector {
 
     /// Metrics per projection rule
     metrics: Arc<DashMap<String, ProjectionMetrics>>,
+
+    /// C-17 FIX: Dead letter queue for failed projections
+    dead_letter_queue: Arc<tokio::sync::RwLock<Vec<DeadLetterEntry>>>,
 }
 
 impl EventProjector {
@@ -62,6 +76,7 @@ impl EventProjector {
             mutation_builder,
             tasks: DashMap::new(),
             metrics: Arc::new(DashMap::new()),
+            dead_letter_queue: Arc::new(tokio::sync::RwLock::new(Vec::new())),
         }
     }
 
@@ -90,6 +105,7 @@ impl EventProjector {
         let template_engine = self.template_engine.clone();
         let mutation_builder = GraphMutationBuilder::new(self.graph_service.clone());
         let metrics = self.metrics.clone();
+        let dead_letter_queue = self.dead_letter_queue.clone(); // C-17 FIX
 
         let handle = tokio::spawn(async move {
             if let Err(e) = Self::projection_loop(
@@ -98,6 +114,7 @@ impl EventProjector {
                 template_engine,
                 mutation_builder,
                 metrics,
+                dead_letter_queue, // C-17 FIX
             )
             .await
             {
@@ -123,6 +140,7 @@ impl EventProjector {
         template_engine: TemplateEngine,
         mutation_builder: GraphMutationBuilder,
         metrics: Arc<DashMap<String, ProjectionMetrics>>,
+        dead_letter_queue: Arc<tokio::sync::RwLock<Vec<DeadLetterEntry>>>, // C-17 FIX
     ) -> Result<()> {
         let rule_name = rule.name.clone();
         let topic = rule.source_topic.clone();
@@ -143,6 +161,27 @@ impl EventProjector {
                 Err(e) => {
                     tracing::error!("Failed to process event for rule '{}': {}", rule_name, e);
                     Self::increment_error(&rule_name, &metrics);
+
+                    // C-17 FIX: Add to dead letter queue for later retry/inspection
+                    let dlq_entry = DeadLetterEntry {
+                        event: event.clone(),
+                        rule_name: rule_name.clone(),
+                        error: e.to_string(),
+                        timestamp: chrono::Utc::now(),
+                        retry_count: 0,
+                    };
+
+                    let mut dlq = dead_letter_queue.write().await;
+                    dlq.push(dlq_entry);
+
+                    // Limit DLQ size to prevent unbounded growth
+                    if dlq.len() > 10000 {
+                        tracing::warn!(
+                            "Dead letter queue for rule '{}' exceeded 10000 entries, dropping oldest",
+                            rule_name
+                        );
+                        dlq.remove(0);
+                    }
                 }
             }
         }
@@ -245,6 +284,81 @@ impl EventProjector {
     /// Get list of active projection names
     pub fn get_active_projections(&self) -> Vec<String> {
         self.tasks.iter().map(|entry| entry.key().clone()).collect()
+    }
+
+    /// C-17 FIX: Get dead letter queue entries
+    pub async fn get_dead_letter_queue(&self) -> Vec<DeadLetterEntry> {
+        self.dead_letter_queue.read().await.clone()
+    }
+
+    /// C-17 FIX: Get dead letter queue size
+    pub async fn get_dead_letter_queue_size(&self) -> usize {
+        self.dead_letter_queue.read().await.len()
+    }
+
+    /// C-17 FIX: Clear dead letter queue
+    pub async fn clear_dead_letter_queue(&self) {
+        self.dead_letter_queue.write().await.clear();
+        tracing::info!("Dead letter queue cleared");
+    }
+
+    /// C-17 FIX: Retry failed events from dead letter queue
+    pub async fn retry_dead_letter_queue(&self, max_retries: u32) -> Result<usize> {
+        let mut dlq = self.dead_letter_queue.write().await;
+        let mut retried = 0;
+        let mut still_failed = Vec::new();
+
+        for mut entry in dlq.drain(..) {
+            if entry.retry_count >= max_retries {
+                tracing::warn!(
+                    "Event reached max retries ({}), keeping in DLQ: {:?}",
+                    max_retries,
+                    entry.event.event_id
+                );
+                still_failed.push(entry);
+                continue;
+            }
+
+            // Find the matching rule
+            let rule = self.rules.iter().find(|r| r.name == entry.rule_name);
+            if rule.is_none() {
+                tracing::warn!("Rule '{}' not found for DLQ retry", entry.rule_name);
+                still_failed.push(entry);
+                continue;
+            }
+
+            let rule = rule.unwrap();
+
+            // Retry processing
+            match Self::process_event(
+                &entry.event,
+                rule,
+                &self.template_engine,
+                &self.mutation_builder,
+            )
+            .await
+            {
+                Ok(stats) => {
+                    Self::update_metrics(&entry.rule_name, stats, &self.metrics);
+                    retried += 1;
+                    tracing::info!(
+                        "Successfully retried event {:?} for rule '{}'",
+                        entry.event.event_id,
+                        entry.rule_name
+                    );
+                }
+                Err(e) => {
+                    entry.retry_count += 1;
+                    entry.error = e.to_string();
+                    entry.timestamp = chrono::Utc::now();
+                    still_failed.push(entry);
+                    tracing::warn!("Retry failed for event, retry_count now {}", entry.retry_count);
+                }
+            }
+        }
+
+        *dlq = still_failed;
+        Ok(retried)
     }
 }
 

@@ -334,6 +334,8 @@ impl RocksDbCheckpointStore {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        // Force fsync instead of fdatasync for stronger durability guarantees
+        opts.set_use_fsync(true);
         let cf = ColumnFamilyDescriptor::new(Self::CF_CHECKPOINTS, Options::default());
         let db = DB::open_cf_descriptors(&opts, path, vec![cf])
             .map_err(|e| format!("RocksDB open checkpoint store: {e}"))?;

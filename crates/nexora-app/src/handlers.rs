@@ -200,6 +200,9 @@ pub struct AppState {
     pub drain: DrainState,
     /// D6: Query execution pool for bounded concurrency + backpressure.
     pub query_pool: Arc<nexora_core::query_pool::QueryPool>,
+    /// C-14 FIX: Materialized view refresh semaphore to prevent starvation.
+    /// Limits concurrent MV refreshes to avoid blocking regular queries.
+    pub mv_refresh_semaphore: Arc<tokio::sync::Semaphore>,
     /// Event streaming engine for advanced SQL-based stream processing (optional, feature-gated)
     #[cfg(feature = "event-streaming")]
     pub event_streaming: Option<Arc<dyn nexora_risingwave::EventStreamingOperations>>,

@@ -31,6 +31,7 @@ futures = "0.3"
 blake3 = "1.5"
 parking_lot = "0.12"
 tiny_http = "0.12"
+scopeguard = "1.2"
 
 [dev-dependencies]
 tokio = { workspace = true }

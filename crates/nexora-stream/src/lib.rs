@@ -607,17 +607,96 @@ impl IngestionPipeline {
 
     /// Run the ingestion pipeline in a background task.
     /// Returns a join handle that resolves when all sources are closed.
+    ///
+    /// Uses a bounded channel (capacity=100) for backpressure: if the graph
+    /// handler processes batches slower than sources produce them, the poll
+    /// loop will block when the channel is full, preventing unbounded memory
+    /// growth.
     pub fn run(
         self: Arc<Self>,
         graph_handler: Arc<dyn IngestHandler>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            // Connect all sources
-            for source in &self.sources {
+            // Create bounded channel for backpressure (capacity=100 batches)
+            let (batch_tx, mut batch_rx) = tokio::sync::mpsc::channel::<(IngestBatch, SourceOffset)>(100);
+
+            // Clone Arc for the processor task
+            let pipeline_clone = self.clone();
+
+            // Spawn batch processing task
+            let handler = graph_handler.clone();
+            let pipeline = pipeline_clone;
+
+            let processor_handle = tokio::spawn(async move {
+                while let Some((batch, offset)) = batch_rx.recv().await {
+                    let topic = batch.topic.clone();
+
+                    match handler.handle_batch(&batch).await {
+                        Ok(count) => {
+                            // F4: advance the event-time watermark
+                            if let Some(gen) = &pipeline.watermark {
+                                let max_et = batch
+                                    .records
+                                    .iter()
+                                    .filter_map(|r| r.timestamp.as_ref())
+                                    .map(nexora_id::EventTime::from_datetime)
+                                    .max();
+                                if let Some(et) = max_et {
+                                    let current = gen.write().await.observe(et);
+                                    if let Some(obs) = &pipeline.watermark_observer {
+                                        obs(current);
+                                    }
+                                }
+                            }
+
+                            // Track applied offset for checkpoint
+                            {
+                                let key = format!("{}:{}", offset.topic, offset.partition);
+                                pipeline.latest_offsets.write().await.insert(key, offset.offset);
+                            }
+
+                            // Update stats
+                            let mut stats = pipeline.stats.write().await;
+                            let s = stats.entry(topic).or_default();
+                            s.records_ingested += count as u64;
+                            s.batches_processed += 1;
+                            s.last_offset = Some(offset);
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Batch processing failed");
+                            let mut stats = pipeline.stats.write().await;
+                            let s = stats.entry(topic).or_default();
+                            s.errors += 1;
+                        }
+                    }
+                }
+            });
+
+            // C-4 FIX: Connect all sources with proper cleanup on error
+            let mut connected_sources = Vec::new();
+            for (idx, source) in self.sources.iter().enumerate() {
                 match source.connect().await {
-                    Ok(()) => tracing::info!("Source connected"),
+                    Ok(()) => {
+                        tracing::info!(source_index = idx, "Source connected");
+                        connected_sources.push(idx);
+                    }
                     Err(e) => {
-                        tracing::error!(error = %e, "Failed to connect source");
+                        tracing::error!(error = %e, source_index = idx, "Failed to connect source");
+
+                        // Clean up: close all previously connected sources
+                        for &prev_idx in &connected_sources {
+                            if let Err(close_err) = self.sources[prev_idx].close().await {
+                                tracing::warn!(
+                                    error = %close_err,
+                                    source_index = prev_idx,
+                                    "Failed to close source during error cleanup"
+                                );
+                            }
+                        }
+
+                        // Abort the processor task to prevent it from waiting indefinitely
+                        processor_handle.abort();
+
                         return;
                     }
                 }
@@ -716,58 +795,14 @@ impl IngestionPipeline {
                                         committed_at: chrono::Utc::now(),
                                     };
 
-                                    // Process batch
-                                    match graph_handler.handle_batch(&batch).await {
-                                        Ok(count) => {
-                                            let _ = source.commit(&offset).await;
-                                            // F4: advance the event-time watermark
-                                            // with the max event time in this
-                                            // batch, so downstream window logic and
-                                            // observability see progress.
-                                            if let Some(gen) = &self.watermark {
-                                                let max_et = batch
-                                                    .records
-                                                    .iter()
-                                                    .filter_map(|r| r.timestamp.as_ref())
-                                                    .map(nexora_id::EventTime::from_datetime)
-                                                    .max();
-                                                if let Some(et) = max_et {
-                                                    let current =
-                                                        gen.write().await.observe(et);
-                                                    // Report progress to any observer
-                                                    // (e.g. Prometheus set_watermark_ms)
-                                                    // without a reverse crate dependency.
-                                                    if let Some(obs) = &self.watermark_observer {
-                                                        obs(current);
-                                                    }
-                                                }
-                                            }
-                                            // B2: track the applied offset so the
-                                            // next checkpoint captures it as part
-                                            // of the atomic (offset, state) pair.
-                                            {
-                                                let key = format!(
-                                                    "{}:{}",
-                                                    offset.topic, offset.partition
-                                                );
-                                                self.latest_offsets
-                                                    .write()
-                                                    .await
-                                                    .insert(key, offset.offset);
-                                            }
-                                            let mut stats = self.stats.write().await;
-                                            let s = stats.entry(topic).or_default();
-                                            s.records_ingested += count as u64;
-                                            s.batches_processed += 1;
-                                            s.last_offset = Some(offset);
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(error = %e, "Batch processing failed");
-                                            let mut stats = self.stats.write().await;
-                                            let s = stats.entry(topic).or_default();
-                                            s.errors += 1;
-                                        }
+                                    // Send to bounded channel - blocks if channel is full (backpressure)
+                                    if batch_tx.send((batch, offset.clone())).await.is_err() {
+                                        tracing::error!("Batch processor channel closed, stopping ingestion");
+                                        break;
                                     }
+
+                                    // Commit offset after successful send
+                                    let _ = source.commit(&offset).await;
                                 }
                                 Ok(None) => {} // No data available
                                 Err(e) => {
@@ -778,6 +813,12 @@ impl IngestionPipeline {
                     }
                 }
             }
+
+            // Drop the sender to signal processor to stop
+            drop(batch_tx);
+
+            // Wait for processor to finish
+            let _ = processor_handle.await;
         })
     }
 
@@ -1392,6 +1433,7 @@ pub mod kafka {
                         offset_start: offset as u64,
                         offset_end: (offset + 1) as u64,
                         topic: self.config.topic.clone(),
+                        raw_events: None, // Kafka uses record-based ingestion, not event-first mode
                     }))
                 }
                 Some(Err(e)) => Err(IngestionError::Poll(format!("Kafka poll error: {e}"))),
@@ -1495,6 +1537,27 @@ pub mod kafka {
                 // Consumer is dropped here, which closes it
             }
             Ok(())
+        }
+    }
+
+    /// Ensure the Kafka consumer is properly unsubscribed even if the source is
+    /// dropped without explicitly calling `close()` (e.g., on panic or early return).
+    /// This triggers an immediate consumer group rebalance instead of waiting for
+    /// the session timeout.
+    impl Drop for KafkaSource {
+        fn drop(&mut self) {
+            // We can't run async code in Drop, but we can take the consumer
+            // synchronously and drop it, which will call rdkafka's Drop implementation.
+            // For a graceful unsubscribe, call close() explicitly before drop.
+            if let Ok(mut guard) = self.consumer.try_lock() {
+                if let Some(consumer) = guard.take() {
+                    // Attempt to unsubscribe to trigger immediate rebalance.
+                    // If this fails (e.g., connection already lost), the drop
+                    // of the consumer will still free resources.
+                    let _ = consumer.unsubscribe();
+                    // consumer is dropped here, which closes the connection
+                }
+            }
         }
     }
 

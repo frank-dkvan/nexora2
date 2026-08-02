@@ -740,6 +740,10 @@ impl GraphService {
             .await;
         }
 
+        // C-12 FIX: Remove all edges involving this node from edge index
+        // to prevent unbounded memory growth from deleted nodes' orphaned edges
+        self.edge_index.remove_node(qid).await;
+
         Ok(receipt)
     }
 

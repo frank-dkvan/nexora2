@@ -75,13 +75,18 @@ impl TokenBucket {
 
     /// Attempt to consume one token. Returns true if allowed.
     fn try_consume(&mut self, now: Instant) -> bool {
+        self.try_consume_with_cost(now, 1.0)
+    }
+
+    /// C-15 FIX: Attempt to consume `cost` tokens. Returns true if allowed.
+    fn try_consume_with_cost(&mut self, now: Instant, cost: f64) -> bool {
         // Refill tokens based on elapsed time
         let elapsed = now.duration_since(self.last_refill).as_secs_f64();
         self.tokens = (self.tokens + elapsed * self.rate).min(self.capacity);
         self.last_refill = now;
 
-        if self.tokens >= 1.0 {
-            self.tokens -= 1.0;
+        if self.tokens >= cost {
+            self.tokens -= cost;
             true
         } else {
             false
@@ -130,6 +135,12 @@ impl RateLimiter {
     /// Check if a request from `addr` should be allowed. Keyed by IP so a
     /// client cannot escape the limit by using a new source port per request.
     pub async fn check(&self, addr: SocketAddr) -> bool {
+        self.check_with_cost(addr, 1).await
+    }
+
+    /// C-15 FIX: Check with a custom token cost (for per-endpoint rate limiting).
+    /// Expensive operations can consume more tokens than cheap ones.
+    pub async fn check_with_cost(&self, addr: SocketAddr, cost: usize) -> bool {
         let now = Instant::now();
         let mut buckets = self.buckets.write().await;
 
@@ -140,7 +151,7 @@ impl RateLimiter {
             )
         });
 
-        let allowed = entry.0.try_consume(now);
+        let allowed = entry.0.try_consume_with_cost(now, cost as f64);
         entry.1 = now; // update last access time
         allowed
     }
@@ -154,6 +165,7 @@ impl RateLimiter {
 }
 
 /// Axum middleware: rate limit by client IP.
+/// C-15 FIX: Add per-endpoint rate limiting for expensive operations.
 pub async fn rate_limit(
     limiter: axum::extract::Extension<Arc<RateLimiter>>,
     req: Request,
@@ -167,13 +179,26 @@ pub async fn rate_limit(
 
     let addr = get_client_ip(&req);
 
-    if limiter.check(addr).await {
+    // C-15 FIX: Apply stricter limits to expensive query endpoints
+    // These endpoints can trigger expensive graph traversals or long-running queries
+    let is_expensive = path.starts_with("/api/v2/graph/query")
+        || path.starts_with("/api/v2/cypher")
+        || path.starts_with("/api/v2/query/sql")
+        || path.contains("/traverse")
+        || path.contains("/shortest-path");
+
+    // For expensive endpoints, consume 5 tokens instead of 1
+    // This effectively limits them to 1/5th the rate of normal endpoints
+    let cost = if is_expensive { 5 } else { 1 };
+
+    if limiter.check_with_cost(addr, cost).await {
         Ok(next.run(req).await)
     } else {
         tracing::warn!(
             target: "rate_limit",
             client = %addr,
             path = %path,
+            cost = cost,
             "Rate limit exceeded"
         );
         Err((

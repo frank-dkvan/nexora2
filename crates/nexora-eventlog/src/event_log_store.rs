@@ -143,11 +143,16 @@ impl EventLogStore {
                 configured_scheme: "s3".into(),
                 customized_credential_load: None,
             });
-            let catalog = iceberg_catalog_rest::RestCatalogBuilder::default()
-                .with_storage_factory(factory)
-                .load("nexora_events", props)
-                .await
-                .context("Failed to create RestCatalog")?;
+            // C-2 FIX: Add timeout to prevent indefinite hang on catalog service failure
+            let catalog = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                iceberg_catalog_rest::RestCatalogBuilder::default()
+                    .with_storage_factory(factory)
+                    .load("nexora_events", props),
+            )
+            .await
+            .context("Catalog connection timeout after 30s")?
+            .context("Failed to create RestCatalog")?;
             Arc::new(catalog)
         } else if config.is_s3() {
             // S3 + local SQLite catalog.
@@ -166,21 +171,29 @@ impl EventLogStore {
                 },
                 s3_props: props.clone(),
             });
-            let catalog = SqlCatalogBuilder::default()
-                .uri(catalog_uri)
-                .with_storage_factory(injecting)
-                .load("nexora_events", props)
-                .await
-                .context("Failed to create SqlCatalog (S3)")?;
+            let catalog = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                SqlCatalogBuilder::default()
+                    .uri(catalog_uri)
+                    .with_storage_factory(injecting)
+                    .load("nexora_events", props),
+            )
+            .await
+            .context("Catalog connection timeout after 30s")?
+            .context("Failed to create SqlCatalog (S3)")?;
             Arc::new(catalog)
         } else {
             // Local filesystem + local SQLite catalog.
-            let catalog = SqlCatalogBuilder::default()
-                .uri(catalog_uri)
-                .with_storage_factory(Arc::new(OpenDalStorageFactory::Fs))
-                .load("nexora_events", props)
-                .await
-                .context("Failed to create SqlCatalog (LocalFs)")?;
+            let catalog = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                SqlCatalogBuilder::default()
+                    .uri(catalog_uri)
+                    .with_storage_factory(Arc::new(OpenDalStorageFactory::Fs))
+                    .load("nexora_events", props),
+            )
+            .await
+            .context("Catalog connection timeout after 30s")?
+            .context("Failed to create SqlCatalog (LocalFs)")?;
             Arc::new(catalog)
         };
 

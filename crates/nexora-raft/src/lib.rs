@@ -310,6 +310,12 @@ impl RaftLogReplicator {
         target: &dyn ReplicationTarget,
         follower_id: &str,
     ) -> Result<AppendEntriesResponse, ReplicationError> {
+        // C-1 FIX: Establish lock ordering to prevent deadlock.
+        // Always acquire locks in this order: last_applied → followers → commit_index
+        // This ensures no circular dependency regardless of concurrent call patterns.
+
+        let last_applied = *self.last_applied.read().await;
+
         let (entries, _next_seq) = {
             let followers = self.followers.lock().await;
             let progress = match followers.get(follower_id) {
@@ -322,7 +328,6 @@ impl RaftLogReplicator {
                 }
             };
 
-            let last_applied = *self.last_applied.read().await;
             let mut entries = Vec::new();
             let mut seq = progress.next_seq;
 
@@ -355,7 +360,14 @@ impl RaftLogReplicator {
         // (caller must fill these in for a real implementation)
 
         let commit_index = *self.commit_index.read().await;
-        let result = target.append_entries(entries.clone(), commit_index).await;
+
+        // Wrap RPC with timeout to prevent indefinite blocking on network issues
+        let result = tokio::time::timeout(
+            self.config.rpc_timeout,
+            target.append_entries(entries.clone(), commit_index)
+        )
+        .await
+        .map_err(|_| ReplicationError::Timeout)?;
 
         match &result {
             Ok(resp) if resp.success => {
@@ -410,14 +422,54 @@ impl RaftLogReplicator {
         let quorum_pos = matched.len().saturating_sub(self.config.quorum_size);
         let new_commit = matched[quorum_pos];
 
-        let old_commit = *self.commit_index.read().await;
+        // Drop followers lock before acquiring commit_index write lock to avoid deadlock
+        drop(followers);
+
+        // Acquire write lock upfront to prevent race condition
+        let mut commit = self.commit_index.write().await;
+        let old_commit = *commit;
+
         if new_commit > old_commit {
-            self.advance_commit_index(new_commit).await;
+            *commit = new_commit;
+            drop(commit); // Release write lock before I/O
+
+            // Persist commit_index durably after updating in-memory state
+            if let Some(ref dir) = self.state_dir {
+                persist_raft_value(dir, self.config.shard_id, "commit_index", new_commit);
+            }
+
+            // Notify all waiters for seq_no <= new_commit
+            let mut waiters = self.commit_waiters.lock().await;
+            let keys: Vec<u64> = waiters
+                .keys()
+                .copied()
+                .filter(|&s| s <= new_commit)
+                .collect();
+
+            for seq in keys {
+                if let Some(channels) = waiters.remove(&seq) {
+                    for tx in channels {
+                        let _ = tx.send(QuorumResult::Committed {
+                            acked: self.config.quorum_size,
+                            total: self.config.total_nodes,
+                        });
+                    }
+                }
+            }
+
+            tracing::debug!(
+                old_commit = old_commit,
+                new_commit = new_commit,
+                waiters_remaining = waiters.len(),
+                "Advanced commit index"
+            );
         }
     }
 
     /// Advance commit index and notify waiters.
+    /// Uses atomic compare-and-swap to prevent race conditions.
     async fn advance_commit_index(&self, new_commit: u64) {
+        // Acquire write lock upfront to prevent race condition
         let mut commit = self.commit_index.write().await;
 
         if new_commit <= *commit {

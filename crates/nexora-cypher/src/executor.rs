@@ -20,6 +20,9 @@ pub struct QueryLimits {
     pub max_execution_time: Duration,
     /// Maximum nodes in snapshot (default: 10,000,000)
     pub max_snapshot_nodes: usize,
+    /// Maximum pattern depth in MATCH clauses (default: 10) - H-4 fix
+    /// Prevents deeply nested patterns like MATCH (a)-[]->()-[]->()...->()
+    pub max_pattern_depth: usize,
 }
 
 impl Default for QueryLimits {
@@ -28,6 +31,7 @@ impl Default for QueryLimits {
             max_result_rows: 100_000,
             max_execution_time: Duration::from_secs(30),
             max_snapshot_nodes: 10_000_000,
+            max_pattern_depth: 10, // H-4: Prevent query complexity attacks
         }
     }
 }
@@ -45,6 +49,9 @@ pub async fn execute_with_limits(
 ) -> Result<CypherResult, CypherError> {
     // Parse the query
     let parsed = cypher_parser::parse(query).map_err(|e| CypherError::Parse(e.to_string()))?;
+
+    // H-4: Validate pattern depth to prevent complexity attacks
+    validate_pattern_depth(&parsed, limits.max_pattern_depth)?;
 
     // Wrap execution in timeout
     let result = tokio::time::timeout(limits.max_execution_time, async {
@@ -429,6 +436,28 @@ fn determine_labels(props: &HashMap<String, PropertyValue>) -> Vec<String> {
         return vec![t.clone()];
     }
     vec!["Node".into()]
+}
+
+/// H-4: Validate pattern depth to prevent query complexity attacks.
+/// Checks the depth of MATCH patterns like (a)-[]->()-[]->()...->()
+fn validate_pattern_depth(query: &cypher_parser::ast::Query, max_depth: usize) -> Result<(), CypherError> {
+    for clause in &query.clauses {
+        if let cypher_parser::ast::Clause::Match(m) = clause {
+            for pattern in &m.patterns {
+                // pattern.rest contains the chain of (relationship, node) pairs
+                // Depth = 1 (start node) + number of hops
+                let depth = 1 + pattern.rest.len();
+                if depth > max_depth {
+                    return Err(CypherError::Validation(format!(
+                        "Pattern depth {} exceeds maximum allowed depth {}. \
+                        Deep patterns like MATCH (a)-[]->()-[]->()...->() can cause performance issues.",
+                        depth, max_depth
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn extract_rel_types(query: &cypher_parser::ast::Query) -> Vec<String> {

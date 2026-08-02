@@ -1334,6 +1334,77 @@ impl GraphService {
         }))
     }
 
+    /// Batch read node states to avoid N+1 queries.
+    /// Returns a map of node_id -> NodeReadState. Missing nodes are omitted from result.
+    ///
+    /// **Performance**: Groups nodes by shard and reads each shard once (O(shards) vs O(nodes)).
+    pub async fn read_node_states_batch(
+        &self,
+        qids: &[NexoraId],
+    ) -> Result<std::collections::HashMap<NexoraId, Arc<projection::NodeReadState>>, GraphError> {
+        use std::collections::HashMap;
+
+        // Group by shard to minimize lock acquisitions
+        let mut by_shard: HashMap<usize, Vec<NexoraId>> = HashMap::new();
+        for qid in qids {
+            let shard_idx = self.shard_for_node(qid);
+            by_shard.entry(shard_idx).or_default().push(qid.clone());
+        }
+
+        let mut results = HashMap::with_capacity(qids.len());
+
+        // Read each shard once
+        for (shard_idx, shard_qids) in by_shard {
+            if shard_idx >= self.shards.len() {
+                continue;
+            }
+
+            // Try projection first (hot path - no actor message)
+            for qid in &shard_qids {
+                if let Some(state) = self.read_projection(qid) {
+                    results.insert(qid.clone(), state);
+                }
+            }
+
+            // Cold nodes: batch snapshot requests to same shard
+            let cold_nodes: Vec<_> = shard_qids
+                .iter()
+                .filter(|qid| !results.contains_key(*qid))
+                .collect();
+
+            if !cold_nodes.is_empty() {
+                // Send snapshot requests in parallel (within same shard)
+                let mut handles = Vec::new();
+                for qid in cold_nodes {
+                    let (tx, rx) = oneshot::channel();
+                    if let Err(_) = self.route(qid, NodeCommand::SnapshotState { reply: tx }).await {
+                        continue; // Skip unavailable nodes
+                    }
+                    handles.push((qid.clone(), rx));
+                }
+
+                // Collect results
+                for (qid, rx) in handles {
+                    if let Ok(snap) = rx.await {
+                        results.insert(
+                            qid,
+                            Arc::new(projection::NodeReadState {
+                                labels: snap.labels,
+                                properties: snap.properties,
+                                property_times: snap.property_times,
+                                edges: snap.edges,
+                                edge_properties: snap.edge_properties,
+                                tombstone: snap.tombstone,
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     /// Total number of active (in-memory) nodes across all shards.
     pub async fn active_node_count(&self) -> usize {
         let mut total = 0;

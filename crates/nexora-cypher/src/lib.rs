@@ -39,6 +39,8 @@ pub enum CypherError {
     Execution(String),
     #[error("unsupported clause: {0}")]
     Unsupported(String),
+    #[error("validation error: {0}")]
+    Validation(String), // H-4: Query validation errors (pattern depth, etc.)
     #[error("graph error: {0}")]
     Graph(#[from] nexora_core::GraphError),
 }

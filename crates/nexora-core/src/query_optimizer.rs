@@ -172,7 +172,8 @@ impl QueryOptimizer {
             .collect();
 
         // Sort by cost (ascending)
-        costs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        // Use total_cmp for f64 to handle NaN cases safely
+        costs.sort_by(|a, b| a.1.total_cmp(&b.1));
 
         // Start with the cheapest predicate
         let (start_with, start_cost) = costs.remove(0);

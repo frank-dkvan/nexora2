@@ -143,6 +143,10 @@ impl EventTimeUnit {
 /// only governs how a *numeric* field is interpreted); `unit == Rfc3339`
 /// additionally means a numeric field is rejected. A field present but
 /// unparseable falls through to `source_meta`.
+///
+/// **Future timestamp validation**: Rejects timestamps more than 5 minutes in the
+/// future to prevent clock skew attacks and data integrity issues. The 5-minute
+/// tolerance allows for reasonable clock drift between producers and ingest nodes.
 pub fn extract_event_time(
     obj: &serde_json::Map<String, serde_json::Value>,
     event_time_field: Option<&str>,
@@ -152,11 +156,44 @@ pub fn extract_event_time(
     if let Some(field) = event_time_field {
         if let Some(v) = obj.get(field) {
             if let Some(dt) = json_value_to_datetime(v, unit) {
-                return Some(dt);
+                // Validate timestamp is not too far in the future (H-3 fix)
+                if let Some(validated) = validate_event_time(dt) {
+                    return Some(validated);
+                }
+                // Fall through to source_meta if validation fails
+                tracing::warn!(
+                    field = field,
+                    timestamp = %dt,
+                    "Rejected future timestamp beyond tolerance"
+                );
             }
         }
     }
     source_meta
+}
+
+/// Validate event timestamp is not too far in the future (H-3 fix).
+///
+/// Allows up to 5 minutes of clock skew between event producers and ingest nodes.
+/// This prevents:
+/// - Malicious future timestamps that could break LWW (last-write-wins) semantics
+/// - Clock misconfiguration attacks
+/// - Data integrity issues in time-based queries
+///
+/// Returns `Some(dt)` if valid, `None` if too far in the future.
+fn validate_event_time(dt: chrono::DateTime<chrono::Utc>) -> Option<chrono::DateTime<chrono::Utc>> {
+    const MAX_FUTURE_SKEW_SECS: i64 = 300; // 5 minutes tolerance
+
+    let now = chrono::Utc::now();
+    let skew_secs = (dt - now).num_seconds();
+
+    if skew_secs > MAX_FUTURE_SKEW_SECS {
+        // Timestamp is more than 5 minutes in the future - reject
+        None
+    } else {
+        // Valid timestamp (past or reasonable future)
+        Some(dt)
+    }
 }
 
 /// Parse a JSON value as an event-time `DateTime<Utc>`. A string is always tried
@@ -1001,6 +1038,53 @@ mod tests {
         assert_eq!(EventTimeUnit::parse("nonsense"), None);
         // The default, used when config is unset/blank, is microseconds.
         assert_eq!(EventTimeUnit::default(), EventTimeUnit::Micros);
+    }
+
+    #[test]
+    fn extract_event_time_rejects_far_future_timestamp() {
+        // H-3: Reject timestamps more than 5 minutes in the future
+        let far_future = chrono::Utc::now() + chrono::Duration::try_minutes(10).unwrap();
+        let obj = serde_json::json!({"ts": far_future.to_rfc3339()})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let meta = Some(chrono::Utc::now());
+        // Should fall back to meta timestamp
+        let result = extract_event_time(&obj, Some("ts"), EventTimeUnit::Rfc3339, meta);
+        assert!(result.is_some());
+        // Should be meta, not the far future timestamp
+        assert!((result.unwrap() - chrono::Utc::now()).num_seconds().abs() < 2);
+    }
+
+    #[test]
+    fn extract_event_time_accepts_near_future_timestamp() {
+        // H-3: Accept timestamps within 5 minutes in the future (clock skew tolerance)
+        let near_future = chrono::Utc::now() + chrono::Duration::try_minutes(3).unwrap();
+        let obj = serde_json::json!({"ts": near_future.to_rfc3339()})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let result = extract_event_time(&obj, Some("ts"), EventTimeUnit::Rfc3339, None);
+        assert!(result.is_some());
+        // Should accept the near future timestamp
+        let skew = (result.unwrap() - chrono::Utc::now()).num_minutes();
+        assert!(skew >= 2 && skew <= 4); // Should be around 3 minutes
+    }
+
+    #[test]
+    fn extract_event_time_accepts_past_timestamp() {
+        // H-3: Always accept past timestamps (no lower bound)
+        let past = chrono::Utc::now() - chrono::Duration::try_days(30).unwrap();
+        let obj = serde_json::json!({"ts": past.to_rfc3339()})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let result = extract_event_time(&obj, Some("ts"), EventTimeUnit::Rfc3339, None);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().to_rfc3339(), past.to_rfc3339());
     }
 
     #[tokio::test]

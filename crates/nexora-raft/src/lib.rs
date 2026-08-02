@@ -100,6 +100,8 @@ pub enum ReplicationError {
     Timeout,
     #[error("serialization error: {0}")]
     Serialization(String),
+    #[error("channel closed: {0}")]
+    ChannelClosed(String),
 }
 
 /// Result of a quorum replication attempt.

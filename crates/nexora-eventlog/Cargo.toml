@@ -20,6 +20,7 @@ anyhow = { workspace = true }
 async-trait = "0.1"
 toml = "0.8"
 arc-swap = "1.9"
+rand = "0.8"
 
 # --- OLAP / event-table stack (feature-gated: heavy deps) ---
 # Versions pinned to the iceberg 0.9.1 ecosystem: arrow/parquet 57.x, datafusion 52.2.

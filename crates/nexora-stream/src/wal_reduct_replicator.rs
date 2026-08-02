@@ -80,8 +80,19 @@ impl WalToReductReplicator {
         // Write to a sibling temp file then rename for atomicity.
         let tmp = self.progress_file.with_extension("tmp");
         std::fs::write(&tmp, &json).map_err(|e| format!("progress write error: {e}"))?;
+
+        // Setup cleanup guard - will remove temp file if rename fails
+        let tmp_clone = tmp.clone();
+        let _cleanup = scopeguard::guard((), move |_| {
+            let _ = std::fs::remove_file(&tmp_clone);
+        });
+
         std::fs::rename(&tmp, &self.progress_file)
             .map_err(|e| format!("progress rename error: {e}"))?;
+
+        // Success - defuse the cleanup guard
+        std::mem::forget(_cleanup);
+
         Ok(())
     }
 

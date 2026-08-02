@@ -226,7 +226,7 @@ impl BackupArtifact {
         // Use a monotonic request_id for all restore mutations (for idempotency)
         let base_request_id = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| format!("system time before UNIX_EPOCH: {e}"))?
             .as_micros() as u64;
 
         for (idx, node) in payload.nodes.into_iter().enumerate() {

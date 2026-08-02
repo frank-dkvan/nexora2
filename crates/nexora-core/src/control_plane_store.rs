@@ -97,6 +97,9 @@ pub enum ControlStoreError {
     /// Snapshot payload could not be decoded.
     #[error("control-plane store snapshot decode error: {0}")]
     SnapshotDecode(String),
+    /// Lock poisoned (concurrent panic while holding lock).
+    #[error("control-plane store lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// A namespaced, byte-oriented, durable key/value store for control-plane
@@ -191,7 +194,8 @@ impl InMemoryControlPlaneStore {
 
 impl ControlPlaneStore for InMemoryControlPlaneStore {
     fn put(&self, namespace: Namespace, key: &str, value: &[u8]) -> Result<(), ControlStoreError> {
-        let mut data = self.data.write().unwrap();
+        let mut data = self.data.write()
+            .map_err(|e| ControlStoreError::LockPoisoned(format!("Write lock: {e}")))?;
         data.entry(namespace.as_str())
             .or_default()
             .insert(key.to_string(), value.to_vec());
@@ -199,7 +203,8 @@ impl ControlPlaneStore for InMemoryControlPlaneStore {
     }
 
     fn get(&self, namespace: Namespace, key: &str) -> Result<Option<Vec<u8>>, ControlStoreError> {
-        let data = self.data.read().unwrap();
+        let data = self.data.read()
+            .map_err(|e| ControlStoreError::LockPoisoned(format!("Read lock: {e}")))?;
         Ok(data
             .get(namespace.as_str())
             .and_then(|b| b.get(key))
@@ -207,7 +212,8 @@ impl ControlPlaneStore for InMemoryControlPlaneStore {
     }
 
     fn delete(&self, namespace: Namespace, key: &str) -> Result<(), ControlStoreError> {
-        let mut data = self.data.write().unwrap();
+        let mut data = self.data.write()
+            .map_err(|e| ControlStoreError::LockPoisoned(format!("Write lock: {e}")))?;
         if let Some(bucket) = data.get_mut(namespace.as_str()) {
             bucket.remove(key);
         }
@@ -215,7 +221,8 @@ impl ControlPlaneStore for InMemoryControlPlaneStore {
     }
 
     fn list(&self, namespace: Namespace) -> Result<Vec<(String, Vec<u8>)>, ControlStoreError> {
-        let data = self.data.read().unwrap();
+        let data = self.data.read()
+            .map_err(|e| ControlStoreError::LockPoisoned(format!("Read lock: {e}")))?;
         Ok(data
             .get(namespace.as_str())
             .map(|b| b.iter().map(|(k, v)| (k.clone(), v.clone())).collect())

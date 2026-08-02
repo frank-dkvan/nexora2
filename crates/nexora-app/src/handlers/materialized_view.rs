@@ -378,6 +378,22 @@ pub async fn refresh_materialized_view(
     State(state): State<AppState>,
     Path(view_id): Path<String>,
 ) -> impl IntoResponse {
+    // C-14 FIX: Acquire permit to limit concurrent refreshes and prevent starvation
+    let _permit = match state.mv_refresh_semaphore.try_acquire() {
+        Ok(permit) => permit,
+        Err(_) => {
+            tracing::warn!(view_id = %view_id, "MV refresh rejected: too many concurrent refreshes");
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": "Too many concurrent refresh operations. Please try again later.",
+                    "view_id": view_id,
+                })),
+            )
+                .into_response();
+        }
+    };
+
     // Get view definition
     let view = match state.mv_manager.get_view(&view_id).await {
         Some(v) => v,

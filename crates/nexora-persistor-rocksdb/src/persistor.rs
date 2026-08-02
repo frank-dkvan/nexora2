@@ -51,16 +51,63 @@ impl RocksDbPersistor {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+
+        // H-2 FIX: Production-grade RocksDB tuning
         opts.set_compression_type(DBCompressionType::Lz4);
-        opts.set_write_buffer_size(64 * 1024 * 1024); // 64 MB
-        opts.set_max_write_buffer_number(3);
-        opts.set_target_file_size_base(64 * 1024 * 1024); // 64 MB
+        opts.set_write_buffer_size(64 * 1024 * 1024); // 64 MB memtable
+        opts.set_max_write_buffer_number(3); // Allow 2 concurrent memtables + 1 immutable
+        opts.set_target_file_size_base(64 * 1024 * 1024); // 64 MB SST files
+
+        // Bloom filters for faster point lookups (critical for graph traversal)
+        opts.set_bloom_locality(1);
+        opts.set_optimize_filters_for_hits(true);
+
+        // Block cache for reads (shared across all column families)
+        let cache_size = 512 * 1024 * 1024; // 512 MB
+        let cache = rust_rocksdb::Cache::new_lru_cache(cache_size);
+        let mut block_opts = rust_rocksdb::BlockBasedOptions::default();
+        block_opts.set_block_cache(&cache);
+        block_opts.set_bloom_filter(10.0, false); // 10 bits per key, ~1% false positive
+        block_opts.set_cache_index_and_filter_blocks(true); // Cache index/filter blocks
+        opts.set_block_based_table_factory(&block_opts);
+
+        // Parallelism tuning
+        opts.set_max_background_jobs(4); // 2 compaction + 2 flush threads
+        opts.increase_parallelism(num_cpus::get() as i32);
+
+        // Write-ahead log (WAL) tuning
+        opts.set_wal_size_limit_mb(256); // Rotate WAL at 256 MB
+        opts.set_wal_ttl_seconds(0); // No time-based rotation (archive all WALs)
+
+        // Compaction tuning
+        opts.set_level_compaction_dynamic_level_bytes(true); // Dynamic leveling for better space amp
+        opts.set_max_bytes_for_level_base(256 * 1024 * 1024); // 256 MB L1
+        opts.set_max_bytes_for_level_multiplier(10.0); // 10x per level
 
         let cf_descriptors: Vec<ColumnFamilyDescriptor> = ALL_CF_NAMES
             .iter()
             .map(|name| {
                 let mut cf_opts = Options::default();
                 cf_opts.set_compression_type(DBCompressionType::Lz4);
+
+                // Per-CF tuning based on access pattern
+                match *name {
+                    CF_NODE_EVENTS | CF_DOMAIN_INDEX_EVENTS => {
+                        // Journal CFs: sequential writes, range scans
+                        cf_opts.set_write_buffer_size(128 * 1024 * 1024); // Larger memtable for sequential writes
+                        cf_opts.set_compaction_style(rust_rocksdb::DBCompactionStyle::Level);
+                    }
+                    CF_SNAPSHOTS => {
+                        // Snapshot CF: point lookups, infrequent writes
+                        let mut block_opts = rust_rocksdb::BlockBasedOptions::default();
+                        block_opts.set_bloom_filter(10.0, false); // Critical for point lookups
+                        cf_opts.set_block_based_table_factory(&block_opts);
+                    }
+                    _ => {
+                        // Default tuning for other CFs
+                    }
+                }
+
                 ColumnFamilyDescriptor::new(*name, cf_opts)
             })
             .collect();

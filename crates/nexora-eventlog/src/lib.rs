@@ -75,6 +75,10 @@ pub mod retention;
 #[cfg(feature = "olap")]
 pub mod event_first_handler;
 
+/// Microbatch writer: batches events before Iceberg commit (P1-3 优化)
+#[cfg(feature = "olap")]
+pub mod microbatch_writer;
+
 // Re-exports for convenience
 #[cfg(feature = "olap")]
 pub use datafusion_store::DataFusionEventStore;
@@ -86,6 +90,8 @@ pub use event_first_handler::EventFirstHandler;
 pub use event_log_store::EventLogStore;
 #[cfg(feature = "olap")]
 pub use materialized_view::{Aggregation, MaterializedView, RefreshMode, ViewTransform};
+#[cfg(feature = "olap")]
+pub use microbatch_writer::{MicrobatchConfig, MicrobatchWriter};
 #[cfg(feature = "olap")]
 pub use refresh_scheduler::RefreshScheduler;
 #[cfg(feature = "olap")]

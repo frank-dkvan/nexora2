@@ -473,7 +473,10 @@ impl ViewRefresher {
             .context("Failed to collect delta partial")?;
 
         // 5. 旧态(存储形态,含 _mv_* 列则先剥掉,只留 group_by + 度量列)。
-        let old_state = Self::strip_internal_cols(last_gen.unwrap().batches)?;
+        // last_gen was already checked at line 450, but use safe extraction for clarity
+        let last_gen_data = last_gen
+            .ok_or_else(|| anyhow::anyhow!("last_gen unexpectedly None after check"))?;
+        let old_state = Self::strip_internal_cols(last_gen_data.batches)?;
 
         if old_state.is_empty() || old_state[0].num_rows() == 0 {
             // 理论上有旧态就非空;保险起见回退全量。

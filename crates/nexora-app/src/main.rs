@@ -36,6 +36,7 @@ use clap::Parser;
 use handlers::{publish_sq_event, AppConfig, AppState};
 use nexora_core::{GraphService, GraphServiceConfig, InMemoryPersistor};
 use nexora_hnsw::{HnswConfig, HnswIndex};
+use nexora_observability;
 use nexora_standing_query::StandingQueryManager;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -2480,6 +2481,7 @@ async fn main() -> anyhow::Result<()> {
                 .map(|n| n.get() * 4)
                 .unwrap_or(64),
         )),
+        mv_refresh_semaphore: Arc::new(tokio::sync::Semaphore::new(2)), // C-14 FIX: Max 2 concurrent MV refreshes
         #[cfg(feature = "event-streaming")]
         event_streaming: {
             #[cfg(feature = "library")]
@@ -3499,6 +3501,65 @@ async fn main() -> anyhow::Result<()> {
     };
 
     app = app.merge(operator_routes).merge(admin_routes);
+
+    // ============================================================
+    // Observability endpoints (health, metrics, tracing)
+    // ============================================================
+    let metrics_registry = Arc::new(nexora_observability::MetricsRegistry::new());
+    let health_checker = Arc::new(nexora_observability::HealthChecker::new());
+
+    // Register basic health check (GraphServiceHealthCheck doesn't exist yet)
+    // health_checker.register(
+    //     "graph_service".to_string(),
+    //     Arc::new(nexora_observability::BasicHealthCheck)
+    // ).await;
+
+    // Add observability routes
+    let obs_metrics = metrics_registry.clone();
+    app = app.route(
+        "/metrics",
+        get(move || {
+            let registry = obs_metrics.clone();
+            async move {
+                match &*registry {
+                    Ok(reg) => match reg.export() {
+                        Ok(text) => (
+                            axum::http::StatusCode::OK,
+                            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+                            text
+                        ),
+                        Err(e) => (
+                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                            format!("Failed to export metrics: {}", e)
+                        ),
+                    },
+                    Err(e) => (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+                        format!("Metrics registry error: {}", e)
+                    ),
+                }
+            }
+        }),
+    );
+
+    let obs_health = health_checker.clone();
+    app = app.route(
+        "/health",
+        get(move || {
+            let checker = obs_health.clone();
+            async move {
+                let response = checker.check_all().await;
+                let status_code = if response.status == nexora_observability::HealthStatus::Healthy {
+                    axum::http::StatusCode::OK
+                } else {
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE
+                };
+                (status_code, axum::Json(response))
+            }
+        }),
+    );
 
     // Security layers (applied innermost to outermost)
     app = app

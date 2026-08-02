@@ -316,8 +316,16 @@ impl StandingQueryManager {
                 suppressed: false,
             };
 
-            let _ = self.result_tx.send(result);
-            tracing::debug!(sq_id = %sq.id, node = %qid, "SQ matched");
+            if let Err(e) = self.result_tx.send(result) {
+                tracing::warn!(
+                    sq_id = %sq.id,
+                    node = %qid,
+                    dropped_sq_id = %e.0.sq_id,
+                    "SQ result dropped - no active subscribers or lagging receivers"
+                );
+            } else {
+                tracing::debug!(sq_id = %sq.id, node = %qid, "SQ matched");
+            }
             true
         } else if !matches && state.is_matching {
             // Match lost — emit unmatch
@@ -339,8 +347,16 @@ impl StandingQueryManager {
                 suppressed: false,
             };
 
-            let _ = self.result_tx.send(result);
-            tracing::debug!(sq_id = %sq.id, node = %qid, "SQ unmatched");
+            if let Err(e) = self.result_tx.send(result) {
+                tracing::warn!(
+                    sq_id = %sq.id,
+                    node = %qid,
+                    dropped_sq_id = %e.0.sq_id,
+                    "SQ unmatch result dropped - no active subscribers or lagging receivers"
+                );
+            } else {
+                tracing::debug!(sq_id = %sq.id, node = %qid, "SQ unmatched");
+            }
             false
         } else {
             false
@@ -534,8 +550,16 @@ impl StandingQueryManager {
                 matching_edge_types: Self::extract_edge_types(&sq.pattern),
                 suppressed: false,
             };
-            let _ = self.result_tx.send(result);
-            tracing::debug!(sq_id = %sq.id, node = %qid, "SQ matched (via P0.5 trigger)");
+            if let Err(e) = self.result_tx.send(result) {
+                tracing::warn!(
+                    sq_id = %sq.id,
+                    node = %qid,
+                    dropped_sq_id = %e.0.sq_id,
+                    "SQ result dropped (edge_added) - no active subscribers or lagging receivers"
+                );
+            } else {
+                tracing::debug!(sq_id = %sq.id, node = %qid, "SQ matched (via P0.5 trigger)");
+            }
             true
         } else if !matches && state.is_matching {
             state.is_matching = false;
@@ -555,8 +579,16 @@ impl StandingQueryManager {
                 matching_edge_types: Self::extract_edge_types(&sq.pattern),
                 suppressed: false,
             };
-            let _ = self.result_tx.send(result);
-            tracing::debug!(sq_id = %sq.id, node = %qid, "SQ unmatched (via P0.5 trigger)");
+            if let Err(e) = self.result_tx.send(result) {
+                tracing::warn!(
+                    sq_id = %sq.id,
+                    node = %qid,
+                    dropped_sq_id = %e.0.sq_id,
+                    "SQ unmatch result dropped (edge_added) - no active subscribers or lagging receivers"
+                );
+            } else {
+                tracing::debug!(sq_id = %sq.id, node = %qid, "SQ unmatched (via P0.5 trigger)");
+            }
             false
         } else {
             false

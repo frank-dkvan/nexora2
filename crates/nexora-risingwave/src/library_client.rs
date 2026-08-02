@@ -32,15 +32,23 @@ impl LibraryClient {
             frontend_addr.split(':').nth(1).unwrap_or("4566")
         );
 
-        let (client, connection) =
+        // Add timeout to prevent hanging indefinitely if RisingWave is unresponsive
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
             tokio_postgres::connect(&conn_str, NoTls)
-                .await
-                .map_err(|e| {
-                    EventStreamingError::QueryFailed(format!(
-                        "Failed to connect to RisingWave: {}",
-                        e
-                    ))
-                })?;
+        )
+        .await
+        .map_err(|_| {
+            EventStreamingError::QueryFailed(
+                "RisingWave connection timeout after 10 seconds".to_string()
+            )
+        })?
+        .map_err(|e| {
+            EventStreamingError::QueryFailed(format!(
+                "Failed to connect to RisingWave: {}",
+                e
+            ))
+        })?;
 
         // Spawn connection handler
         tokio::spawn(async move {

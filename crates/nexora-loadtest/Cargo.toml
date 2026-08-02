@@ -1,0 +1,23 @@
+[package]
+name = "nexora-loadtest"
+version.workspace = true
+edition.workspace = true
+description = "Load testing tool for Nexora 2"
+
+[[bin]]
+name = "loadtest"
+path = "src/main.rs"
+
+[dependencies]
+nexora-core = { path = "../nexora-core" }
+nexora-id = { path = "../nexora-id" }
+tokio = { workspace = true }
+clap = { version = "4.5", features = ["derive"] }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+futures = "0.3"

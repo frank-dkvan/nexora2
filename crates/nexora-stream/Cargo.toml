@@ -20,6 +20,8 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 bytes = { workspace = true }
 reqwest = { workspace = true }
+scopeguard = "1.2"
+num_cpus = "1.17"
 
 # Kafka (feature-gated)
 rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }

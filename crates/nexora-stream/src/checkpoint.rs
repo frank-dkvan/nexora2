@@ -5,6 +5,7 @@
 //! of epoch N. Events after the checkpoint replay (at-least-once); combined with
 //! idempotent apply, this yields exactly-once effect.
 
+use crate::parallel_checkpoint::ParallelCheckpointFlusher;
 use nexora_barrier::{BarrierKind, BarrierScheduler, ShardStatus};
 use nexora_core::{ChecksumKind, GraphService, SnapshotKind, SnapshotManifest};
 use serde::{Deserialize, Serialize};
@@ -260,7 +261,7 @@ impl CheckpointStore for FileCheckpointStore {
                                         epoch
                                     );
                                 }
-                                if highest_epoch.is_none() || epoch > highest_epoch.unwrap() {
+                                if highest_epoch.map_or(true, |h| epoch > h) {
                                     highest_epoch = Some(epoch);
                                     highest_manifest = Some(manifest);
                                 }
@@ -334,6 +335,8 @@ impl RocksDbCheckpointStore {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        // Force fsync instead of fdatasync for stronger durability guarantees
+        opts.set_use_fsync(true);
         let cf = ColumnFamilyDescriptor::new(Self::CF_CHECKPOINTS, Options::default());
         let db = DB::open_cf_descriptors(&opts, path, vec![cf])
             .map_err(|e| format!("RocksDB open checkpoint store: {e}"))?;
@@ -493,42 +496,25 @@ impl CheckpointCoordinator {
         //   graph shards into the last reported barrier shard so no applied data
         //   is left un-flushed.
         let graph_shards = self.graph.shard_count();
-        let mut nodes_flushed: u64 = 0;
-        for shard_id in 0..self.total_shards {
-            // Determine which graph shards this barrier shard is responsible
-            // for flushing. In the normal case (total_shards == graph_shards)
-            // this is exactly graph shard `shard_id`. When total_shards <
-            // graph_shards, the LAST barrier shard absorbs the tail so every
-            // graph shard is flushed exactly once.
-            let (start, end) = if self.total_shards == graph_shards {
-                (shard_id, shard_id + 1)
-            } else if shard_id + 1 == self.total_shards {
-                (shard_id, graph_shards.max(shard_id + 1))
-            } else {
-                (shard_id, (shard_id + 1).min(graph_shards))
-            };
 
-            let mut shard_node_count: usize = 0;
-            for gs in start..end {
-                if gs < graph_shards {
-                    shard_node_count += self
-                        .graph
-                        .flush_shard(gs)
-                        .await
-                        .map_err(|e| format!("checkpoint flush shard {} failed: {}", gs, e))?;
-                }
-            }
-            nodes_flushed += shard_node_count as u64;
+        // P1-4: 并行刷新优化 - 使用 ParallelCheckpointFlusher
+        let flusher = ParallelCheckpointFlusher::new();
+        let (nodes_flushed, shard_counts) = flusher
+            .flush_all(Arc::clone(&self.graph), self.total_shards, graph_shards)
+            .await
+            .map_err(|e| format!("parallel checkpoint flush failed: {}", e))?;
 
+        // 向 Barrier 协调器报告每个分片的状态
+        for (shard_id, node_count) in shard_counts.iter().enumerate() {
             self.scheduler
                 .report_shard(
                     barrier.epoch,
                     shard_id,
                     ShardStatus::Flushed {
-                        node_count: shard_node_count,
+                        node_count: *node_count,
                         // Per-event counting is not tracked at flush granularity;
                         // node_count is the real durable-unit count for this shard.
-                        event_count: shard_node_count as u64,
+                        event_count: *node_count as u64,
                     },
                 )
                 .await

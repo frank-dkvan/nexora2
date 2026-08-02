@@ -14,9 +14,10 @@ use crate::replication::{FencingToken, ReplicaSet, WriteAck, WriteStatus};
 use crate::{GraphOperation, GraphResult, RemoteGraphClient, RouterError};
 use futures::future::BoxFuture;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// A1.1: Type alias for the owner apply callback in two-phase commit — a
 /// thread-safe async function that applies a GraphOperation after quorum is reached.
@@ -90,6 +91,104 @@ impl WriteConcern {
     }
 }
 
+/// C-13: Circuit breaker state for a single follower to prevent cascading failures
+#[derive(Debug, Clone)]
+struct CircuitBreakerState {
+    consecutive_failures: u32,
+    last_failure: Option<Instant>,
+    state: CircuitState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CircuitState {
+    Closed,      // Normal operation
+    Open,        // Blocking requests
+    HalfOpen,    // Testing if follower recovered
+}
+
+impl CircuitBreakerState {
+    fn new() -> Self {
+        Self {
+            consecutive_failures: 0,
+            last_failure: None,
+            state: CircuitState::Closed,
+        }
+    }
+
+    /// Check if we should skip this follower (circuit is open)
+    fn should_skip(&self, config: &CircuitBreakerConfig) -> bool {
+        match self.state {
+            CircuitState::Open => {
+                // Check if we should transition to HalfOpen
+                if let Some(last_failure) = self.last_failure {
+                    if last_failure.elapsed() >= config.reset_timeout {
+                        return false; // Try again (will transition to HalfOpen)
+                    }
+                }
+                true // Still open, skip
+            }
+            CircuitState::HalfOpen => false, // Allow one test request
+            CircuitState::Closed => false,   // Normal operation
+        }
+    }
+
+    /// Record a failure and potentially open the circuit
+    fn record_failure(&mut self, config: &CircuitBreakerConfig) {
+        self.consecutive_failures += 1;
+        self.last_failure = Some(Instant::now());
+
+        if self.consecutive_failures >= config.failure_threshold {
+            if self.state != CircuitState::Open {
+                tracing::warn!(
+                    consecutive_failures = self.consecutive_failures,
+                    "circuit breaker opened for follower"
+                );
+                self.state = CircuitState::Open;
+            }
+        }
+    }
+
+    /// Record a success and potentially close the circuit
+    fn record_success(&mut self) {
+        if self.state == CircuitState::HalfOpen {
+            tracing::info!("circuit breaker closed after successful test");
+        }
+        self.consecutive_failures = 0;
+        self.last_failure = None;
+        self.state = CircuitState::Closed;
+    }
+
+    /// Transition to HalfOpen for testing
+    fn try_half_open(&mut self) {
+        if self.state == CircuitState::Open {
+            if let Some(last_failure) = self.last_failure {
+                if last_failure.elapsed() >= Duration::from_secs(30) {
+                    tracing::info!("circuit breaker transitioning to half-open for test");
+                    self.state = CircuitState::HalfOpen;
+                }
+            }
+        }
+    }
+}
+
+/// C-13: Circuit breaker configuration
+#[derive(Debug, Clone)]
+struct CircuitBreakerConfig {
+    /// Number of consecutive failures before opening circuit (default: 5)
+    failure_threshold: u32,
+    /// How long to wait before testing a failed follower (default: 30s)
+    reset_timeout: Duration,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: 5,
+            reset_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
 /// Replica writer — manages quorum writes for a set of replica sets.
 pub struct ReplicaWriter {
     /// Remote client for sending writes to followers
@@ -117,6 +216,10 @@ pub struct ReplicaWriter {
     /// A1.1: Owner apply callback for two-phase commit. When set, the owner write
     /// is deferred until after quorum is reached on followers.
     owner_apply: Option<OwnerApplyCallback>,
+    /// C-13: Per-follower circuit breaker states to prevent cascading failures
+    circuit_breakers: Arc<RwLock<HashMap<String, CircuitBreakerState>>>,
+    /// C-13: Circuit breaker configuration
+    circuit_breaker_config: CircuitBreakerConfig,
 }
 
 impl ReplicaWriter {
@@ -131,6 +234,8 @@ impl ReplicaWriter {
             progress: None,
             idempotency: None,
             owner_apply: None,
+            circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
+            circuit_breaker_config: CircuitBreakerConfig::default(),
         }
     }
 
@@ -155,6 +260,8 @@ impl ReplicaWriter {
             progress: None,
             idempotency: None,
             owner_apply: None,
+            circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
+            circuit_breaker_config: CircuitBreakerConfig::default(),
         }
     }
 
@@ -308,7 +415,27 @@ impl ReplicaWriter {
         // receiver-side. (The old self-comparison `token.allows_write(token.epoch)`
         // was a no-op — it never had the follower's high-water mark to compare.)
         let mut handles = Vec::new();
+        let mut skipped_followers = Vec::new();
+
         for follower in &replica_set.followers {
+            // C-13: Check circuit breaker before sending request
+            let should_skip = {
+                let mut breakers = self.circuit_breakers.write();
+                let breaker = breakers.entry(follower.clone()).or_insert_with(CircuitBreakerState::new);
+                breaker.try_half_open(); // Transition to HalfOpen if timeout elapsed
+                breaker.should_skip(&self.circuit_breaker_config)
+            };
+
+            if should_skip {
+                tracing::debug!(
+                    follower = %follower,
+                    shard = shard_id,
+                    "skipping follower due to open circuit breaker"
+                );
+                skipped_followers.push(follower.clone());
+                continue;
+            }
+
             let client = self.client.clone();
             let follower = follower.clone();
             let fenced = GraphOperation::FencedWrite {
@@ -317,13 +444,30 @@ impl ReplicaWriter {
                 seq,
                 inner: Box::new(op.clone()),
             };
+            let circuit_breakers = self.circuit_breakers.clone();
+            let config = self.circuit_breaker_config.clone();
+
             handles.push(tokio::spawn(async move {
                 let result = client.execute(&follower, fenced).await;
+                let success = result.is_ok();
+
+                // C-13: Update circuit breaker state based on result
+                {
+                    let mut breakers = circuit_breakers.write();
+                    if let Some(breaker) = breakers.get_mut(&follower) {
+                        if success {
+                            breaker.record_success();
+                        } else {
+                            breaker.record_failure(&config);
+                        }
+                    }
+                }
+
                 WriteAck {
                     node_id: follower,
                     shard_id,
                     epoch,
-                    success: result.is_ok(),
+                    success,
                 }
             }));
         }

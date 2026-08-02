@@ -143,11 +143,16 @@ impl EventLogStore {
                 configured_scheme: "s3".into(),
                 customized_credential_load: None,
             });
-            let catalog = iceberg_catalog_rest::RestCatalogBuilder::default()
-                .with_storage_factory(factory)
-                .load("nexora_events", props)
-                .await
-                .context("Failed to create RestCatalog")?;
+            // C-2 FIX: Add timeout to prevent indefinite hang on catalog service failure
+            let catalog = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                iceberg_catalog_rest::RestCatalogBuilder::default()
+                    .with_storage_factory(factory)
+                    .load("nexora_events", props),
+            )
+            .await
+            .context("Catalog connection timeout after 30s")?
+            .context("Failed to create RestCatalog")?;
             Arc::new(catalog)
         } else if config.is_s3() {
             // S3 + local SQLite catalog.
@@ -166,21 +171,29 @@ impl EventLogStore {
                 },
                 s3_props: props.clone(),
             });
-            let catalog = SqlCatalogBuilder::default()
-                .uri(catalog_uri)
-                .with_storage_factory(injecting)
-                .load("nexora_events", props)
-                .await
-                .context("Failed to create SqlCatalog (S3)")?;
+            let catalog = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                SqlCatalogBuilder::default()
+                    .uri(catalog_uri)
+                    .with_storage_factory(injecting)
+                    .load("nexora_events", props),
+            )
+            .await
+            .context("Catalog connection timeout after 30s")?
+            .context("Failed to create SqlCatalog (S3)")?;
             Arc::new(catalog)
         } else {
             // Local filesystem + local SQLite catalog.
-            let catalog = SqlCatalogBuilder::default()
-                .uri(catalog_uri)
-                .with_storage_factory(Arc::new(OpenDalStorageFactory::Fs))
-                .load("nexora_events", props)
-                .await
-                .context("Failed to create SqlCatalog (LocalFs)")?;
+            let catalog = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                SqlCatalogBuilder::default()
+                    .uri(catalog_uri)
+                    .with_storage_factory(Arc::new(OpenDalStorageFactory::Fs))
+                    .load("nexora_events", props),
+            )
+            .await
+            .context("Catalog connection timeout after 30s")?
+            .context("Failed to create SqlCatalog (LocalFs)")?;
             Arc::new(catalog)
         };
 
@@ -210,7 +223,7 @@ impl EventLogStore {
         tracing::debug!("Appending {} events to topic '{}'", events.len(), topic);
 
         // 懒创建表
-        let table = self.ensure_table(topic, events).await?;
+        let mut table = self.ensure_table(topic, events).await?;
 
         // RawEvent → RecordBatch
         let batch = raw_events_to_record_batch(events)
@@ -219,8 +232,8 @@ impl EventLogStore {
         // 写入数据文件
         let data_files = self.write_data_files(&table, batch).await?;
 
-        // 提交事务
-        let _updated_table = self.commit_data_files(&table, data_files).await?;
+        // 提交事务（H-7: with retry on conflict）
+        let _updated_table = self.commit_data_files(&mut table, data_files).await?;
 
         tracing::info!(
             "Successfully appended {} events to table '{}' (new snapshot created)",
@@ -349,29 +362,80 @@ impl EventLogStore {
     /// 提交数据文件到 Iceberg 表
     async fn commit_data_files(
         &self,
-        table: &Table,
+        table: &mut Table,
         data_files: Vec<iceberg::spec::DataFile>,
     ) -> Result<Table> {
         use iceberg::transaction::{ApplyTransactionAction, Transaction};
 
-        // 1. 创建 Transaction
-        let tx = Transaction::new(table);
+        // H-7 FIX: Retry on optimistic lock conflict (concurrent writers)
+        const MAX_RETRIES: u32 = 3;
+        const BASE_BACKOFF_MS: u64 = 100;
 
-        // 2. fast_append() 添加数据文件
-        let action = tx.fast_append().add_data_files(data_files);
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
 
-        // 3. apply() 应用 action 到 transaction
-        let tx = action
-            .apply(tx)
-            .context("Failed to apply fast_append action")?;
+            // 1. 创建 Transaction
+            let tx = Transaction::new(table);
 
-        // 4. commit() 提交到 catalog
-        let updated_table = tx
-            .commit(self.catalog.as_ref())
-            .await
-            .context("Failed to commit transaction to catalog")?;
+            // 2. fast_append() 添加数据文件
+            let action = tx.fast_append().add_data_files(data_files.clone());
 
-        Ok(updated_table)
+            // 3. apply() 应用 action 到 transaction
+            let tx = action
+                .apply(tx)
+                .context("Failed to apply fast_append action")?;
+
+            // 4. commit() 提交到 catalog
+            match tx.commit(self.catalog.as_ref()).await {
+                Ok(updated_table) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "Iceberg transaction succeeded on attempt {}/{}",
+                            attempt,
+                            MAX_RETRIES
+                        );
+                    }
+                    return Ok(updated_table);
+                }
+                Err(e) if attempt < MAX_RETRIES && Self::is_conflict_error(&e) => {
+                    // Exponential backoff with jitter
+                    let backoff_ms = BASE_BACKOFF_MS * (1 << (attempt - 1)); // 100, 200, 400 ms
+                    let jitter_ms = (backoff_ms / 4) * (rand::random::<u64>() % 2); // ±25% jitter
+                    let sleep_ms = backoff_ms + jitter_ms;
+
+                    tracing::warn!(
+                        "Iceberg transaction conflict on attempt {}/{}, retrying after {}ms: {}",
+                        attempt,
+                        MAX_RETRIES,
+                        sleep_ms,
+                        e
+                    );
+
+                    tokio::time::sleep(tokio::time::Duration::from_millis(sleep_ms)).await;
+
+                    // Reload table metadata before retry
+                    *table = self
+                        .catalog
+                        .load_table(&table.identifier())
+                        .await
+                        .context("Failed to reload table metadata for retry")?;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e).context("Failed to commit transaction to catalog");
+                }
+            }
+        }
+    }
+
+    /// Check if error is a conflict error (optimistic lock failure).
+    fn is_conflict_error(err: &iceberg::Error) -> bool {
+        let err_str = err.to_string().to_lowercase();
+        err_str.contains("conflict")
+            || err_str.contains("concurrent")
+            || err_str.contains("version mismatch")
+            || err_str.contains("optimistic lock")
     }
 
     /// 将 RecordBatch 写入指定表 (阶段 4: 物化视图目标表写入)
@@ -911,19 +975,18 @@ impl EventLogStore {
                     .map(|s| s.snapshot_id());
 
                 // If snapshot changed, read new data incrementally
-                if current_snapshot_id != last_snapshot_id && current_snapshot_id.is_some() {
-                    let current_snap = current_snapshot_id.unwrap();
+                if let Some(current_snap) = current_snapshot_id {
+                    if current_snapshot_id != last_snapshot_id {
+                        tracing::debug!(
+                            "Snapshot changed for topic '': {:?} -> {:?}",
+                            topic,
+                            last_snapshot_id,
+                            current_snapshot_id
+                        );
 
-                    tracing::debug!(
-                        "Snapshot changed for topic '{}': {:?} -> {:?}",
-                        topic,
-                        last_snapshot_id,
-                        current_snapshot_id
-                    );
-
-                    // Use incremental read via snapshot delta
-                    let batches = match store
-                        .read_snapshot_delta(&topic, last_snapshot_id, current_snap)
+                        // Use incremental read via snapshot delta
+                        let batches = match store
+                            .read_snapshot_delta(&topic, last_snapshot_id, current_snap)
                         .await
                     {
                         Ok(b) => {
@@ -998,6 +1061,7 @@ impl EventLogStore {
                     }
 
                     last_snapshot_id = current_snapshot_id;
+                    }
                 }
 
                 // Poll interval: 1 second
@@ -1008,6 +1072,7 @@ impl EventLogStore {
         Ok(rx)
     }
 
+    fn infer_schema_from_event(event: &Event) -> Result<IcebergSchema, EventLogError> {
         // Provenance 列(固定)
         let mut fields = vec![
             NestedField::required(1, "_event_id", Type::Primitive(PrimitiveType::String)).into(),
@@ -1074,6 +1139,34 @@ impl EventLogStore {
                 | "_subject"
                 | "_payload"
         )
+    }
+
+    /// Batch read multiple event streams in one call
+    pub async fn read_batch(
+        &self,
+        requests: Vec<(NexoraId, Option<u64>)>,
+    ) -> Result<Vec<Vec<Event>>, EventLogError> {
+        let mut results = Vec::with_capacity(requests.len());
+        for (id, from_offset) in requests {
+            let events = self.read(&id, from_offset).await?;
+            results.push(events);
+        }
+        Ok(results)
+    }
+
+    /// Batch append multiple events across different streams
+    pub async fn append_batch(
+        &self,
+        requests: Vec<(NexoraId, Vec<Event>)>,
+    ) -> Result<Vec<u64>, EventLogError> {
+        let mut results = Vec::with_capacity(requests.len());
+        for (id, events) in requests {
+            for event in events {
+                let offset = self.append(&id, event).await?;
+                results.push(offset);
+            }
+        }
+        Ok(results)
     }
 }
 
@@ -1210,4 +1303,5 @@ mod tests {
         assert_eq!(schema.as_struct().fields().len(), 5); // 4 provenance + 1 data
         assert!(schema.field_by_name("data").is_some());
     }
+}
 }

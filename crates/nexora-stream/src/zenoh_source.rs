@@ -23,6 +23,9 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use zenoh::sample::SampleKind;
 
+use crate::circuit_breaker::StreamCircuitBreaker;
+use std::sync::Arc;
+
 /// Configuration for a [`ZenohSource`].
 #[derive(Clone, Debug)]
 pub struct ZenohSourceConfig {
@@ -71,6 +74,8 @@ pub struct ZenohSource {
     /// Monotonic message sequence, used as a synthetic offset (zenoh has none).
     seq: AtomicU64,
     stopped: AtomicBool,
+    /// P1-2: Circuit breaker for Zenoh session operations
+    breaker: Arc<StreamCircuitBreaker>,
 }
 
 impl ZenohSource {
@@ -83,6 +88,7 @@ impl ZenohSource {
             stats: Mutex::new(IngestionStats::default()),
             seq: AtomicU64::new(0),
             stopped: AtomicBool::new(false),
+            breaker: Arc::new(StreamCircuitBreaker::new("zenoh")),
         }
     }
 
@@ -93,65 +99,86 @@ impl ZenohSource {
 #[async_trait::async_trait]
 impl IngestionSource for ZenohSource {
     async fn connect(&self) -> Result<(), IngestionError> {
-        let session = zenoh::open(zenoh::Config::default())
-            .await
-            .map_err(|e| IngestionError::Connection(format!("zenoh open: {e}")))?;
+        // P1-3: Wrap with retry logic, then P1-2 circuit breaker
+        use nexora_common::retry::{retry_with_backoff_config, RetryConfig};
 
-        let subscriber = session
-            .declare_subscriber(self.config.key_expr.clone())
-            .await
-            .map_err(|e| {
-                IngestionError::Connection(format!("zenoh subscribe {}: {e}", self.config.key_expr))
-            })?;
+        let retry_config = RetryConfig::conservative(); // 5 attempts for Zenoh session connection
 
-        let (tx, rx) = mpsc::channel::<IngestRecord>(self.config.buffer_capacity.max(1));
-        let id_field = self.config.id_field.clone();
-        let event_time_field = self.config.event_time_field.clone();
-        let event_time_unit = self.config.event_time_unit;
+        retry_with_backoff_config(retry_config, || async {
+            // P1-2: Circuit breaker wrapper
+            let connect_op = async {
+            let session = zenoh::open(zenoh::Config::default())
+                .await
+                .map_err(|e| anyhow::anyhow!("zenoh open: {}", e))?;
 
-        // Background drainer: receive samples, parse Put payloads into records,
-        // push into the bounded buffer (send awaits when full → backpressure).
-        // Exits when the receiver drops (closed) or the subscriber ends.
-        let drainer = tokio::spawn(async move {
-            while let Ok(sample) = subscriber.recv_async().await {
-                if sample.kind() != SampleKind::Put {
-                    continue; // ignore Delete samples
-                }
-                let key = sample.key_expr().as_str().to_string();
-                let payload = sample.payload().to_bytes();
-                // Zenoh samples may carry a source timestamp (NTP64). Use it as
-                // the event-time fallback when the payload has no configured
-                // event-time field.
-                let sample_ts = sample.timestamp().and_then(|ts| {
-                    let d = ts.get_time().to_duration();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos())
-                });
-                let records = match parse_sample(
-                    &key,
-                    &payload,
-                    &id_field,
-                    event_time_field.as_deref(),
-                    event_time_unit,
-                    sample_ts,
-                ) {
-                    Ok(recs) => recs,
-                    Err(e) => {
-                        tracing::warn!(key = %key, error = %e, "zenoh: skip bad sample");
-                        continue;
+            let subscriber = session
+                .declare_subscriber(self.config.key_expr.clone())
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("zenoh subscribe {}: {}", self.config.key_expr, e)
+                })?;
+
+            let (tx, rx) = mpsc::channel::<IngestRecord>(self.config.buffer_capacity.max(1));
+            let id_field = self.config.id_field.clone();
+            let event_time_field = self.config.event_time_field.clone();
+            let event_time_unit = self.config.event_time_unit;
+
+            // Background drainer: receive samples, parse Put payloads into records,
+            // push into the bounded buffer (send awaits when full → backpressure).
+            // Exits when the receiver drops (closed) or the subscriber ends.
+            let drainer = tokio::spawn(async move {
+                while let Ok(sample) = subscriber.recv_async().await {
+                    if sample.kind() != SampleKind::Put {
+                        continue; // ignore Delete samples
                     }
-                };
-                for rec in records {
-                    if tx.send(rec).await.is_err() {
-                        return; // receiver dropped — source closed
+                    let key = sample.key_expr().as_str().to_string();
+                    let payload = sample.payload().to_bytes();
+                    // Zenoh samples may carry a source timestamp (NTP64). Use it as
+                    // the event-time fallback when the payload has no configured
+                    // event-time field.
+                    let sample_ts = sample.timestamp().and_then(|ts| {
+                        let d = ts.get_time().to_duration();
+                        chrono::DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos())
+                    });
+                    let records = match parse_sample(
+                        &key,
+                        &payload,
+                        &id_field,
+                        event_time_field.as_deref(),
+                        event_time_unit,
+                        sample_ts,
+                    ) {
+                        Ok(recs) => recs,
+                        Err(e) => {
+                            tracing::warn!(key = %key, error = %e, "zenoh: skip bad sample");
+                            continue;
+                        }
+                    };
+                    for rec in records {
+                        if tx.send(rec).await.is_err() {
+                            return; // receiver dropped — source closed
+                        }
                     }
                 }
+            });
+
+            *self.rx.lock().await = Some(rx);
+            *self.session.lock().await = Some(session);
+            *self.drainer.lock().await = Some(drainer);
+            Ok(())
+        };
+
+        self.breaker.call::<_, (), anyhow::Error>(connect_op).await.map_err(|e| match e {
+            crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
+                IngestionError::Connection(format!("Circuit breaker open: {}", s))
             }
-        });
-
-        *self.rx.lock().await = Some(rx);
-        *self.session.lock().await = Some(session);
-        *self.drainer.lock().await = Some(drainer);
-        Ok(())
+            crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
+                IngestionError::Connection(format!("{}", e))
+            }
+        })
+        })
+        .await
+        .map_err(|e| IngestionError::Connection(format!("Failed to connect to Zenoh after retries: {}", e)))
     }
 
     async fn poll(&self) -> Result<Option<IngestBatch>, IngestionError> {
@@ -190,6 +217,7 @@ impl IngestionSource for ZenohSource {
             offset_start,
             offset_end,
             topic: self.config.topic.clone(),
+            raw_events: None,
         }))
     }
 
@@ -293,6 +321,7 @@ mod tests {
             br#"{"id":"z1","x":1,"y":2}"#,
             "id",
             None,
+            crate::EventTimeUnit::default(),
             None,
         )
         .unwrap();
@@ -303,7 +332,7 @@ mod tests {
 
     #[test]
     fn parse_missing_id_falls_back_to_key() {
-        let recs = parse_sample("sensors/5", br#"{"temp":20}"#, "id", None, None).unwrap();
+        let recs = parse_sample("sensors/5", br#"{"temp":20}"#, "id", None, crate::EventTimeUnit::default(), None).unwrap();
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].qid, NexoraId::from_bytes(b"sensors/5".to_vec()));
         assert_eq!(recs[0].key, "temp");
@@ -311,7 +340,7 @@ mod tests {
 
     #[test]
     fn parse_scalar_keyed_by_sample_key() {
-        let recs = parse_sample("counter", b"42", "id", None, None).unwrap();
+        let recs = parse_sample("counter", b"42", "id", None, crate::EventTimeUnit::default(), None).unwrap();
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].qid, NexoraId::from_bytes(b"counter".to_vec()));
         assert_eq!(recs[0].key, "value");
@@ -320,12 +349,12 @@ mod tests {
 
     #[test]
     fn parse_hex_id() {
-        let recs = parse_sample("k", br#"{"id":"666f6f","v":1}"#, "id", None, None).unwrap();
+        let recs = parse_sample("k", br#"{"id":"666f6f","v":1}"#, "id", None, crate::EventTimeUnit::default(), None).unwrap();
         assert_eq!(recs[0].qid, NexoraId::from_bytes(b"foo".to_vec()));
     }
 
     #[test]
     fn parse_bad_json_errors() {
-        assert!(parse_sample("k", b"not json", "id", None, None).is_err());
+        assert!(parse_sample("k", b"not json", "id", None, crate::EventTimeUnit::default(), None).is_err());
     }
 }

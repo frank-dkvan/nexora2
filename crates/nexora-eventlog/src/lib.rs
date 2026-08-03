@@ -79,6 +79,10 @@ pub mod event_first_handler;
 #[cfg(feature = "olap")]
 pub mod microbatch_writer;
 
+/// Circuit breaker: protects against cascading failures (P1-2)
+#[cfg(feature = "olap")]
+pub mod circuit_breaker;
+
 // Re-exports for convenience
 #[cfg(feature = "olap")]
 pub use datafusion_store::DataFusionEventStore;

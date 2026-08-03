@@ -9,6 +9,7 @@ nexora-id = { path = "../nexora-id" }
 nexora-core = { path = "../nexora-core" }
 nexora-value = { path = "../nexora-value" }
 nexora-barrier = { path = "../nexora-barrier" }
+nexora-common = { path = "../nexora-common" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -22,6 +23,9 @@ bytes = { workspace = true }
 reqwest = { workspace = true }
 scopeguard = "1.2"
 num_cpus = "1.17"
+failsafe = "1.3"
+anyhow = { workspace = true }
+parking_lot = "0.12"
 
 # Kafka (feature-gated)
 rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }

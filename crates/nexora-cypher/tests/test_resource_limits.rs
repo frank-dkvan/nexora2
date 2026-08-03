@@ -23,6 +23,7 @@ async fn test_result_set_size_limit() {
         max_result_rows: 100,
         max_execution_time: Duration::from_secs(30),
         max_snapshot_nodes: 10_000_000,
+        max_pattern_depth: 10,
     };
 
     let result = execute_with_limits(&graph, "MATCH (n) RETURN n", &limits).await;
@@ -54,6 +55,7 @@ async fn test_result_set_within_limit() {
         max_result_rows: 100,
         max_execution_time: Duration::from_secs(30),
         max_snapshot_nodes: 10_000_000,
+        max_pattern_depth: 10,
     };
 
     let result = execute_with_limits(&graph, "MATCH (n) RETURN n", &limits).await;
@@ -85,6 +87,7 @@ async fn test_query_timeout() {
         max_result_rows: 1_000_000,
         max_execution_time: Duration::from_millis(1), // 1ms timeout
         max_snapshot_nodes: 10_000_000,
+        max_pattern_depth: 10,
     };
 
     // This query creates a cartesian product: 10 * 10 * 10 = 1000 rows
@@ -121,6 +124,7 @@ async fn test_snapshot_node_limit() {
         max_result_rows: 1_000_000,
         max_execution_time: Duration::from_secs(30),
         max_snapshot_nodes: 100,
+        max_pattern_depth: 10,
     };
 
     let result = execute_with_limits(&graph, "MATCH (n) RETURN n", &limits).await;
@@ -155,6 +159,7 @@ async fn test_use_limit_clause_to_avoid_error() {
         max_result_rows: 100,
         max_execution_time: Duration::from_secs(30),
         max_snapshot_nodes: 10_000_000,
+        max_pattern_depth: 10,
     };
 
     // LIMIT 50 means we only get 50 rows back, within the limit

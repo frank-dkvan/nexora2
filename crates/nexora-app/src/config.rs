@@ -50,6 +50,9 @@ pub struct AppTomlConfig {
     pub graph: GraphTomlConfig,
 
     #[serde(default)]
+    pub query: QueryConfig,
+
+    #[serde(default)]
     pub storage: Option<StorageConfig>,
 
     #[serde(default)]
@@ -94,6 +97,21 @@ pub struct GraphTomlConfig {
 
     #[serde(default = "default_channel_size")]
     pub node_channel_size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryConfig {
+    #[serde(default = "default_max_result_rows")]
+    pub max_result_rows: usize,
+
+    #[serde(default = "default_max_execution_time_secs")]
+    pub max_execution_time_secs: u64,
+
+    #[serde(default = "default_max_snapshot_nodes")]
+    pub max_snapshot_nodes: usize,
+
+    #[serde(default = "default_max_pattern_depth")]
+    pub max_pattern_depth: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -472,6 +490,19 @@ fn default_true() -> bool {
     true
 }
 
+fn default_max_result_rows() -> usize {
+    100_000
+}
+fn default_max_execution_time_secs() -> u64 {
+    30
+}
+fn default_max_snapshot_nodes() -> usize {
+    10_000_000
+}
+fn default_max_pattern_depth() -> usize {
+    10
+}
+
 #[cfg(feature = "event-streaming")]
 fn default_event_streaming_mode() -> EventStreamingMode {
     EventStreamingMode::Single
@@ -526,6 +557,29 @@ impl Default for GraphTomlConfig {
             num_shards: default_shards(),
             max_nodes_per_shard: default_max_nodes(),
             node_channel_size: default_channel_size(),
+        }
+    }
+}
+
+impl Default for QueryConfig {
+    fn default() -> Self {
+        Self {
+            max_result_rows: default_max_result_rows(),
+            max_execution_time_secs: default_max_execution_time_secs(),
+            max_snapshot_nodes: default_max_snapshot_nodes(),
+            max_pattern_depth: default_max_pattern_depth(),
+        }
+    }
+}
+
+impl QueryConfig {
+    /// Convert to nexora-cypher's QueryLimits
+    pub fn to_query_limits(&self) -> nexora_cypher::executor::QueryLimits {
+        nexora_cypher::executor::QueryLimits {
+            max_result_rows: self.max_result_rows,
+            max_execution_time: Duration::from_secs(self.max_execution_time_secs),
+            max_snapshot_nodes: self.max_snapshot_nodes,
+            max_pattern_depth: self.max_pattern_depth,
         }
     }
 }

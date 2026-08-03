@@ -35,6 +35,7 @@ members = [
     "crates/nexora-eventlog",
     "crates/nexora-observability",
     "crates/nexora-loadtest",
+    "crates/nexora-common",
     # RisingWave Integration (library mode, main branch)
     "crates/nexora-risingwave",
     "crates/nexora-consensus",
@@ -68,6 +69,7 @@ serde_yaml = "0.9"
 flatbuffers = "25"
 byteorder = "1"
 rmp-serde = "1"
+quick-xml = "0.41.0"  # P1-5: Force 0.41.0 to fix RUSTSEC-2026-0194, RUSTSEC-2026-0195
 
 # Hashing & crypto
 sha2 = "0.10"
@@ -111,6 +113,10 @@ tokio-postgres = "0.7"
 num_cpus = "1.16"
 which = "6.0"
 nix = { version = "0.29", features = ["signal"] }
+
+# P1-5: Security-critical dependencies (pinned versions for CVE mitigation)
+wasmtime = "36.0.7"   # RUSTSEC-2026-0095 and 17 other CVEs
+
 
 # Replicated verbatim from vendor/risingwave/Cargo.toml. Because library-mode
 # integration links RisingWave crates into this workspace's build graph, the root

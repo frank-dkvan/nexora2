@@ -203,6 +203,8 @@ pub struct AppState {
     /// C-14 FIX: Materialized view refresh semaphore to prevent starvation.
     /// Limits concurrent MV refreshes to avoid blocking regular queries.
     pub mv_refresh_semaphore: Arc<tokio::sync::Semaphore>,
+    /// P1-6: Query resource limits (execution time, memory, result size, pattern depth)
+    pub query_limits: nexora_cypher::QueryLimits,
     /// Event streaming engine for advanced SQL-based stream processing (optional, feature-gated)
     #[cfg(feature = "event-streaming")]
     pub event_streaming: Option<Arc<dyn nexora_risingwave::EventStreamingOperations>>,
@@ -930,8 +932,11 @@ pub async fn execute_cypher(
     let graph = Arc::clone(&state.graph);
     let query_pool = Arc::clone(&state.query_pool);
     let query_for_exec = query_clean.clone();
+    let query_limits = state.query_limits.clone();
     match query_pool
-        .execute(async move { nexora_cypher::execute_cypher(&graph, &query_for_exec).await })
+        .execute(async move {
+            nexora_cypher::execute_cypher_with_limits(&graph, &query_for_exec, &query_limits).await
+        })
         .await
     {
         Ok(result) => match result {

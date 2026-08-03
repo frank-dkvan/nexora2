@@ -13,6 +13,7 @@ mod drain;
 mod error;
 mod handlers;
 mod metrics;
+mod middleware;
 mod openapi;
 mod query_rewriter;
 mod raft_handler;
@@ -2482,6 +2483,11 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(64),
         )),
         mv_refresh_semaphore: Arc::new(tokio::sync::Semaphore::new(2)), // C-14 FIX: Max 2 concurrent MV refreshes
+        query_limits: graph_cfg
+            .query
+            .as_ref()
+            .map(|q| q.to_query_limits())
+            .unwrap_or_default(),
         #[cfg(feature = "event-streaming")]
         event_streaming: {
             #[cfg(feature = "library")]
@@ -3566,24 +3572,31 @@ async fn main() -> anyhow::Result<()> {
         .layer(axum::middleware::from_fn(security::security_headers))
         .layer(axum::middleware::from_fn(security::audit_log));
 
-    // Rate limiter — configurable via CLI
-    let app = if cli.rate_limit {
-        let rate_limiter = security::RateLimiter::new(security::RateLimitConfig {
-            rate: cli.rate_limit_rate,
-            burst: cli.rate_limit_burst,
-            ..Default::default()
+    // P1-4: Rate limiter with token bucket (global + per-client limits)
+    let rate_limiter = Arc::new(nexora_common::RateLimiter::new(
+        nexora_common::RateLimiterConfig::default(),
+    ));
+
+    // Spawn cleanup task for stale client buckets
+    {
+        let limiter = rate_limiter.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                limiter.cleanup_stale_clients().await;
+            }
         });
-        tracing::info!(
-            "   Rate limit: {:.0} req/s, burst {}",
-            cli.rate_limit_rate,
-            cli.rate_limit_burst
-        );
-        app.layer(axum::middleware::from_fn(security::rate_limit))
-            .layer(axum::extract::Extension(rate_limiter))
-    } else {
-        tracing::warn!("   Rate limit: DISABLED");
-        app
-    };
+    }
+
+    tracing::info!(
+        "   Rate limit: 100K req/s global, 1K req/s per client (token bucket)"
+    );
+
+    app = app.layer(axum::middleware::from_fn_with_state(
+        rate_limiter,
+        middleware::rate_limit_middleware,
+    ));
 
     let app = app
         .layer(axum::middleware::from_fn(request_id::request_id_middleware))

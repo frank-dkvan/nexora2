@@ -885,26 +885,23 @@ async fn try_bind_edge_pattern(
     let first_segment = &pattern.parts[0].chain.segments[0];
     let edge_opt = first_segment.edge.as_ref();
 
-    if edge_opt.is_none() || pattern.parts[0].chain.segments.len() < 2 {
-        return Ok(None);
-    }
+    let edge = match edge_opt {
+        Some(e) if pattern.parts[0].chain.segments.len() >= 2 => e,
+        _ => return Ok(None),
+    };
 
-    let edge = edge_opt.unwrap();
     let source_node = &first_segment.node;
     let target_node = &pattern.parts[0].chain.segments[1].node;
 
-    // Extract variable names
-    let source_var = source_node.variable.as_ref();
-    let edge_var = edge.variable.as_ref();
-    let target_var = target_node.variable.as_ref();
-
-    if source_var.is_none() || edge_var.is_none() || target_var.is_none() {
-        return Ok(None);
-    }
-
-    let source_var = source_var.unwrap();
-    let edge_var = edge_var.unwrap();
-    let target_var = target_var.unwrap();
+    // Extract variable names - all must be present
+    let (source_var, edge_var, target_var) = match (
+        source_node.variable.as_ref(),
+        edge.variable.as_ref(),
+        target_node.variable.as_ref(),
+    ) {
+        (Some(s), Some(e), Some(t)) => (s, e, t),
+        _ => return Ok(None),
+    };
 
     // Get edge type
     let edge_type = if let Some(ref et) = edge.edge_type {

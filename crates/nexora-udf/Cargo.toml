@@ -17,7 +17,7 @@ tracing = { workspace = true }
 tempfile = "3"
 nix = { version = "0.29", features = ["resource"] }
 libc = "0.2"
-wasmtime = { version = "27", optional = true }
+wasmtime = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

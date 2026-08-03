@@ -31,6 +31,7 @@ pub mod graph_sink;
 pub mod reduct_writer;
 pub mod wal_reduct_replicator;
 pub mod watermark;
+pub mod circuit_breaker;
 pub use checkpoint::{
     CheckpointCoordinator, CheckpointManifest, CheckpointStore, FileCheckpointStore,
     InMemoryCheckpointStore, RecoveryPlan,

@@ -75,7 +75,7 @@ pub async fn execute_with_limits(
         let mut cypher_result = convert_result(result_set);
 
         // Post-process: fill in edge properties that cypher-parser doesn't support
-        cypher_result = fill_edge_properties(cypher_result, &snapshot, query);
+        cypher_result = fill_edge_properties(cypher_result, &snapshot, query)?;
 
         Ok(cypher_result)
     })
@@ -291,8 +291,10 @@ impl NexoraGraphSnapshot {
                 };
                 if seen_edges.insert((source, edge_type.clone(), target)) {
                     // Get edge properties from the source node's edge_properties map
-                    let _source_node_id = idx_to_id.get(&source).unwrap();
-                    let target_node_id = idx_to_id.get(&target).unwrap();
+                    let Some(target_node_id) = idx_to_id.get(&target) else {
+                        tracing::warn!("Missing target node ID for index {}", target);
+                        continue;
+                    };
                     let edge_key = (edge.edge_type.clone(), target_node_id.clone());
 
                     let properties = state
@@ -546,13 +548,14 @@ fn fill_edge_properties(
     result: CypherResult,
     snapshot: &NexoraGraphSnapshot,
     query: &str,
-) -> CypherResult {
+) -> Result<CypherResult, CypherError> {
     let CypherResult::Rows { columns, rows } = result else {
-        return result;
+        return Ok(result);
     };
 
     // Detect edge property columns: r.property_name
-    let edge_prop_pattern = regex::Regex::new(r"\br\.(\w+)").unwrap();
+    let edge_prop_pattern = regex::Regex::new(r"\br\.(\w+)")
+        .map_err(|e| CypherError::Execution(format!("Invalid regex pattern: {}", e)))?;
     let edge_props: Vec<(usize, String)> = columns
         .iter()
         .enumerate()
@@ -565,7 +568,7 @@ fn fill_edge_properties(
         .collect();
 
     if edge_props.is_empty() {
-        return CypherResult::Rows { columns, rows };
+        return Ok(CypherResult::Rows { columns, rows });
     }
 
     // Also detect from query string if column names don't have the pattern
@@ -576,7 +579,7 @@ fn fill_edge_properties(
         .collect();
 
     if query_edge_props.is_empty() {
-        return CypherResult::Rows { columns, rows };
+        return Ok(CypherResult::Rows { columns, rows });
     }
 
     // Parse query to extract relationship pattern and find column indices for from_id/to_id
@@ -589,24 +592,31 @@ fn fill_edge_properties(
         .position(|c| c.contains("to_id") || c == "id(b)");
 
     if from_id_idx.is_none() || to_id_idx.is_none() {
-        return CypherResult::Rows { columns, rows };
+        return Ok(CypherResult::Rows { columns, rows });
     }
 
-    let from_id_idx = from_id_idx.unwrap();
-    let to_id_idx = to_id_idx.unwrap();
+    let from_id_idx = from_id_idx.ok_or_else(|| {
+        CypherError::Execution("Missing from_id column in query result".to_string())
+    })?;
+    let to_id_idx = to_id_idx.ok_or_else(|| {
+        CypherError::Execution("Missing to_id column in query result".to_string())
+    })?;
 
     // Extract relationship type from query: -[r:TYPE]->
-    let rel_type_pattern = regex::Regex::new(r"-\[r:(\w+)\]->").unwrap();
+    let rel_type_pattern = regex::Regex::new(r"-\[r:(\w+)\]->")
+        .map_err(|e| CypherError::Execution(format!("Invalid regex pattern: {}", e)))?;
     let rel_type = rel_type_pattern
         .captures(query)
         .and_then(|cap| cap.get(1))
         .map(|m| m.as_str());
 
     if rel_type.is_none() {
-        return CypherResult::Rows { columns, rows };
+        return Ok(CypherResult::Rows { columns, rows });
     }
 
-    let rel_type = rel_type.unwrap();
+    let rel_type = rel_type.ok_or_else(|| {
+        CypherError::Execution("Missing relationship type in query pattern".to_string())
+    })?;
 
     // Fill edge properties for each row
     let new_rows: Vec<Vec<serde_json::Value>> =
@@ -672,10 +682,10 @@ fn fill_edge_properties(
             })
             .collect();
 
-    CypherResult::Rows {
+    Ok(CypherResult::Rows {
         columns,
         rows: new_rows,
-    }
+    })
 }
 
 /// Extract AS OF timestamp from a Cypher query string.

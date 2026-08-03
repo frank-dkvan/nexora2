@@ -29,6 +29,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
+use crate::circuit_breaker::StreamCircuitBreaker;
+use std::sync::Arc;
+
 /// Configuration for an [`MqttSource`].
 #[derive(Clone, Debug)]
 pub struct MqttSourceConfig {
@@ -89,6 +92,8 @@ pub struct MqttSource {
     /// Monotonic message sequence, used as a synthetic offset (MQTT has none).
     seq: AtomicU64,
     stopped: AtomicBool,
+    /// P1-2: Circuit breaker for MQTT broker operations
+    breaker: Arc<StreamCircuitBreaker>,
 }
 
 impl MqttSource {
@@ -101,6 +106,7 @@ impl MqttSource {
             stats: Mutex::new(IngestionStats::default()),
             seq: AtomicU64::new(0),
             stopped: AtomicBool::new(false),
+            breaker: Arc::new(StreamCircuitBreaker::new("mqtt")),
         }
     }
 
@@ -119,71 +125,92 @@ impl MqttSource {
 #[async_trait::async_trait]
 impl IngestionSource for MqttSource {
     async fn connect(&self) -> Result<(), IngestionError> {
-        let mut opts = MqttOptions::new(
-            self.config.client_id.clone(),
-            self.config.host.clone(),
-            self.config.port,
-        );
-        opts.set_keep_alive(Duration::from_secs(30));
+        // P1-3: Wrap with retry logic, then P1-2 circuit breaker
+        use nexora_common::retry::{retry_with_backoff_config, RetryConfig};
 
-        let (client, mut eventloop) = AsyncClient::new(opts, self.config.buffer_capacity.max(16));
+        let retry_config = RetryConfig::conservative(); // 5 attempts for MQTT broker connection
 
-        // Subscribe to all configured topics.
-        for topic in &self.config.topics {
-            client
-                .subscribe(topic, self.qos())
-                .await
-                .map_err(|e| IngestionError::Connection(format!("MQTT subscribe {topic}: {e}")))?;
-        }
+        retry_with_backoff_config(retry_config, || async {
+            // P1-2: Circuit breaker wrapper
+            let connect_op = async {
+            let mut opts = MqttOptions::new(
+                self.config.client_id.clone(),
+                self.config.host.clone(),
+                self.config.port,
+            );
+            opts.set_keep_alive(Duration::from_secs(30));
 
-        let (tx, rx) = mpsc::channel::<IngestRecord>(self.config.buffer_capacity.max(1));
-        let id_field = self.config.id_field.clone();
-        let event_time_field = self.config.event_time_field.clone();
-        let event_time_unit = self.config.event_time_unit;
+            let (client, mut eventloop) = AsyncClient::new(opts, self.config.buffer_capacity.max(16));
 
-        // Background drainer: drive the event loop, parse PUBLISH packets into
-        // records, and push them into the bounded buffer. `tx.send` awaits when
-        // the buffer is full → backpressure. Exits when the receiver drops
-        // (source closed) or the connection errors terminally.
-        let drainer = tokio::spawn(async move {
-            loop {
-                match eventloop.poll().await {
-                    Ok(Event::Incoming(Packet::Publish(publish))) => {
-                        let records = match parse_publish(
-                            &publish.topic,
-                            &publish.payload,
-                            &id_field,
-                            event_time_field.as_deref(),
-                            event_time_unit,
-                        ) {
-                            Ok(recs) => recs,
-                            Err(e) => {
-                                tracing::warn!(topic = %publish.topic, error = %e, "MQTT: skip bad payload");
-                                continue;
-                            }
-                        };
-                        for rec in records {
-                            if tx.send(rec).await.is_err() {
-                                return; // receiver dropped — source closed
+            // Subscribe to all configured topics.
+            for topic in &self.config.topics {
+                client
+                    .subscribe(topic, self.qos())
+                    .await
+                    .map_err(|e| anyhow::anyhow!("MQTT subscribe {}: {}", topic, e))?;
+            }
+
+            let (tx, rx) = mpsc::channel::<IngestRecord>(self.config.buffer_capacity.max(1));
+            let id_field = self.config.id_field.clone();
+            let event_time_field = self.config.event_time_field.clone();
+            let event_time_unit = self.config.event_time_unit;
+
+            // Background drainer: drive the event loop, parse PUBLISH packets into
+            // records, and push them into the bounded buffer. `tx.send` awaits when
+            // the buffer is full → backpressure. Exits when the receiver drops
+            // (source closed) or the connection errors terminally.
+            let drainer = tokio::spawn(async move {
+                loop {
+                    match eventloop.poll().await {
+                        Ok(Event::Incoming(Packet::Publish(publish))) => {
+                            let records = match parse_publish(
+                                &publish.topic,
+                                &publish.payload,
+                                &id_field,
+                                event_time_field.as_deref(),
+                                event_time_unit,
+                            ) {
+                                Ok(recs) => recs,
+                                Err(e) => {
+                                    tracing::warn!(topic = %publish.topic, error = %e, "MQTT: skip bad payload");
+                                    continue;
+                                }
+                            };
+                            for rec in records {
+                                if tx.send(rec).await.is_err() {
+                                    return; // receiver dropped — source closed
+                                }
                             }
                         }
-                    }
-                    Ok(_) => {} // other events (acks, pings, connack) — ignore
-                    Err(e) => {
-                        // Transport error: log and keep looping; rumqttc retries
-                        // the connection internally. Back off briefly to avoid a
-                        // hot error loop.
-                        tracing::warn!(error = %e, "MQTT event loop error");
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        Ok(_) => {} // other events (acks, pings, connack) — ignore
+                        Err(e) => {
+                            // Transport error: log and keep looping; rumqttc retries
+                            // the connection internally. Back off briefly to avoid a
+                            // hot error loop.
+                            tracing::warn!(error = %e, "MQTT event loop error");
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        *self.rx.lock().await = Some(rx);
-        *self.client.lock().await = Some(client);
-        *self.drainer.lock().await = Some(drainer);
-        Ok(())
+            *self.rx.lock().await = Some(rx);
+            *self.client.lock().await = Some(client);
+            *self.drainer.lock().await = Some(drainer);
+            Ok(())
+        };
+
+        self.breaker.call::<_, (), anyhow::Error>(connect_op).await.map_err(|e| match e {
+            crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
+                IngestionError::Connection(format!("Circuit breaker open: {}", s))
+            }
+            crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
+                IngestionError::Connection(format!("{}", e))
+            }
+        })
+        })
+        .await
+        .map_err(|e| IngestionError::Connection(format!("Failed to connect to MQTT after retries: {}", e)))
     }
 
     async fn poll(&self) -> Result<Option<IngestBatch>, IngestionError> {
@@ -229,6 +256,7 @@ impl IngestionSource for MqttSource {
             offset_start,
             offset_end,
             topic,
+            raw_events: None,
         }))
     }
 

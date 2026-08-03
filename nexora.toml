@@ -5,6 +5,16 @@ port = 8080
 [graph]
 num_shards = 256
 
+[query]
+# Maximum number of rows in query result set
+max_result_rows = 100000
+# Maximum query execution time in seconds
+max_execution_time_secs = 30
+# Maximum nodes in graph snapshot for query execution
+max_snapshot_nodes = 10000000
+# Maximum pattern depth in MATCH clauses (prevents complexity attacks)
+max_pattern_depth = 10
+
 [storage.rocksdb]
 path = "./nexora-data"
 

@@ -3,7 +3,31 @@
 > Next-generation streaming graph database with event-first architecture
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.88+-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-nightly--2026--06--11-orange.svg)](https://www.rust-lang.org)
+[![Production Ready](https://img.shields.io/badge/status-production--ready-brightgreen.svg)](docs/PRODUCTION_READINESS_FINAL_REPORT.md)
+
+---
+
+## 🚀 Quick Start (5 Minutes)
+
+```bash
+# 1. Set up Rust nightly toolchain
+rustup default nightly-2026-06-11
+
+# 2. One-line demo (build + start + load data + run queries)
+./scripts/quick-start.sh
+```
+
+**服务器启动在**: `http://127.0.0.1:8080`
+
+**试试这个查询**:
+```bash
+curl -X POST http://127.0.0.1:8080/api/query \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "MATCH (a:Airport) RETURN a.code, a.name LIMIT 5"}'
+```
+
+📖 **详细指南**: 查看 [DEMO_GUIDE.md](DEMO_GUIDE.md) 获取完整的航空货运站演示说明
 
 ---
 

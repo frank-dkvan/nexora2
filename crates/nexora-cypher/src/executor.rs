@@ -47,6 +47,16 @@ pub async fn execute_with_limits(
     query: &str,
     limits: &QueryLimits,
 ) -> Result<CypherResult, CypherError> {
+    // Non-ASCII column-alias bridge: both nexora-language and cypher-parser lex
+    // identifiers as ASCII-only, so `... RETURN count(*) AS 航线数` fails to parse
+    // with "unexpected character `航`". Rewrite each non-ASCII alias to an ASCII
+    // placeholder up front (so every parser below sees ASCII), then rename the
+    // result columns back after execution. No-op when there is no non-ASCII alias.
+    // Done here (not in the lib.rs wrapper) because this is where both HTTP and
+    // library entry points converge — same rationale as the edge-property bridge.
+    let alias_rw = crate::alias_rewrite::plan_alias_rewrite(query);
+    let query = alias_rw.query.as_str();
+
     // Write dispatch: detect CREATE/MERGE/SET/DELETE/REMOVE via nexora-language's
     // AST parser (cypher-parser below only understands read queries: MATCH/WHERE/
     // RETURN/WITH). Without this, a write query would fall through to the read
@@ -120,6 +130,10 @@ pub async fn execute_with_limits(
         // endpoint helper columns injected by plan_edge_property_rewrite, then
         // strip those helper columns so the caller sees only what they asked for.
         cypher_result = fill_edge_properties_v2(cypher_result, &snapshot, &edge_rw);
+
+        // Rename any ASCII placeholder columns back to their original non-ASCII
+        // aliases. No-op when the alias bridge did not fire.
+        cypher_result = crate::alias_rewrite::restore_aliases(cypher_result, &alias_rw);
 
         Ok(cypher_result)
     })
@@ -706,16 +720,27 @@ fn plan_edge_property_rewrite(query: &str) -> EdgeRewrite {
     let mut fills: Vec<EdgeFill> = Vec::new();
     let mut injection = String::new();
     for (evar, src_var, tgt_var, edge_type) in &edges {
-        // Find `evar.prop` references in the query text.
-        let prop_re = match regex::Regex::new(&format!(r"\b{}\.(\w+)", regex::escape(evar))) {
-            Ok(re) => re,
-            Err(_) => continue,
-        };
+        // Find `evar.prop` references, capturing an optional `AS <alias>` so the
+        // fill targets the actual result column name. cypher-parser names an
+        // aliased projection by its alias, so `RETURN r.distance AS dist` yields a
+        // column `dist`, not `r.distance`; without capturing the alias the fill
+        // looks up the wrong column and leaves it null. (Non-ASCII aliases have
+        // already been rewritten to `__nx_aliasN` by the alias bridge, so `\w+`
+        // matches them here.)
+        let prop_re =
+            match regex::Regex::new(&format!(r"\b{}\.(\w+)(?:\s+AS\s+(\w+))?", regex::escape(evar))) {
+                Ok(re) => re,
+                Err(_) => continue,
+            };
         let mut targets: Vec<(String, String)> = Vec::new();
         for cap in prop_re.captures_iter(query) {
             if let Some(m) = cap.get(1) {
                 let prop = m.as_str().to_string();
-                let col = format!("{}.{}", evar, prop);
+                // Result column = alias if `AS <alias>` present, else `evar.prop`.
+                let col = cap
+                    .get(2)
+                    .map(|a| a.as_str().to_string())
+                    .unwrap_or_else(|| format!("{}.{}", evar, prop));
                 if !targets.iter().any(|(c, _)| c == &col) {
                     targets.push((col, prop));
                 }
@@ -967,10 +992,15 @@ fn fill_edge_properties_v2(
     // `__nx_sortN`). Match by the `__nx_` prefix so node-property sort helpers
     // (which are not fill targets) are removed too. Descending index order keeps
     // positions valid as we remove.
+    //
+    // EXCEPT `__nx_alias*`: those are the non-ASCII alias bridge's placeholders,
+    // not edge-bridge helpers. They are real result columns that
+    // `restore_aliases` renames back to their original names afterwards —
+    // stripping them here would drop the user's aliased columns entirely.
     let mut strip: Vec<usize> = columns
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.starts_with("__nx_"))
+        .filter(|(_, c)| c.starts_with("__nx_") && !c.starts_with("__nx_alias"))
         .map(|(i, _)| i)
         .collect();
     strip.sort_unstable();

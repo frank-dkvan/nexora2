@@ -19,6 +19,7 @@
 //!       └─ Write path: MutationOps → Commit Path
 //! ```
 
+pub mod alias_rewrite;
 pub mod executor;
 pub mod function_rewrite;
 pub mod path_variable_rewriter;

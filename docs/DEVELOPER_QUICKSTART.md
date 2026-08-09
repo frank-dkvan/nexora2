@@ -6,16 +6,35 @@
 
 ### 必需工具
 ```bash
-# 1. Rust (1.88+)
+# 1. 通过 rustup 安装 Rust (不要用 Homebrew 装 rust!见下方警告)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 2. 基础组件
-rustup component add rustfmt clippy
+# 2. 工具链自动锁定:仓库根的 rust-toolchain.toml 已 pin 特定 nightly
+#    (当前 nightly-2026-06-11)。进入仓库目录后 rustup 会自动下载并使用它,
+#    组件 (rustfmt/clippy/rust-src) 也在 pin 里声明,无需手动 add。
+cd nexora2
+cargo --version   # 必须打印 "...-nightly..." —— 见下方警告
 
 # 3. Git hooks (推荐)
 cp scripts/git-hooks/pre-commit .git/hooks/
 chmod +x .git/hooks/pre-commit
 ```
+
+> ⚠️ **头号踩坑:Homebrew stable 遮蔽 rustup proxy**
+>
+> 若你用 `brew install rust`,它会在 `/opt/homebrew/bin` 放一个独立的 **stable**
+> `cargo`/`rustc`,且**无视** `rust-toolchain.toml`。一旦它在 PATH 上排在
+> `~/.cargo/bin`(rustup proxy)前面,构建会失败:
+> `profile-rustflags requires a nightly version of Cargo` /
+> `-Z is only accepted on the nightly compiler`。
+>
+> **修复**:让 rustup proxy 抢先。
+> ```bash
+> export PATH="$HOME/.cargo/bin:$PATH"   # 写进 ~/.zshrc / ~/.bashrc
+> cargo --version                        # 确认输出含 "nightly",不含 "(Homebrew)"
+> ```
+> 本仓库的 `scripts/build*.sh` 已内置此修复。详见
+> `docs/DEVELOPMENT_STANDARDS.md` 的「工具链」章节。
 
 ### IDE 配置 (VSCode 推荐)
 ```bash

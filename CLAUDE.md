@@ -53,6 +53,35 @@ nexora2/
 
 ### 2. Feature Flags
 
+> **⚠️ Toolchain (read first).** The workspace is pinned to a **specific nightly**
+> via `rust-toolchain.toml` (currently `nightly-2026-06-11`, kept in sync with
+> `vendor/risingwave/ci/rust-toolchain`). This is mandatory: `.cargo/config.toml`
+> uses `-Zhigher-ranked-assumptions` and the root `Cargo.toml` uses the
+> `profile-rustflags` cargo feature, both nightly-only.
+>
+> **The `cargo` you invoke must be the rustup proxy (`~/.cargo/bin/cargo`), not
+> Homebrew's standalone stable cargo (`/opt/homebrew/bin/cargo`).** Homebrew's
+> cargo ignores `rust-toolchain.toml` and fails with
+> `profile-rustflags requires a nightly version of Cargo` or
+> `-Z is only accepted on the nightly compiler`. If Homebrew Rust is installed,
+> ensure `~/.cargo/bin` comes first on `PATH`:
+> ```bash
+> export PATH="$HOME/.cargo/bin:$PATH"
+> cargo --version   # must print "...-nightly..."; if it says "(Homebrew)" the proxy is shadowed
+> ```
+> Do **not** hardcode the nightly date or pass `+nightly` — the proxy reads the
+> pin from `rust-toolchain.toml` automatically. The `scripts/build*.sh` helpers
+> already apply this PATH fix.
+>
+> **Agent self-check (run before any build/test/clippy).** Confirm cargo resolves
+> to the nightly proxy; if it doesn't, fix PATH in-shell, then proceed:
+> ```bash
+> cargo --version | grep -q nightly || export PATH="$HOME/.cargo/bin:$PATH"
+> cargo --version   # verify: must contain "nightly"
+> ```
+> If it still isn't nightly after the PATH fix, run the build through
+> `scripts/build*.sh` (which self-heal PATH) rather than invoking `cargo` directly.
+
 ```toml
 # Default build (no Event Streaming)
 cargo build --release
@@ -143,7 +172,7 @@ cargo test --workspace --all-features
 
 ### Code Style
 
-- **Language**: Rust 1.75+
+- **Language**: Rust — **pinned nightly** via `rust-toolchain.toml` (`nightly-2026-06-11`). Required by RisingWave library-mode integration; invoke through the rustup proxy (see the Toolchain note under Feature Flags).
 - **Formatting**: `cargo fmt` (enforced by CI)
 - **Linting**: `cargo clippy` (no warnings allowed)
 - **Documentation**: All public APIs must have doc comments

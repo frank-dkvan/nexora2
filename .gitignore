@@ -20,6 +20,9 @@ Thumbs.db
 /nexora-data/
 /nexora-data-*/
 /quine-data/
+# Same runtime data dir created under any crate when tests boot a server
+# (e.g. crates/nexora-app/nexora-data from cluster_acceptance). Non-anchored.
+nexora-data/
 
 # Local cluster scaffolding (dev/test scratch, not source)
 /cluster.yaml

@@ -4,8 +4,11 @@
 
 set -e
 
-# Fix PATH to prioritize rustup toolchain
-export PATH=/Users/frank/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
+# Prefer the rustup cargo/rustc on PATH without clobbering it. The previous
+# hard-coded PATH (/Users/frank/.cargo/bin:...) worked only on one macOS box and
+# broke CI ("cargo: command not found", exit 127) since it dropped the runner's
+# real cargo location. Prepend $HOME/.cargo/bin and keep the inherited PATH.
+export PATH="$HOME/.cargo/bin:$PATH"
 
 echo "🚀 Nexora 2.0 端到端完整流水线测试"
 echo "=========================================="

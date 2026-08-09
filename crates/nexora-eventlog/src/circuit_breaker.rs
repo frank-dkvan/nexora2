@@ -3,9 +3,9 @@
 //! Protects against cascading failures when S3/Iceberg operations fail repeatedly.
 //! Uses the failsafe crate to implement the circuit breaker pattern.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use failsafe::{
-    backoff::{self, Exponential},
+    backoff::{self, Constant},
     failure_policy::{self, ConsecutiveFailures},
     futures::CircuitBreaker,
     Config, Error as FailsafeError, Instrument, StateMachine,
@@ -81,7 +81,7 @@ impl Instrument for StateObserver {
 
 /// Circuit breaker wrapper for protecting against cascading failures
 pub struct EventStoreCircuitBreaker {
-    circuit: StateMachine<ConsecutiveFailures<Exponential>, StateObserver>,
+    circuit: StateMachine<ConsecutiveFailures<Constant>, StateObserver>,
     observer: StateObserver,
     service_name: String,
 }
@@ -94,7 +94,12 @@ impl EventStoreCircuitBreaker {
         let circuit = Config::new()
             .failure_policy(failure_policy::consecutive_failures(
                 config.failure_threshold as u32,
-                backoff::exponential(Duration::from_millis(100), Duration::from_secs(5)),
+                // Wait `config.timeout` before probing a half-open circuit. Use a
+                // constant backoff (not exponential): it honors the configured
+                // recovery delay directly, and — unlike failsafe's exponential
+                // backoff, which asserts `start.as_secs() > 0` and so panics on any
+                // sub-second value — accepts sub-second timeouts.
+                backoff::constant(config.timeout),
             ))
             .instrument(observer.clone())
             .build();

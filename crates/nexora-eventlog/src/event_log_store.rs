@@ -504,7 +504,7 @@ impl EventLogStore {
                     // Reload table metadata before retry
                     *table = self
                         .catalog
-                        .load_table(&table.identifier())
+                        .load_table(table.identifier())
                         .await
                         .context("Failed to reload table metadata for retry")?;
                     continue;
@@ -1041,12 +1041,12 @@ impl EventLogStore {
         self.catalog.clone()
     }
 
-    /// Stream events from a topic table (Phase 7: GraphStreaming + Phase 7.8: Incremental)
-    ///
-    /// NOTE: This method is currently UNIMPLEMENTED - it requires a RecordBatch to RawEvent
-    /// conversion function that doesn't exist yet. Commenting out for now to fix compilation.
-    ///
-    /// TODO: Implement record_batch_to_raw_events() conversion before enabling this.
+    // Stream events from a topic table (Phase 7: GraphStreaming + Phase 7.8: Incremental)
+    //
+    // NOTE: This method is currently UNIMPLEMENTED - it requires a RecordBatch to RawEvent
+    // conversion function that doesn't exist yet. Commenting out for now to fix compilation.
+    //
+    // TODO: Implement record_batch_to_raw_events() conversion before enabling this.
     /*
     pub async fn stream_topic(
         &self,
@@ -1180,6 +1180,9 @@ impl EventLogStore {
     */
 
     /// Provenance 字段保护列表
+    // Exercised by unit tests; not called from non-test lib code, hence dead in
+    // the plain lib build.
+    #[allow(dead_code)]
     fn is_reserved_field(name: &str) -> bool {
         matches!(
             name,
@@ -1261,7 +1264,6 @@ fn align_batch_to_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_reserved_field_check() {

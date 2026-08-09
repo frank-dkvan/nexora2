@@ -303,9 +303,7 @@ impl EventLogStore {
 
         retry_with_backoff_config(retry_config, || async {
             // P1-2: Circuit breaker wrapper
-            let write_op = async {
-                self.write_data_files_internal(table, batch.clone()).await
-            };
+            let write_op = async { self.write_data_files_internal(table, batch.clone()).await };
 
             if let Some(breaker) = &self.write_breaker {
                 breaker.call(write_op).await

@@ -64,10 +64,7 @@ impl ParallelCheckpointFlusher {
         let mut results = vec![0; total_ranges];
 
         // 分批并行刷新（避免过度并发）
-        for (batch_idx, batch) in shard_ranges
-            .chunks(self.max_parallelism)
-            .enumerate()
-        {
+        for (batch_idx, batch) in shard_ranges.chunks(self.max_parallelism).enumerate() {
             // 启动当前批次的并行刷新
             for (local_idx, &(start, end)) in batch.iter().enumerate() {
                 let graph_clone = Arc::clone(&graph);

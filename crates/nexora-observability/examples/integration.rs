@@ -5,12 +5,12 @@
 // 2. Instrument code with metrics
 // 3. Start the observability HTTP server
 
+use nexora_observability::health::HealthCheck;
 use nexora_observability::{
-    HealthChecker, HealthCheck, ComponentHealth, HealthStatus,
-    MetricsRegistry, ObservabilityServer,
+    ComponentHealth, HealthChecker, HealthStatus, MetricsRegistry, ObservabilityServer,
 };
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 // Example: Raft health check implementation
 struct RaftHealthCheck {
@@ -80,11 +80,8 @@ pub async fn init_observability(
     let metrics = Arc::new(MetricsRegistry::new()?);
 
     // Start observability HTTP server
-    let server = ObservabilityServer::new(
-        bind_addr,
-        Arc::clone(&health_checker),
-        Arc::clone(&metrics),
-    );
+    let server =
+        ObservabilityServer::new(bind_addr, Arc::clone(&health_checker), Arc::clone(&metrics));
 
     tokio::spawn(async move {
         if let Err(e) = server.serve().await {
@@ -102,16 +99,13 @@ pub async fn init_observability(
 
 // Example: Instrumenting query execution with metrics
 pub async fn execute_query_with_metrics(
-    query: &str,
+    _query: &str,
     metrics: &MetricsRegistry,
 ) -> anyhow::Result<String> {
     use std::time::Instant;
 
     // Track active queries
     metrics.active_queries.inc();
-    let _guard = scopeguard::guard((), |_| {
-        metrics.active_queries.dec();
-    });
 
     // Time the query
     let start = Instant::now();
@@ -132,13 +126,20 @@ pub async fn execute_query_with_metrics(
         .with_label_values(&[query_type, "success"])
         .inc();
 
+    // Done — decrement the active-query gauge.
+    metrics.active_queries.dec();
+
     Ok(result)
 }
 
+fn main() {
+    // This file is a documentation example of how to wire observability into
+    // nexora-app; the functions above are the reference. Nothing to run here.
+    println!("See the functions in this file for observability integration examples.");
+}
+
 // Example: Instrumenting WAL fsync with metrics
-pub async fn wal_fsync_with_metrics(
-    metrics: &MetricsRegistry,
-) -> anyhow::Result<()> {
+pub async fn wal_fsync_with_metrics(metrics: &MetricsRegistry) -> anyhow::Result<()> {
     use std::time::Instant;
 
     let start = Instant::now();

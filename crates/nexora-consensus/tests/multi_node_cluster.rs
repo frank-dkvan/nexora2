@@ -14,11 +14,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 /// Test helper: Create a cluster configuration for a node.
-fn create_node_config(
-    node_id: u64,
-    base_port: u16,
-    cluster_size: usize,
-) -> RaftConfig {
+fn create_node_config(node_id: u64, base_port: u16, cluster_size: usize) -> RaftConfig {
     let listen_port = base_port + node_id as u16 - 1;
     let listen_addr = format!("127.0.0.1:{}", listen_port).parse().unwrap();
 
@@ -51,10 +47,10 @@ async fn start_cluster(configs: Vec<RaftConfig>) -> Vec<Arc<RaftConsensusClient>
 }
 
 /// Test helper: Wait for a leader to be elected.
-async fn wait_for_leader(
-    nodes: &[Arc<RaftConsensusClient>],
-    timeout: Duration,
-) -> Option<u64> {
+// Reserved for the failover / partition-tolerance tests (see module docs); not
+// yet referenced by an active test in this file.
+#[allow(dead_code)]
+async fn wait_for_leader(nodes: &[Arc<RaftConsensusClient>], timeout: Duration) -> Option<u64> {
     let start = std::time::Instant::now();
 
     while start.elapsed() < timeout {
@@ -120,7 +116,10 @@ async fn test_single_leader_election() {
     }
 
     // Current implementation: no automatic election yet
-    assert_eq!(leader_count, 0, "Multi-node mode should not auto-elect leader yet");
+    assert_eq!(
+        leader_count, 0,
+        "Multi-node mode should not auto-elect leader yet"
+    );
 
     // Clean up
     for node in nodes {
@@ -237,7 +236,10 @@ async fn test_storage_persistence_mode() {
     assert_eq!(index, 1);
 
     // Verify storage is used (not just in-memory log)
-    assert!(node.has_storage(), "Multi-node mode should have storage initialized");
+    assert!(
+        node.has_storage(),
+        "Multi-node mode should have storage initialized"
+    );
     assert_eq!(node.storage_log_count().await, 1);
 
     // Clean up

@@ -883,7 +883,7 @@ pub async fn execute_cypher(
         let query = TimeTravelQuery::at(ts);
         let registry = frag_store.registry();
 
-        match execute_time_travel(&*registry, query).await {
+        match execute_time_travel(registry, query).await {
             Ok(result) => {
                 // Convert TimeTravelResult to CypherResponse format
                 let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
@@ -898,12 +898,16 @@ pub async fn execute_cypher(
                         row.push(serde_json::json!(node.properties));
                     }
                     if !node.edges.is_empty() {
-                        row.push(serde_json::json!(node.edges.iter().map(|e| json!({
-                            "type": e.edge_type,
-                            "direction": e.direction,
-                            "other": e.other,
-                            "timestamp": e.timestamp,
-                        })).collect::<Vec<_>>()));
+                        row.push(serde_json::json!(node
+                            .edges
+                            .iter()
+                            .map(|e| json!({
+                                "type": e.edge_type,
+                                "direction": e.direction,
+                                "other": e.other,
+                                "timestamp": e.timestamp,
+                            }))
+                            .collect::<Vec<_>>()));
                     }
                     rows.push(row);
                 }
@@ -912,7 +916,12 @@ pub async fn execute_cypher(
                 return build_response(
                     StatusCode::OK,
                     CypherResponse {
-                        columns: vec!["type".to_string(), "id".to_string(), "properties".to_string(), "edges".to_string()],
+                        columns: vec![
+                            "type".to_string(),
+                            "id".to_string(),
+                            "properties".to_string(),
+                            "edges".to_string(),
+                        ],
                         rows,
                         error: None,
                         as_of: Some(ts),
@@ -922,7 +931,10 @@ pub async fn execute_cypher(
                 );
             }
             Err(e) => {
-                tracing::warn!("Time-travel query failed: {}, falling back to current state", e);
+                tracing::warn!(
+                    "Time-travel query failed: {}, falling back to current state",
+                    e
+                );
                 // Fall through to regular Cypher execution
             }
         }
@@ -3904,7 +3916,9 @@ pub async fn time_travel(
                         return Json(json!({"error": "Invalid date format"}));
                     }
                 } else {
-                    return Json(json!({"error": "Invalid timestamp format. Use microseconds or YYYYMMDD"}));
+                    return Json(
+                        json!({"error": "Invalid timestamp format. Use microseconds or YYYYMMDD"}),
+                    );
                 }
             }
         }
@@ -3937,23 +3951,21 @@ pub async fn time_travel(
     }
 
     let frag_store_clone = Arc::clone(frag_store);
-    match execute_time_travel(&*frag_store_clone.registry(), query).await {
-        Ok(result) => {
-            Json(json!({
-                "as_of_us": as_of_ts,
-                "nodes": result.nodes.iter().map(|n| json!({
-                    "id": n.id,
-                    "properties": n.properties,
-                    "edges": n.edges.iter().map(|e| json!({
-                        "type": e.edge_type,
-                        "direction": e.direction,
-                        "other": e.other,
-                        "timestamp": e.timestamp,
-                    })).collect::<Vec<_>>(),
+    match execute_time_travel(frag_store_clone.registry(), query).await {
+        Ok(result) => Json(json!({
+            "as_of_us": as_of_ts,
+            "nodes": result.nodes.iter().map(|n| json!({
+                "id": n.id,
+                "properties": n.properties,
+                "edges": n.edges.iter().map(|e| json!({
+                    "type": e.edge_type,
+                    "direction": e.direction,
+                    "other": e.other,
+                    "timestamp": e.timestamp,
                 })).collect::<Vec<_>>(),
-                "node_count": result.nodes.len(),
-            }))
-        }
+            })).collect::<Vec<_>>(),
+            "node_count": result.nodes.len(),
+        })),
         Err(e) => Json(json!({
             "error": format!("Time-travel query failed: {}", e)
         })),

@@ -46,8 +46,11 @@ async fn edge_property_order_by() {
     .expect("create ok");
 
     // A) No ORDER BY — known-good baseline.
-    let (_c, r_plain) =
-        rows(&graph, "MATCH (a:Airport)-[r:ROUTE_TO]->(b:Airport) RETURN a.code, b.code, r.distance").await;
+    let (_c, r_plain) = rows(
+        &graph,
+        "MATCH (a:Airport)-[r:ROUTE_TO]->(b:Airport) RETURN a.code, b.code, r.distance",
+    )
+    .await;
     println!("PLAIN rows = {:?}", r_plain);
     let plain_distances: Vec<&serde_json::Value> = r_plain.iter().map(|row| &row[2]).collect();
     println!("PLAIN distances = {:?}", plain_distances);

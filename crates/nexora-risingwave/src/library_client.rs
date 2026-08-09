@@ -35,19 +35,16 @@ impl LibraryClient {
         // Add timeout to prevent hanging indefinitely if RisingWave is unresponsive
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            tokio_postgres::connect(&conn_str, NoTls)
+            tokio_postgres::connect(&conn_str, NoTls),
         )
         .await
         .map_err(|_| {
             EventStreamingError::QueryFailed(
-                "RisingWave connection timeout after 10 seconds".to_string()
+                "RisingWave connection timeout after 10 seconds".to_string(),
             )
         })?
         .map_err(|e| {
-            EventStreamingError::QueryFailed(format!(
-                "Failed to connect to RisingWave: {}",
-                e
-            ))
+            EventStreamingError::QueryFailed(format!("Failed to connect to RisingWave: {}", e))
         })?;
 
         // Spawn connection handler

@@ -483,10 +483,8 @@ pub async fn start_sync(
         drop(sinks);
 
         // Create EventLogSink
-        let sink = nexora_risingwave::EventLogSink::new(
-            event_store.clone(),
-            Arc::new(rw_module.clone()),
-        );
+        let sink =
+            nexora_risingwave::EventLogSink::new(event_store.clone(), Arc::new(rw_module.clone()));
 
         let mv_name = req.mv_name.clone();
         let topic = req.topic.clone();

@@ -45,7 +45,10 @@ fn parse_event_streaming_mode(
             if let Some(cfg) = config {
                 Ok(cfg.mode)
             } else {
-                anyhow::bail!("Invalid event streaming mode: '{}'. Expected 'single' or 'distributed'", other)
+                anyhow::bail!(
+                    "Invalid event streaming mode: '{}'. Expected 'single' or 'distributed'",
+                    other
+                )
             }
         }
     }

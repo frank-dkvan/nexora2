@@ -347,7 +347,10 @@ impl LoadTester {
         sorted[idx.min(sorted.len() - 1)]
     }
 
-    async fn save_results(&self, output_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn save_results(
+        &self,
+        output_path: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let metrics = self.metrics.lock().await;
         let json = serde_json::to_string_pretty(&*metrics)?;
         tokio::fs::write(output_path, json).await?;
@@ -358,15 +361,12 @@ impl LoadTester {
 
 fn parse_duration(s: &str) -> Result<Duration, Box<dyn std::error::Error + Send + Sync>> {
     let s = s.trim();
-    if s.ends_with("h") {
-        let hours: u64 = s[..s.len() - 1].parse()?;
-        Ok(Duration::from_secs(hours * 3600))
-    } else if s.ends_with("m") {
-        let minutes: u64 = s[..s.len() - 1].parse()?;
-        Ok(Duration::from_secs(minutes * 60))
-    } else if s.ends_with("s") {
-        let seconds: u64 = s[..s.len() - 1].parse()?;
-        Ok(Duration::from_secs(seconds))
+    if let Some(hours) = s.strip_suffix('h') {
+        Ok(Duration::from_secs(hours.parse::<u64>()? * 3600))
+    } else if let Some(minutes) = s.strip_suffix('m') {
+        Ok(Duration::from_secs(minutes.parse::<u64>()? * 60))
+    } else if let Some(seconds) = s.strip_suffix('s') {
+        Ok(Duration::from_secs(seconds.parse::<u64>()?))
     } else {
         Err("Invalid duration format (use 24h, 5m, 30s)".into())
     }

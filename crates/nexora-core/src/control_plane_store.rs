@@ -194,7 +194,9 @@ impl InMemoryControlPlaneStore {
 
 impl ControlPlaneStore for InMemoryControlPlaneStore {
     fn put(&self, namespace: Namespace, key: &str, value: &[u8]) -> Result<(), ControlStoreError> {
-        let mut data = self.data.write()
+        let mut data = self
+            .data
+            .write()
             .map_err(|e| ControlStoreError::LockPoisoned(format!("Write lock: {e}")))?;
         data.entry(namespace.as_str())
             .or_default()
@@ -203,7 +205,9 @@ impl ControlPlaneStore for InMemoryControlPlaneStore {
     }
 
     fn get(&self, namespace: Namespace, key: &str) -> Result<Option<Vec<u8>>, ControlStoreError> {
-        let data = self.data.read()
+        let data = self
+            .data
+            .read()
             .map_err(|e| ControlStoreError::LockPoisoned(format!("Read lock: {e}")))?;
         Ok(data
             .get(namespace.as_str())
@@ -212,7 +216,9 @@ impl ControlPlaneStore for InMemoryControlPlaneStore {
     }
 
     fn delete(&self, namespace: Namespace, key: &str) -> Result<(), ControlStoreError> {
-        let mut data = self.data.write()
+        let mut data = self
+            .data
+            .write()
             .map_err(|e| ControlStoreError::LockPoisoned(format!("Write lock: {e}")))?;
         if let Some(bucket) = data.get_mut(namespace.as_str()) {
             bucket.remove(key);
@@ -221,7 +227,9 @@ impl ControlPlaneStore for InMemoryControlPlaneStore {
     }
 
     fn list(&self, namespace: Namespace) -> Result<Vec<(String, Vec<u8>)>, ControlStoreError> {
-        let data = self.data.read()
+        let data = self
+            .data
+            .read()
             .map_err(|e| ControlStoreError::LockPoisoned(format!("Read lock: {e}")))?;
         Ok(data
             .get(namespace.as_str())

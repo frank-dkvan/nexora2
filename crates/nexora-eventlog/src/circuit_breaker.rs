@@ -204,9 +204,7 @@ mod tests {
 
         // Trigger 3 consecutive failures
         for _ in 0..3 {
-            let result = cb
-                .call(async { Err::<(), _>("simulated failure") })
-                .await;
+            let result = cb.call(async { Err::<(), _>("simulated failure") }).await;
             assert!(result.is_err());
         }
 
@@ -216,7 +214,10 @@ mod tests {
         // Next call should be rejected immediately
         let result = cb.call(async { Ok::<(), String>(()) }).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("circuit breaker open"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("circuit breaker open"));
     }
 
     #[tokio::test]

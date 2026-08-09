@@ -1341,7 +1341,8 @@ impl GraphService {
     pub async fn read_node_states_batch(
         &self,
         qids: &[NexoraId],
-    ) -> Result<std::collections::HashMap<NexoraId, Arc<projection::NodeReadState>>, GraphError> {
+    ) -> Result<std::collections::HashMap<NexoraId, Arc<projection::NodeReadState>>, GraphError>
+    {
         use std::collections::HashMap;
 
         // Group by shard to minimize lock acquisitions
@@ -1377,7 +1378,11 @@ impl GraphService {
                 let mut handles = Vec::new();
                 for qid in cold_nodes {
                     let (tx, rx) = oneshot::channel();
-                    if self.route(qid, NodeCommand::SnapshotState { reply: tx }).await.is_err() {
+                    if self
+                        .route(qid, NodeCommand::SnapshotState { reply: tx })
+                        .await
+                        .is_err()
+                    {
                         continue; // Skip unavailable nodes
                     }
                     handles.push((qid.clone(), rx));

@@ -210,8 +210,7 @@ mod tests {
 
     #[test]
     fn rewrites_alias_and_its_order_by_reference() {
-        let rw =
-            plan_alias_rewrite("MATCH (a) RETURN count(*) AS 数量 ORDER BY 数量 DESC");
+        let rw = plan_alias_rewrite("MATCH (a) RETURN count(*) AS 数量 ORDER BY 数量 DESC");
         assert_eq!(rw.mappings.len(), 1);
         // Both the definition and the ORDER BY reference must be rewritten so the
         // executed query is internally consistent.
@@ -222,20 +221,20 @@ mod tests {
     #[test]
     fn does_not_touch_non_ascii_in_string_literals() {
         // `北京` is a data value, not an alias — it must survive untouched.
-        let rw = plan_alias_rewrite(
-            "MATCH (a:Airport) WHERE a.city = '北京' RETURN a.code AS 代码",
-        );
+        let rw =
+            plan_alias_rewrite("MATCH (a:Airport) WHERE a.city = '北京' RETURN a.code AS 代码");
         assert_eq!(rw.mappings.len(), 1);
         assert_eq!(rw.mappings[0].1, "代码");
-        assert!(rw.query.contains("'北京'"), "string literal must be preserved");
+        assert!(
+            rw.query.contains("'北京'"),
+            "string literal must be preserved"
+        );
         assert!(!rw.query.contains("AS 代码"));
     }
 
     #[test]
     fn multiple_distinct_aliases() {
-        let rw = plan_alias_rewrite(
-            "MATCH (a:Airport) RETURN a.code AS 代码, a.city AS 城市",
-        );
+        let rw = plan_alias_rewrite("MATCH (a:Airport) RETURN a.code AS 代码, a.city AS 城市");
         assert_eq!(rw.mappings.len(), 2);
         assert!(rw.query.contains("AS __nx_alias0"));
         assert!(rw.query.contains("AS __nx_alias1"));

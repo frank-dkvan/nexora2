@@ -23,8 +23,10 @@ async fn test_kafka_to_risingwave_to_eventlog() {
             connector = 'kafka',
             topic = 'test.events',
             properties.bootstrap.server = 'localhost:9092'
-         ) FORMAT PLAIN ENCODE JSON;"
-    ).await.expect("Failed to create source");
+         ) FORMAT PLAIN ENCODE JSON;",
+    )
+    .await
+    .expect("Failed to create source");
 
     // 3. Create materialized view
     rw.execute_ddl(
@@ -34,33 +36,35 @@ async fn test_kafka_to_risingwave_to_eventlog() {
             data->>'type' as event_type,
             data->>'value' as value,
             NOW() as processing_time
-         FROM raw_events;"
-    ).await.expect("Failed to create MV");
+         FROM raw_events;",
+    )
+    .await
+    .expect("Failed to create MV");
 
     // 4. Start EventLogSink
-    let sink = nexora_risingwave::EventLogSink::new(
-        event_store.clone(),
-        rw.clone(),
-    );
+    let sink = nexora_risingwave::EventLogSink::new(event_store.clone(), rw.clone());
 
-    let handle = tokio::spawn(async move {
-        sink.start_sync("enriched_events", "test.enriched").await
-    });
+    let handle =
+        tokio::spawn(async move { sink.start_sync("enriched_events", "test.enriched").await });
 
     // 5. Publish test events to Kafka
     for i in 0..10 {
-        kafka_producer.send(&serde_json::json!({
-            "id": format!("event-{}", i),
-            "type": "test",
-            "value": i * 10,
-        })).await.expect("Failed to send event");
+        kafka_producer
+            .send(&serde_json::json!({
+                "id": format!("event-{}", i),
+                "type": "test",
+                "value": i * 10,
+            }))
+            .await
+            .expect("Failed to send event");
     }
 
     // 6. Wait for events to propagate
     sleep(Duration::from_secs(5)).await;
 
     // 7. Query Iceberg table to verify events arrived
-    let events = event_store.query("SELECT * FROM test.enriched ORDER BY event_id")
+    let events = event_store
+        .query("SELECT * FROM test.enriched ORDER BY event_id")
         .await
         .expect("Failed to query events");
 
@@ -90,16 +94,20 @@ async fn test_mv_enrichment_pipeline() {
             code VARCHAR PRIMARY KEY,
             city VARCHAR,
             country VARCHAR
-         );"
-    ).await.expect("Failed to create table");
+         );",
+    )
+    .await
+    .expect("Failed to create table");
 
     // Insert lookup data
     rw.execute_ddl(
         "INSERT INTO location_lookup VALUES
          ('LAX', 'Los Angeles', 'USA'),
          ('JFK', 'New York', 'USA'),
-         ('LHR', 'London', 'UK');"
-    ).await.expect("Failed to insert data");
+         ('LHR', 'London', 'UK');",
+    )
+    .await
+    .expect("Failed to insert data");
 
     // 2. Create source
     rw.execute_ddl(
@@ -107,8 +115,10 @@ async fn test_mv_enrichment_pipeline() {
             connector = 'kafka',
             topic = 'logistics.cargo',
             properties.bootstrap.server = 'localhost:9092'
-         ) FORMAT PLAIN ENCODE JSON;"
-    ).await.expect("Failed to create source");
+         ) FORMAT PLAIN ENCODE JSON;",
+    )
+    .await
+    .expect("Failed to create source");
 
     // 3. Create enriched MV with JOIN
     rw.execute_ddl(
@@ -120,27 +130,34 @@ async fn test_mv_enrichment_pipeline() {
             l.country,
             c.data->>'temperature' as temperature
          FROM cargo_events c
-         LEFT JOIN location_lookup l ON c.data->>'location_code' = l.code;"
-    ).await.expect("Failed to create MV");
+         LEFT JOIN location_lookup l ON c.data->>'location_code' = l.code;",
+    )
+    .await
+    .expect("Failed to create MV");
 
     // 4. Start sink
     let sink = nexora_risingwave::EventLogSink::new(event_store.clone(), rw.clone());
     let handle = tokio::spawn(async move {
-        sink.start_sync("enriched_cargo", "logistics.enriched").await
+        sink.start_sync("enriched_cargo", "logistics.enriched")
+            .await
     });
 
     // 5. Publish event
     let kafka = setup_kafka().await;
-    kafka.send(&serde_json::json!({
-        "cargo_id": "CARGO-123",
-        "location_code": "LAX",
-        "temperature": 28,
-    })).await.expect("Failed to send");
+    kafka
+        .send(&serde_json::json!({
+            "cargo_id": "CARGO-123",
+            "location_code": "LAX",
+            "temperature": 28,
+        }))
+        .await
+        .expect("Failed to send");
 
     sleep(Duration::from_secs(3)).await;
 
     // 6. Verify enrichment
-    let events = event_store.query("SELECT * FROM logistics.enriched WHERE cargo_id = 'CARGO-123'")
+    let events = event_store
+        .query("SELECT * FROM logistics.enriched WHERE cargo_id = 'CARGO-123'")
         .await
         .expect("Query failed");
 
@@ -165,8 +182,10 @@ async fn test_mv_aggregation_pipeline() {
             connector = 'kafka',
             topic = 'analytics.events',
             properties.bootstrap.server = 'localhost:9092'
-         ) FORMAT PLAIN ENCODE JSON;"
-    ).await.expect("Failed to create source");
+         ) FORMAT PLAIN ENCODE JSON;",
+    )
+    .await
+    .expect("Failed to create source");
 
     // 2. Create aggregation MV
     rw.execute_ddl(
@@ -176,29 +195,36 @@ async fn test_mv_aggregation_pipeline() {
             COUNT(*) as event_count,
             MAX(data->>'timestamp') as last_seen
          FROM user_events
-         GROUP BY data->>'user_id';"
-    ).await.expect("Failed to create MV");
+         GROUP BY data->>'user_id';",
+    )
+    .await
+    .expect("Failed to create MV");
 
     // 3. Start sink
     let sink = nexora_risingwave::EventLogSink::new(event_store.clone(), rw.clone());
     let handle = tokio::spawn(async move {
-        sink.start_sync("user_activity_counts", "analytics.counts").await
+        sink.start_sync("user_activity_counts", "analytics.counts")
+            .await
     });
 
     // 4. Publish multiple events for same user
     let kafka = setup_kafka().await;
     for i in 0..5 {
-        kafka.send(&serde_json::json!({
-            "user_id": "user-42",
-            "action": "click",
-            "timestamp": format!("2026-08-02T10:00:0{}Z", i),
-        })).await.expect("Failed to send");
+        kafka
+            .send(&serde_json::json!({
+                "user_id": "user-42",
+                "action": "click",
+                "timestamp": format!("2026-08-02T10:00:0{}Z", i),
+            }))
+            .await
+            .expect("Failed to send");
     }
 
     sleep(Duration::from_secs(3)).await;
 
     // 5. Verify aggregation
-    let events = event_store.query("SELECT * FROM analytics.counts WHERE user_id = 'user-42'")
+    let events = event_store
+        .query("SELECT * FROM analytics.counts WHERE user_id = 'user-42'")
         .await
         .expect("Query failed");
 
@@ -222,25 +248,30 @@ async fn test_sink_restart_recovery() {
             connector = 'kafka',
             topic = 'test.restart',
             properties.bootstrap.server = 'localhost:9092'
-         ) FORMAT PLAIN ENCODE JSON;"
-    ).await.expect("Failed to create source");
+         ) FORMAT PLAIN ENCODE JSON;",
+    )
+    .await
+    .expect("Failed to create source");
 
     rw.execute_ddl(
         "CREATE MATERIALIZED VIEW test_mv AS
-         SELECT data->>'id' as id, data->>'value' as value FROM test_events;"
-    ).await.expect("Failed to create MV");
+         SELECT data->>'id' as id, data->>'value' as value FROM test_events;",
+    )
+    .await
+    .expect("Failed to create MV");
 
     // 2. Start sink
     let sink1 = nexora_risingwave::EventLogSink::new(event_store.clone(), rw.clone());
-    let handle1 = tokio::spawn(async move {
-        sink1.start_sync("test_mv", "test.restart_topic").await
-    });
+    let handle1 =
+        tokio::spawn(async move { sink1.start_sync("test_mv", "test.restart_topic").await });
 
     // 3. Publish first batch
     let kafka = setup_kafka().await;
     for i in 0..5 {
-        kafka.send(&serde_json::json!({"id": i, "value": i * 10}))
-            .await.expect("Failed to send");
+        kafka
+            .send(&serde_json::json!({"id": i, "value": i * 10}))
+            .await
+            .expect("Failed to send");
     }
 
     sleep(Duration::from_secs(2)).await;
@@ -251,20 +282,22 @@ async fn test_sink_restart_recovery() {
 
     // 5. Publish second batch while sink is down
     for i in 5..10 {
-        kafka.send(&serde_json::json!({"id": i, "value": i * 10}))
-            .await.expect("Failed to send");
+        kafka
+            .send(&serde_json::json!({"id": i, "value": i * 10}))
+            .await
+            .expect("Failed to send");
     }
 
     // 6. Restart sink
     let sink2 = nexora_risingwave::EventLogSink::new(event_store.clone(), rw.clone());
-    let handle2 = tokio::spawn(async move {
-        sink2.start_sync("test_mv", "test.restart_topic").await
-    });
+    let handle2 =
+        tokio::spawn(async move { sink2.start_sync("test_mv", "test.restart_topic").await });
 
     sleep(Duration::from_secs(3)).await;
 
     // 7. Verify all events present (no data loss)
-    let events = event_store.query("SELECT COUNT(*) as count FROM test.restart_topic")
+    let events = event_store
+        .query("SELECT COUNT(*) as count FROM test.restart_topic")
         .await
         .expect("Query failed");
 
@@ -288,27 +321,28 @@ async fn test_concurrent_syncs() {
                 connector = 'kafka',
                 topic = 'test.concurrent.{}',
                 properties.bootstrap.server = 'localhost:9092'
-             ) FORMAT PLAIN ENCODE JSON;", i, i
-        )).await.expect("Failed to create source");
+             ) FORMAT PLAIN ENCODE JSON;",
+            i, i
+        ))
+        .await
+        .expect("Failed to create source");
 
         rw.execute_ddl(&format!(
             "CREATE MATERIALIZED VIEW test_mv_{} AS
-             SELECT data->>'id' as id FROM test_source_{};", i, i
-        )).await.expect("Failed to create MV");
+             SELECT data->>'id' as id FROM test_source_{};",
+            i, i
+        ))
+        .await
+        .expect("Failed to create MV");
     }
 
     // 2. Start 3 sinks concurrently
     let mut handles = vec![];
     for i in 0..3 {
-        let sink = nexora_risingwave::EventLogSink::new(
-            event_store.clone(),
-            rw.clone(),
-        );
+        let sink = nexora_risingwave::EventLogSink::new(event_store.clone(), rw.clone());
         let handle = tokio::spawn(async move {
-            sink.start_sync(
-                &format!("test_mv_{}", i),
-                &format!("test.topic_{}", i),
-            ).await
+            sink.start_sync(&format!("test_mv_{}", i), &format!("test.topic_{}", i))
+                .await
         });
         handles.push(handle);
     }
@@ -317,10 +351,13 @@ async fn test_concurrent_syncs() {
     let kafka = setup_kafka().await;
     for i in 0..3 {
         for j in 0..5 {
-            kafka.send_to_topic(
-                &format!("test.concurrent.{}", i),
-                &serde_json::json!({"id": j}),
-            ).await.expect("Failed to send");
+            kafka
+                .send_to_topic(
+                    &format!("test.concurrent.{}", i),
+                    &serde_json::json!({"id": j}),
+                )
+                .await
+                .expect("Failed to send");
         }
     }
 
@@ -328,9 +365,10 @@ async fn test_concurrent_syncs() {
 
     // 4. Verify all sinks processed events
     for i in 0..3 {
-        let events = event_store.query(&format!(
-            "SELECT COUNT(*) as count FROM test.topic_{}", i
-        )).await.expect("Query failed");
+        let events = event_store
+            .query(&format!("SELECT COUNT(*) as count FROM test.topic_{}", i))
+            .await
+            .expect("Query failed");
 
         assert_eq!(events[0]["count"], 5, "Expected 5 events for topic {}", i);
     }
@@ -477,11 +515,11 @@ async fn test_duplicate_sync_prevention() {
 
 async fn setup_event_store() -> Arc<nexora_eventlog::EventLogStore> {
     Arc::new(
-        nexora_eventlog::EventLogStore::new_with_config(
-            nexora_eventlog::StorageConfig::local_fs("./test_data/phase6_4")
-        )
+        nexora_eventlog::EventLogStore::new_with_config(nexora_eventlog::StorageConfig::local_fs(
+            "./test_data/phase6_4",
+        ))
         .await
-        .expect("Failed to create event store")
+        .expect("Failed to create event store"),
     )
 }
 
@@ -493,7 +531,7 @@ async fn setup_risingwave() -> Arc<nexora_risingwave::EventStreamingModule> {
     Arc::new(
         nexora_risingwave::EventStreamingModule::start(config)
             .await
-            .expect("Failed to start RisingWave")
+            .expect("Failed to start RisingWave"),
     )
 }
 

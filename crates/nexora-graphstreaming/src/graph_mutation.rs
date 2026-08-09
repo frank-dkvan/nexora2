@@ -3,11 +3,28 @@
 //! This module handles the actual graph updates: creating nodes, edges, and setting properties.
 
 use crate::{GraphStreamingError, Result};
-use nexora_core::{GraphService, NodeCommand};
+use nexora_core::GraphService;
 use nexora_id::{NexoraId, PropertyValue};
-use nexora_value::Symbol;
+use nexora_value::{HalfEdge, Symbol};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+/// Monotonic request-id source for commit-path mutations (`add_label`,
+/// `set_edge_property`, `delete_node`). Mirrors the counter convention used by
+/// the Cypher write executor.
+static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn next_request_id() -> u64 {
+    REQUEST_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Derive a `NexoraId` from an arbitrary external id string. Hex ids (the HTTP
+/// wire format) decode directly; anything else (e.g. `"CARGO-123"`) is used
+/// verbatim as the id's byte content. Same rule the Cypher write path uses.
+fn id_from_str(s: &str) -> NexoraId {
+    NexoraId::from_hex(s).unwrap_or_else(|_| NexoraId::from_bytes(s.as_bytes().to_vec()))
+}
 
 /// Builder for graph mutations based on projected events
 pub struct GraphMutationBuilder {
@@ -20,7 +37,11 @@ impl GraphMutationBuilder {
         Self { graph_service }
     }
 
-    /// Upsert a node: create if not exists, update properties if exists
+    /// Upsert a node: create if not exists, update properties if exists.
+    ///
+    /// Node creation is implicit — `set_property` creates the node if absent —
+    /// and `add_label` is idempotent (the label index dedups), so this always
+    /// applies labels + properties without a prior existence check.
     ///
     /// # Arguments
     ///
@@ -33,50 +54,23 @@ impl GraphMutationBuilder {
         labels: &[String],
         properties: HashMap<String, String>,
     ) -> Result<()> {
-        // Parse node ID
-        let node_id = NexoraId::from_string(node_id_str);
+        let node_id = id_from_str(node_id_str);
+        let prop_count = properties.len();
 
-        // Check if node exists
-        let exists = self.graph_service.get_node(&node_id).await.is_ok();
-
-        if !exists {
-            // Create new node
-            tracing::debug!("Creating new node: {}", node_id_str);
-
-            // Send CreateNode command
+        // Set properties first — this implicitly creates the node if absent.
+        for (key, value) in properties {
+            let prop_value = Self::parse_property_value(&value);
             self.graph_service
-                .send_command(
-                    &node_id,
-                    NodeCommand::CreateNode {
-                        id: node_id.clone(),
-                    },
-                )
+                .set_property(&node_id, &key, prop_value)
                 .await
                 .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
-
-            // Add labels
-            for label in labels {
-                let label_sym = Symbol::new(label);
-                self.graph_service
-                    .send_command(&node_id, NodeCommand::AddLabel { label: label_sym })
-                    .await
-                    .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
-            }
         }
 
-        // Set properties (create or update)
-        for (key, value) in properties {
-            let key_sym = Symbol::new(&key);
-            let prop_value = Self::parse_property_value(&value);
-
+        // Apply labels (idempotent via the label index).
+        for label in labels {
+            let label_sym = Symbol::new(label);
             self.graph_service
-                .send_command(
-                    &node_id,
-                    NodeCommand::SetProperty {
-                        key: key_sym,
-                        value: prop_value,
-                    },
-                )
+                .add_label(&node_id, label_sym, next_request_id())
                 .await
                 .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
         }
@@ -84,13 +78,16 @@ impl GraphMutationBuilder {
         tracing::debug!(
             "Upserted node: {} with {} properties",
             node_id_str,
-            properties.len()
+            prop_count
         );
 
         Ok(())
     }
 
-    /// Upsert an edge: create if not exists, update properties if exists
+    /// Upsert an edge: create if not exists, update properties if exists.
+    ///
+    /// `add_edge` is idempotent (the edge index dedups on duplicate add), so the
+    /// edge is always (re)added and its properties set.
     ///
     /// # Arguments
     ///
@@ -105,58 +102,32 @@ impl GraphMutationBuilder {
         target_id_str: &str,
         properties: HashMap<String, String>,
     ) -> Result<()> {
-        let src_id = NexoraId::from_string(src_id_str);
-        let target_id = NexoraId::from_string(target_id_str);
+        let src_id = id_from_str(src_id_str);
+        let target_id = id_from_str(target_id_str);
         let edge_type_sym = Symbol::new(edge_type);
+        let prop_count = properties.len();
 
-        // Check if edge exists
-        let edge_exists = self
-            .graph_service
-            .get_node(&src_id)
+        // Add the outgoing edge (idempotent via the edge index).
+        self.graph_service
+            .add_edge(
+                &src_id,
+                HalfEdge::out(edge_type_sym.clone(), target_id.clone()),
+            )
             .await
-            .ok()
-            .and_then(|node| {
-                node.outgoing_edges()
-                    .iter()
-                    .find(|e| e.edge_type() == edge_type_sym && e.target() == &target_id)
-            })
-            .is_some();
+            .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
 
-        if !edge_exists {
-            // Create edge
-            tracing::debug!(
-                "Creating edge: {} -[{}]-> {}",
-                src_id_str,
-                edge_type,
-                target_id_str
-            );
-
-            self.graph_service
-                .send_command(
-                    &src_id,
-                    NodeCommand::AddEdge {
-                        edge_type: edge_type_sym.clone(),
-                        target: target_id.clone(),
-                    },
-                )
-                .await
-                .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
-        }
-
-        // Set edge properties
+        // Set edge properties via the commit path.
         for (key, value) in properties {
             let key_sym = Symbol::new(&key);
             let prop_value = Self::parse_property_value(&value);
-
             self.graph_service
-                .send_command(
+                .set_edge_property(
                     &src_id,
-                    NodeCommand::SetEdgeProperty {
-                        edge_type: edge_type_sym.clone(),
-                        target: target_id.clone(),
-                        key: key_sym,
-                        value: prop_value,
-                    },
+                    edge_type_sym.clone(),
+                    &target_id,
+                    key_sym,
+                    prop_value,
+                    next_request_id(),
                 )
                 .await
                 .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
@@ -167,7 +138,7 @@ impl GraphMutationBuilder {
             src_id_str,
             edge_type,
             target_id_str,
-            properties.len()
+            prop_count
         );
 
         Ok(())
@@ -175,10 +146,10 @@ impl GraphMutationBuilder {
 
     /// Delete a node (soft delete - adds tombstone)
     pub async fn delete_node(&self, node_id_str: &str) -> Result<()> {
-        let node_id = NexoraId::from_string(node_id_str);
+        let node_id = id_from_str(node_id_str);
 
         self.graph_service
-            .send_command(&node_id, NodeCommand::DeleteNode)
+            .delete_node(&node_id, next_request_id(), Some("graphstreaming"), None)
             .await
             .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
 
@@ -193,22 +164,21 @@ impl GraphMutationBuilder {
         edge_type: &str,
         target_id_str: &str,
     ) -> Result<()> {
-        let src_id = NexoraId::from_string(src_id_str);
-        let target_id = NexoraId::from_string(target_id_str);
+        let src_id = id_from_str(src_id_str);
+        let target_id = id_from_str(target_id_str);
         let edge_type_sym = Symbol::new(edge_type);
 
         self.graph_service
-            .send_command(
-                &src_id,
-                NodeCommand::RemoveEdge {
-                    edge_type: edge_type_sym,
-                    target: target_id,
-                },
-            )
+            .remove_edge(&src_id, HalfEdge::out(edge_type_sym, target_id))
             .await
             .map_err(|e| GraphStreamingError::GraphError(e.to_string()))?;
 
-        tracing::debug!("Deleted edge: {} -[{}]-> {}", src_id_str, edge_type, target_id_str);
+        tracing::debug!(
+            "Deleted edge: {} -[{}]-> {}",
+            src_id_str,
+            edge_type,
+            target_id_str
+        );
         Ok(())
     }
 

@@ -7,8 +7,8 @@
 //! - Network (RPC calls, bytes transferred)
 
 use prometheus::{
-    Counter, CounterVec, Encoder, Gauge, Histogram, HistogramOpts, HistogramVec, Opts,
-    Registry, TextEncoder,
+    Counter, CounterVec, Encoder, Gauge, Histogram, HistogramOpts, HistogramVec, Opts, Registry,
+    TextEncoder,
 };
 
 /// Centralized metrics registry
@@ -232,7 +232,10 @@ mod tests {
 
         // Increment some metrics
         metrics.raft_proposals_total.inc();
-        metrics.query_total.with_label_values(&["cypher", "success"]).inc();
+        metrics
+            .query_total
+            .with_label_values(&["cypher", "success"])
+            .inc();
 
         // Export should succeed
         let output = metrics.export().unwrap();
@@ -244,8 +247,14 @@ mod tests {
     fn test_query_metrics() {
         let metrics = MetricsRegistry::new().unwrap();
 
-        metrics.query_total.with_label_values(&["cypher", "success"]).inc();
-        metrics.query_duration_seconds.with_label_values(&["cypher"]).observe(0.123);
+        metrics
+            .query_total
+            .with_label_values(&["cypher", "success"])
+            .inc();
+        metrics
+            .query_duration_seconds
+            .with_label_values(&["cypher"])
+            .observe(0.123);
 
         let output = metrics.export().unwrap();
         assert!(output.contains("query_type=\"cypher\""));

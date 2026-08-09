@@ -74,6 +74,8 @@ impl TokenBucket {
     }
 
     /// Attempt to consume one token. Returns true if allowed.
+    // Convenience wrapper over try_consume_with_cost; kept for API completeness.
+    #[allow(dead_code)]
     fn try_consume(&mut self, now: Instant) -> bool {
         self.try_consume_with_cost(now, 1.0)
     }
@@ -101,11 +103,18 @@ impl TokenBucket {
 /// bypass the limit entirely by opening a fresh connection per request — each
 /// got a new port, hence a new bucket — and let an attacker grow the map with
 /// distinct ports. Per-IP keying makes the limit actually bind.
+///
+/// NOTE: This is an alternative rate-limiter implementation that is not
+/// currently wired into the router; the active middleware lives in
+/// `middleware/rate_limit.rs`. Retained here for the per-endpoint cost model
+/// (`check_with_cost`) it adds. Not dead — kept for imminent wiring.
+#[allow(dead_code)]
 pub struct RateLimiter {
     buckets: RwLock<HashMap<std::net::IpAddr, (TokenBucket, Instant)>>,
     config: RateLimitConfig,
 }
 
+#[allow(dead_code)]
 impl RateLimiter {
     pub fn new(config: RateLimitConfig) -> Arc<Self> {
         let limiter = Arc::new(Self {
@@ -166,6 +175,10 @@ impl RateLimiter {
 
 /// Axum middleware: rate limit by client IP.
 /// C-15 FIX: Add per-endpoint rate limiting for expensive operations.
+///
+/// Not currently mounted (the active limiter is `middleware/rate_limit.rs`);
+/// retained for its per-endpoint cost logic. Allowed-dead pending wiring.
+#[allow(dead_code)]
 pub async fn rate_limit(
     limiter: axum::extract::Extension<Arc<RateLimiter>>,
     req: Request,

@@ -68,22 +68,14 @@ mod tests {
 
         let limiter = Arc::new(RateLimiter::new(config));
 
-        let app = Router::new()
-            .route("/test", get(test_handler))
-            .layer(axum::middleware::from_fn_with_state(
-                limiter.clone(),
-                rate_limit_middleware,
-            ));
+        let app = Router::new().route("/test", get(test_handler)).layer(
+            axum::middleware::from_fn_with_state(limiter.clone(), rate_limit_middleware),
+        );
 
         // First request should succeed
         let response = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
             .await
             .unwrap();
 

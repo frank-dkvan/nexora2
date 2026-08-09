@@ -99,8 +99,7 @@ impl MicrobatchWriter {
         }
 
         // Wait for flush to complete
-        rx.await
-            .map_err(|_| anyhow!("Flush worker died"))?
+        rx.await.map_err(|_| anyhow!("Flush worker died"))?
     }
 
     /// Start background flush worker (timeout-based flush).
@@ -325,7 +324,7 @@ mod tests {
             &mut config,
             "test",
             Duration::from_millis(30), // Low latency
-            1000,                       // Full batch
+            1000,                      // Full batch
         );
 
         assert_eq!(config.max_batch_size, 1200); // 1000 * 1.2
@@ -352,30 +351,15 @@ mod tests {
 
         // Test upper limit
         config.max_batch_size = 9500;
-        MicrobatchWriter::adjust_batch_size(
-            &mut config,
-            "test",
-            Duration::from_millis(30),
-            9500,
-        );
+        MicrobatchWriter::adjust_batch_size(&mut config, "test", Duration::from_millis(30), 9500);
         assert_eq!(config.max_batch_size, 10000); // Capped at 10000
 
         // Test lower limit
         config.max_batch_size = 150;
-        MicrobatchWriter::adjust_batch_size(
-            &mut config,
-            "test",
-            Duration::from_millis(250),
-            150,
-        );
+        MicrobatchWriter::adjust_batch_size(&mut config, "test", Duration::from_millis(250), 150);
         assert_eq!(config.max_batch_size, 120); // 150 * 0.8
 
-        MicrobatchWriter::adjust_batch_size(
-            &mut config,
-            "test",
-            Duration::from_millis(250),
-            120,
-        );
+        MicrobatchWriter::adjust_batch_size(&mut config, "test", Duration::from_millis(250), 120);
         assert_eq!(config.max_batch_size, 100); // Floored at 100
     }
 }

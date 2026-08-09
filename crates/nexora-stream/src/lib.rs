@@ -25,13 +25,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub mod checkpoint;
-pub mod parallel_checkpoint;
+pub mod circuit_breaker;
 pub mod file_source;
 pub mod graph_sink;
+pub mod parallel_checkpoint;
 pub mod reduct_writer;
 pub mod wal_reduct_replicator;
 pub mod watermark;
-pub mod circuit_breaker;
 pub use checkpoint::{
     CheckpointCoordinator, CheckpointManifest, CheckpointStore, FileCheckpointStore,
     InMemoryCheckpointStore, RecoveryPlan,
@@ -658,7 +658,8 @@ impl IngestionPipeline {
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             // Create bounded channel for backpressure (capacity=100 batches)
-            let (batch_tx, mut batch_rx) = tokio::sync::mpsc::channel::<(IngestBatch, SourceOffset)>(100);
+            let (batch_tx, mut batch_rx) =
+                tokio::sync::mpsc::channel::<(IngestBatch, SourceOffset)>(100);
 
             // Clone Arc for the processor task
             let pipeline_clone = self.clone();
@@ -692,7 +693,11 @@ impl IngestionPipeline {
                             // Track applied offset for checkpoint
                             {
                                 let key = format!("{}:{}", offset.topic, offset.partition);
-                                pipeline.latest_offsets.write().await.insert(key, offset.offset);
+                                pipeline
+                                    .latest_offsets
+                                    .write()
+                                    .await
+                                    .insert(key, offset.offset);
                             }
 
                             // Update stats
@@ -854,11 +859,20 @@ impl IngestionPipeline {
                 }
             }
 
-            // Drop the sender to signal processor to stop
-            drop(batch_tx);
+            // NOTE (latent bug, pre-existing): the `break` in the poll arm only
+            // exits the inner `for source` loop, so the outer `loop {}` never
+            // terminates and this shutdown/drain path is unreachable. Silencing
+            // the lint here to keep existing runtime behavior unchanged; the real
+            // fix (labeled break to exit the outer loop on channel close) is a
+            // behavioral change tracked separately.
+            #[allow(unreachable_code)]
+            {
+                // Drop the sender to signal processor to stop
+                drop(batch_tx);
 
-            // Wait for processor to finish
-            let _ = processor_handle.await;
+                // Wait for processor to finish
+                let _ = processor_handle.await;
+            }
         })
     }
 
@@ -1073,7 +1087,7 @@ mod tests {
         assert!(result.is_some());
         // Should accept the near future timestamp
         let skew = (result.unwrap() - chrono::Utc::now()).num_minutes();
-        assert!(skew >= 2 && skew <= 4); // Should be around 3 minutes
+        assert!((2..=4).contains(&skew)); // Should be around 3 minutes
     }
 
     #[test]

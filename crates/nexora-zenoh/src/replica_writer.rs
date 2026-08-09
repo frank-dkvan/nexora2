@@ -101,9 +101,9 @@ struct CircuitBreakerState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CircuitState {
-    Closed,      // Normal operation
-    Open,        // Blocking requests
-    HalfOpen,    // Testing if follower recovered
+    Closed,   // Normal operation
+    Open,     // Blocking requests
+    HalfOpen, // Testing if follower recovered
 }
 
 impl CircuitBreakerState {
@@ -137,14 +137,13 @@ impl CircuitBreakerState {
         self.consecutive_failures += 1;
         self.last_failure = Some(Instant::now());
 
-        if self.consecutive_failures >= config.failure_threshold {
-            if self.state != CircuitState::Open {
-                tracing::warn!(
-                    consecutive_failures = self.consecutive_failures,
-                    "circuit breaker opened for follower"
-                );
-                self.state = CircuitState::Open;
-            }
+        if self.consecutive_failures >= config.failure_threshold && self.state != CircuitState::Open
+        {
+            tracing::warn!(
+                consecutive_failures = self.consecutive_failures,
+                "circuit breaker opened for follower"
+            );
+            self.state = CircuitState::Open;
         }
     }
 
@@ -421,7 +420,9 @@ impl ReplicaWriter {
             // C-13: Check circuit breaker before sending request
             let should_skip = {
                 let mut breakers = self.circuit_breakers.write();
-                let breaker = breakers.entry(follower.clone()).or_insert_with(CircuitBreakerState::new);
+                let breaker = breakers
+                    .entry(follower.clone())
+                    .or_insert_with(CircuitBreakerState::new);
                 breaker.try_half_open(); // Transition to HalfOpen if timeout elapsed
                 breaker.should_skip(&self.circuit_breaker_config)
             };

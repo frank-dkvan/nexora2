@@ -167,10 +167,7 @@ where
         match result {
             Ok(value) => {
                 if attempt > 1 {
-                    debug!(
-                        attempt = attempt,
-                        "Operation succeeded after retry"
-                    );
+                    debug!(attempt = attempt, "Operation succeeded after retry");
                 }
                 return Ok(value);
             }
@@ -251,9 +248,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_succeeds_on_first_attempt() {
-        let result = retry_with_backoff(|| async {
-            Ok::<i32, String>(42)
-        }).await;
+        let result = retry_with_backoff(|| async { Ok::<i32, String>(42) }).await;
 
         assert_eq!(result.unwrap(), 42);
     }
@@ -273,7 +268,8 @@ mod tests {
                     Ok(42)
                 }
             }
-        }).await;
+        })
+        .await;
 
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 3); // 2 failures + 1 success
@@ -287,10 +283,9 @@ mod tests {
                 base_delay_ms: 10,
                 ..Default::default()
             },
-            || async {
-                Err::<i32, String>("permanent error".to_string())
-            }
-        ).await;
+            || async { Err::<i32, String>("permanent error".to_string()) },
+        )
+        .await;
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "permanent error");
@@ -361,7 +356,8 @@ mod tests {
         let result = retry_with_backoff_config(config, || async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             Ok::<i32, String>(42)
-        }).await;
+        })
+        .await;
 
         // Should timeout and retry, then timeout again and fail
         assert!(result.is_err());

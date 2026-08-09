@@ -500,7 +500,10 @@ fn determine_labels(props: &HashMap<String, PropertyValue>) -> Vec<String> {
 
 /// H-4: Validate pattern depth to prevent query complexity attacks.
 /// Checks the depth of MATCH patterns like (a)-[]->()-[]->()...->()
-fn validate_pattern_depth(query: &cypher_parser::ast::Query, max_depth: usize) -> Result<(), CypherError> {
+fn validate_pattern_depth(
+    query: &cypher_parser::ast::Query,
+    max_depth: usize,
+) -> Result<(), CypherError> {
     for clause in &query.clauses {
         if let cypher_parser::ast::Clause::Match(m) = clause {
             for pattern in &m.patterns {
@@ -694,7 +697,9 @@ fn plan_edge_property_rewrite(query: &str) -> EdgeRewrite {
                     if edge.min_hops.is_some() || edge.max_hops.is_some() {
                         continue;
                     }
-                    let Some(next) = segs.get(i + 1) else { continue };
+                    let Some(next) = segs.get(i + 1) else {
+                        continue;
+                    };
                     let (Some(a), Some(b)) = (&segs[i].node.variable, &next.node.variable) else {
                         continue;
                     };
@@ -727,11 +732,13 @@ fn plan_edge_property_rewrite(query: &str) -> EdgeRewrite {
         // looks up the wrong column and leaves it null. (Non-ASCII aliases have
         // already been rewritten to `__nx_aliasN` by the alias bridge, so `\w+`
         // matches them here.)
-        let prop_re =
-            match regex::Regex::new(&format!(r"\b{}\.(\w+)(?:\s+AS\s+(\w+))?", regex::escape(evar))) {
-                Ok(re) => re,
-                Err(_) => continue,
-            };
+        let prop_re = match regex::Regex::new(&format!(
+            r"\b{}\.(\w+)(?:\s+AS\s+(\w+))?",
+            regex::escape(evar)
+        )) {
+            Ok(re) => re,
+            Err(_) => continue,
+        };
         let mut targets: Vec<(String, String)> = Vec::new();
         for cap in prop_re.captures_iter(query) {
             if let Some(m) = cap.get(1) {
@@ -908,7 +915,10 @@ fn fill_edge_properties_v2(
             else {
                 continue;
             };
-            let from_hex = row.get(from_idx).and_then(cell_node_hex).map(str::to_string);
+            let from_hex = row
+                .get(from_idx)
+                .and_then(cell_node_hex)
+                .map(str::to_string);
             let to_hex = row.get(to_idx).and_then(cell_node_hex).map(str::to_string);
             let (Some(from_hex), Some(to_hex)) = (from_hex, to_hex) else {
                 continue;
@@ -934,10 +944,7 @@ fn fill_edge_properties_v2(
             };
             let Some(edge) = node.outgoing_edges.iter().find(|e| {
                 e.target_idx == target_idx
-                    && fill
-                        .edge_type
-                        .as_ref()
-                        .is_none_or(|t| &e.edge_type == t)
+                    && fill.edge_type.as_ref().is_none_or(|t| &e.edge_type == t)
             }) else {
                 continue;
             };

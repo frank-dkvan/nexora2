@@ -1377,7 +1377,7 @@ impl GraphService {
                 let mut handles = Vec::new();
                 for qid in cold_nodes {
                     let (tx, rx) = oneshot::channel();
-                    if let Err(_) = self.route(qid, NodeCommand::SnapshotState { reply: tx }).await {
+                    if self.route(qid, NodeCommand::SnapshotState { reply: tx }).await.is_err() {
                         continue; // Skip unavailable nodes
                     }
                     handles.push((qid.clone(), rx));

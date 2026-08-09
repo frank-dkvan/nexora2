@@ -5,11 +5,17 @@
 
 use anyhow::{Context, Result};
 use failsafe::{
-    backoff, failure_policy, futures::CircuitBreaker, Config, Error as FailsafeError, StateMachine,
+    backoff::{self, Exponential},
+    failure_policy::{self, ConsecutiveFailures},
+    futures::CircuitBreaker,
+    Config, Error as FailsafeError, Instrument, StateMachine,
 };
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU8, Ordering},
+    Arc,
+};
 use std::time::Duration;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 /// Circuit breaker configuration for event store operations
 #[derive(Debug, Clone)]
@@ -32,25 +38,70 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+/// State observer to track circuit breaker state
+#[derive(Clone)]
+struct StateObserver {
+    current_state: Arc<AtomicU8>,
+}
+
+impl StateObserver {
+    fn new() -> Self {
+        Self {
+            current_state: Arc::new(AtomicU8::new(0)), // 0 = Closed
+        }
+    }
+
+    fn get_state(&self) -> CircuitState {
+        match self.current_state.load(Ordering::SeqCst) {
+            0 => CircuitState::Closed,
+            1 => CircuitState::Open,
+            2 => CircuitState::HalfOpen,
+            _ => CircuitState::Closed,
+        }
+    }
+}
+
+impl Instrument for StateObserver {
+    fn on_call_rejected(&self) {
+        // Called when a request is rejected due to open circuit
+    }
+
+    fn on_open(&self) {
+        self.current_state.store(1, Ordering::SeqCst);
+    }
+
+    fn on_half_open(&self) {
+        self.current_state.store(2, Ordering::SeqCst);
+    }
+
+    fn on_closed(&self) {
+        self.current_state.store(0, Ordering::SeqCst);
+    }
+}
+
 /// Circuit breaker wrapper for protecting against cascading failures
 pub struct EventStoreCircuitBreaker {
-    circuit: Arc<StateMachine>,
+    circuit: StateMachine<ConsecutiveFailures<Exponential>, StateObserver>,
+    observer: StateObserver,
     service_name: String,
 }
 
 impl EventStoreCircuitBreaker {
     /// Create a new circuit breaker with the given configuration
     pub fn new(service_name: impl Into<String>, config: CircuitBreakerConfig) -> Self {
+        let observer = StateObserver::new();
+
         let circuit = Config::new()
             .failure_policy(failure_policy::consecutive_failures(
                 config.failure_threshold as u32,
                 backoff::exponential(Duration::from_millis(100), Duration::from_secs(5)),
             ))
+            .instrument(observer.clone())
             .build();
 
         let service_name = service_name.into();
 
-        tracing::info!(
+        info!(
             service = %service_name,
             failure_threshold = config.failure_threshold,
             success_threshold = config.success_threshold,
@@ -59,7 +110,8 @@ impl EventStoreCircuitBreaker {
         );
 
         Self {
-            circuit: Arc::new(circuit),
+            circuit,
+            observer,
             service_name,
         }
     }
@@ -99,11 +151,7 @@ impl EventStoreCircuitBreaker {
 
     /// Get the current state of the circuit breaker
     pub fn state(&self) -> CircuitState {
-        match self.circuit.state() {
-            failsafe::State::Closed => CircuitState::Closed,
-            failsafe::State::Open => CircuitState::Open,
-            failsafe::State::HalfOpen => CircuitState::HalfOpen,
-        }
+        self.observer.get_state()
     }
 
     /// Get a human-readable state description

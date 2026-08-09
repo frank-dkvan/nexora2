@@ -935,7 +935,7 @@ pub async fn execute_cypher(
     let query_limits = state.query_limits.clone();
     match query_pool
         .execute(async move {
-            nexora_cypher::execute_cypher_with_limits(&graph, &query_for_exec, &query_limits).await
+            nexora_cypher::execute_with_limits(&graph, &query_for_exec, &query_limits).await
         })
         .await
     {
@@ -1940,6 +1940,7 @@ mod tests {
             )),
             udf_manager: Arc::new(Mutex::new(UdfManager::new())),
             tiered_store: None,
+            fragment_store: None,
             mv_manager: Arc::new(MaterializedViewManager::new()),
             ontology_manager: Arc::new(nexora_core::ontology_manager::OntologyManager::new()),
             #[cfg(feature = "event-first")]
@@ -1957,11 +1958,19 @@ mod tests {
             auth: None,
             drain: crate::drain::DrainState::default(),
             query_pool: Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+            mv_refresh_semaphore: Arc::new(tokio::sync::Semaphore::new(2)),
+            query_limits: nexora_cypher::QueryLimits::default(),
             cluster_manager: None,
             #[cfg(feature = "event-streaming")]
             event_streaming: None,
             #[cfg(all(feature = "event-streaming", feature = "embedded"))]
             distributed_event_streaming: None,
+            #[cfg(all(feature = "event-streaming", feature = "library"))]
+            distributed_library: None,
+            #[cfg(feature = "event-streaming")]
+            event_sinks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+            graph_projector: None,
         }
     }
 
@@ -5080,6 +5089,7 @@ mod e7_f4_tests {
             )),
             udf_manager: Arc::new(Mutex::new(UdfManager::new())),
             tiered_store: None,
+            fragment_store: None,
             mv_manager: Arc::new(MaterializedViewManager::new()),
             ontology_manager: Arc::new(nexora_core::ontology_manager::OntologyManager::new()),
             #[cfg(feature = "event-first")]
@@ -5097,11 +5107,19 @@ mod e7_f4_tests {
             auth: None,
             drain: crate::drain::DrainState::default(),
             query_pool: Arc::new(nexora_core::query_pool::QueryPool::new(4)),
+            mv_refresh_semaphore: Arc::new(tokio::sync::Semaphore::new(2)),
+            query_limits: nexora_cypher::QueryLimits::default(),
             cluster_manager: None,
             #[cfg(feature = "event-streaming")]
             event_streaming: None,
             #[cfg(all(feature = "event-streaming", feature = "embedded"))]
             distributed_event_streaming: None,
+            #[cfg(all(feature = "event-streaming", feature = "library"))]
+            distributed_library: None,
+            #[cfg(feature = "event-streaming")]
+            event_sinks: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            #[cfg(all(feature = "event-first", feature = "event-streaming"))]
+            graph_projector: None,
         }
     }
 

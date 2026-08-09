@@ -3,8 +3,6 @@
 //! 用于 Week 8 的 72小时生产验证测试
 
 use clap::Parser;
-use nexora_core::GraphService;
-use nexora_id::NexoraId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
@@ -116,7 +114,7 @@ impl LoadTester {
         read_qps: usize,
         query_qps: usize,
         report_interval: Duration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(
             "Starting constant load test: duration={:?}, write_qps={}, read_qps={}, query_qps={}",
             duration, write_qps, read_qps, query_qps
@@ -248,7 +246,7 @@ impl LoadTester {
         Ok(())
     }
 
-    async fn write_node(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn write_node(endpoint: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("{}/api/v2/graph/node", endpoint))
@@ -271,7 +269,7 @@ impl LoadTester {
         Ok(())
     }
 
-    async fn read_node(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn read_node(endpoint: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = reqwest::Client::new();
         let node_id = format!("user:{}", uuid::Uuid::new_v4());
         let resp = client
@@ -287,7 +285,7 @@ impl LoadTester {
         Ok(())
     }
 
-    async fn query_graph(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn query_graph(endpoint: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let client = reqwest::Client::new();
         let resp = client
             .post(format!("{}/api/v2/query/cypher", endpoint))
@@ -349,7 +347,7 @@ impl LoadTester {
         sorted[idx.min(sorted.len() - 1)]
     }
 
-    async fn save_results(&self, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    async fn save_results(&self, output_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let metrics = self.metrics.lock().await;
         let json = serde_json::to_string_pretty(&*metrics)?;
         tokio::fs::write(output_path, json).await?;
@@ -358,7 +356,7 @@ impl LoadTester {
     }
 }
 
-fn parse_duration(s: &str) -> Result<Duration, Box<dyn std::error::Error>> {
+fn parse_duration(s: &str) -> Result<Duration, Box<dyn std::error::Error + Send + Sync>> {
     let s = s.trim();
     if s.ends_with("h") {
         let hours: u64 = s[..s.len() - 1].parse()?;
@@ -375,7 +373,7 @@ fn parse_duration(s: &str) -> Result<Duration, Box<dyn std::error::Error>> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();

@@ -43,27 +43,43 @@ if [ ! -d "vendor/risingwave" ]; then
     exit 1
 fi
 
-# 2. 检查 nightly Rust
-if ! rustup toolchain list | grep -q nightly; then
-    warn "Nightly Rust not installed, installing..."
-    rustup toolchain install nightly
+# 2. 确保 rustup proxy 优先于 Homebrew 的 stable cargo/rustc。
+#    否则 PATH 上的 Homebrew cargo 会无视 rust-toolchain.toml 的 nightly pin，
+#    导致 "profile-rustflags requires nightly" / "-Z only on nightly" 报错。
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# 3. 版本由 rust-toolchain.toml 统一 pin（勿硬编码日期，勿用泛型 nightly）。
+#    走 proxy 会自动安装并选中 pin 的那个 nightly。
+info "Toolchain: $(cargo --version)  |  $(rustc --version)"
+if ! rustc --version | grep -q "nightly"; then
+    error "Not using nightly. Homebrew cargo/rustc is shadowing the rustup proxy."
+    error "Ensure \$HOME/.cargo/bin precedes /opt/homebrew/bin on PATH."
+    exit 1
 fi
 
-# 3. 切换到 RisingWave 目录
+# 4. 切换到 RisingWave 目录（rust-toolchain.toml 在仓库根，pin 对整个 workspace 生效）
 cd vendor/risingwave
-
-# 4. 设置本目录使用 nightly（不影响其他项目）
-rustup override set nightly
-info "Using nightly Rust for RisingWave"
 
 # 5. 编译 RisingWave (standalone 模式)
 info "Compiling RisingWave (this may take 10-20 minutes)..."
 
-# 使用 release 模式，优化大小
+# 使用 release 模式，优化大小。
+# grep 只用于过滤 warning 噪声，绝不能吞掉 cargo 的失败：
+#   - 管道中 $? 是 grep 的退出码而非 cargo 的，故读 ${PIPESTATUS[0]}；
+#   - 旧写法结尾的 `|| true` 会把失败强制变成 exit 0，导致 CI 假绿。
+# 这里显式取出 cargo 的真实退出码并据此判断。
+set +e
 cargo build --release --bin risingwave \
     --no-default-features \
     --features "rw-static-link" \
-    2>&1 | grep -v "warning:" || true
+    2>&1 | grep -v "warning:"
+cargo_status=${PIPESTATUS[0]}
+set -e
+
+if [ "$cargo_status" -ne 0 ]; then
+    error "Build failed: cargo exited with status $cargo_status"
+    exit "$cargo_status"
+fi
 
 if [ ! -f "target/release/risingwave" ]; then
     error "Build failed: target/release/risingwave not found"

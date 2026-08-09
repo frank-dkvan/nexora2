@@ -47,8 +47,50 @@ pub async fn execute_with_limits(
     query: &str,
     limits: &QueryLimits,
 ) -> Result<CypherResult, CypherError> {
-    // Parse the query
-    let parsed = cypher_parser::parse(query).map_err(|e| CypherError::Parse(e.to_string()))?;
+    // Write dispatch: detect CREATE/MERGE/SET/DELETE/REMOVE via nexora-language's
+    // AST parser (cypher-parser below only understands read queries: MATCH/WHERE/
+    // RETURN/WITH). Without this, a write query would fall through to the read
+    // parser and fail with "expected MATCH". Mirror the dispatch in
+    // `crate::execute_cypher` so both entry points support writes.
+    if let Ok(ast) = nexora_language::Parser::parse(query) {
+        let is_write = ast.clauses.iter().any(|c| {
+            matches!(
+                c,
+                nexora_language::Clause::Create { .. }
+                    | nexora_language::Clause::Merge { .. }
+                    | nexora_language::Clause::Set { .. }
+                    | nexora_language::Clause::Remove { .. }
+                    | nexora_language::Clause::Delete { .. }
+            )
+        });
+        if is_write {
+            let write_result = crate::write_executor::execute_write(graph, &ast).await?;
+            return Ok(CypherResult::Write(write_result));
+        }
+    }
+
+    // Edge-property bridge: cypher-parser 0.5's GraphProvider has no edge-property
+    // API, so `MATCH (a)-[r:T]->(b) RETURN r.km` returns null for r.km. Rewrite the
+    // query to also surface the edge's endpoint node objects (id carried through),
+    // then fill each r.<prop> column from the snapshot's EdgeData and strip the
+    // injected helper columns. No-op for queries without edge-property references.
+    let mut edge_rw = plan_edge_property_rewrite(query);
+
+    // Parse the (possibly rewritten) query. If the rewrite broke parsing, fall
+    // back to the original query with no edge fill — never regress a query that
+    // worked before (it just keeps returning null for edge props, as it did).
+    let parsed = match cypher_parser::parse(&edge_rw.query) {
+        Ok(p) => p,
+        Err(_) if !edge_rw.fills.is_empty() => {
+            edge_rw = EdgeRewrite {
+                query: query.to_string(),
+                fills: Vec::new(),
+                post_order: None,
+            };
+            cypher_parser::parse(query).map_err(|e| CypherError::Parse(e.to_string()))?
+        }
+        Err(e) => return Err(CypherError::Parse(e.to_string())),
+    };
 
     // H-4: Validate pattern depth to prevent complexity attacks
     validate_pattern_depth(&parsed, limits.max_pattern_depth)?;
@@ -74,8 +116,10 @@ pub async fn execute_with_limits(
         // Convert result
         let mut cypher_result = convert_result(result_set);
 
-        // Post-process: fill in edge properties that cypher-parser doesn't support
-        cypher_result = fill_edge_properties(cypher_result, &snapshot, query)?;
+        // Post-process: fill in edge properties (cypher-parser can't) using the
+        // endpoint helper columns injected by plan_edge_property_rewrite, then
+        // strip those helper columns so the caller sees only what they asked for.
+        cypher_result = fill_edge_properties_v2(cypher_result, &snapshot, &edge_rw);
 
         Ok(cypher_result)
     })
@@ -540,152 +584,438 @@ fn pv_to_cp(v: &PropertyValue) -> CpValue {
     }
 }
 
-/// Post-process query results to fill in edge properties that cypher-parser doesn't support.
-///
-/// Detects queries like "MATCH (a)-[r:KNOWS]->(b) RETURN id(a), id(b), r.since"
-/// and fills in r.since from the snapshot's EdgeData.
-fn fill_edge_properties(
-    result: CypherResult,
-    snapshot: &NexoraGraphSnapshot,
-    query: &str,
-) -> Result<CypherResult, CypherError> {
-    let CypherResult::Rows { columns, rows } = result else {
-        return Ok(result);
+/// One edge variable whose `r.<prop>` columns must be filled from the snapshot,
+/// plus the injected helper columns carrying its endpoint node objects.
+struct EdgeFill {
+    /// The edge variable this fill is for (e.g. `r`).
+    evar: String,
+    /// Injected RETURN alias holding the edge's SOURCE node object.
+    from_alias: String,
+    /// Injected RETURN alias holding the edge's TARGET node object.
+    to_alias: String,
+    /// Relationship type to match (None = any type on that edge var).
+    edge_type: Option<String>,
+    /// (result column name, edge property name) pairs to fill.
+    targets: Vec<(String, String)>,
+}
+
+/// One ORDER BY key, resolved to the injected helper column that carries its
+/// value after the fill step.
+struct PostOrderKey {
+    /// Result column (a `__nx_sortN` helper) to sort by.
+    col: String,
+    ascending: bool,
+}
+
+/// ORDER BY / SKIP / LIMIT taken over from cypher-parser and applied in Rust
+/// AFTER the edge-property fill. cypher-parser evaluates edge properties as null
+/// (its provider is node-only), so letting it sort/paginate on an edge-property
+/// key would order rows by null and return the wrong ones. When a trailing
+/// ORDER BY references a bridged edge property we strip these clauses from the
+/// executed query and reapply them here on the filled rows.
+struct PostOrder {
+    keys: Vec<PostOrderKey>,
+    skip: Option<usize>,
+    limit: Option<usize>,
+}
+
+/// Plan for surfacing edge properties past cypher-parser's node-only provider.
+struct EdgeRewrite {
+    /// Query to actually execute (original, or with helper columns injected).
+    query: String,
+    /// Edge-property fills to apply after execution; empty = no rewrite.
+    fills: Vec<EdgeFill>,
+    /// Ordering/pagination to apply in Rust after fill (None = leave to cypher-parser).
+    post_order: Option<PostOrder>,
+}
+
+/// Byte offset just past the RETURN projection list (i.e. the start of the first
+/// of ORDER BY / SKIP / LIMIT after RETURN, or end of query). `None` if no RETURN.
+fn return_projection_end(query: &str) -> Option<usize> {
+    let return_re = regex::Regex::new(r"(?i)\bRETURN\b").ok()?;
+    let ret = return_re.find(query)?;
+    let after = ret.end();
+    let tail_re = regex::Regex::new(r"(?i)\b(ORDER\s+BY|SKIP|LIMIT)\b").ok()?;
+    let rel = tail_re.find(&query[after..]).map(|m| after + m.start());
+    Some(rel.unwrap_or(query.len()))
+}
+
+/// Analyze a read query and, if it references edge properties on a directed,
+/// single-hop, variable-named edge, produce a rewrite that also returns the
+/// edge's endpoint node objects (so the fill step can locate the edge). No-op
+/// (returns the original query, empty fills) for anything it can't handle safely.
+fn plan_edge_property_rewrite(query: &str) -> EdgeRewrite {
+    let noop = || EdgeRewrite {
+        query: query.to_string(),
+        fills: Vec::new(),
+        post_order: None,
     };
 
-    // Detect edge property columns: r.property_name
-    let edge_prop_pattern = regex::Regex::new(r"\br\.(\w+)")
-        .map_err(|e| CypherError::Execution(format!("Invalid regex pattern: {}", e)))?;
-    let edge_props: Vec<(usize, String)> = columns
+    let Ok(ast) = nexora_language::Parser::parse(query) else {
+        return noop();
+    };
+
+    use nexora_language::ast::{Clause, EdgeDirection};
+
+    // UNION and other multi-query shapes: leave untouched.
+    if ast
+        .clauses
         .iter()
-        .enumerate()
-        .filter_map(|(idx, col)| {
-            edge_prop_pattern
-                .captures(col)
-                .and_then(|cap| cap.get(1))
-                .map(|m| (idx, m.as_str().to_string()))
-        })
-        .collect();
-
-    if edge_props.is_empty() {
-        return Ok(CypherResult::Rows { columns, rows });
+        .any(|c| matches!(c, Clause::Union { .. }))
+    {
+        return noop();
     }
 
-    // Also detect from query string if column names don't have the pattern
-    let query_edge_props: Vec<String> = edge_prop_pattern
-        .captures_iter(query)
-        .filter_map(|cap| cap.get(1))
-        .map(|m| m.as_str().to_string())
-        .collect();
-
-    if query_edge_props.is_empty() {
-        return Ok(CypherResult::Rows { columns, rows });
+    // Collect edge var -> (source node var, target node var, edge_type) for
+    // directed, single-hop edges with named endpoints and a named edge var.
+    let mut edges: Vec<(String, String, String, Option<String>)> = Vec::new(); // (evar, src_var, tgt_var, type)
+    for clause in &ast.clauses {
+        if let Clause::Match { pattern, .. } = clause {
+            for part in &pattern.parts {
+                let segs = &part.chain.segments;
+                for i in 0..segs.len() {
+                    let Some(edge) = &segs[i].edge else { continue };
+                    let Some(evar) = &edge.variable else { continue };
+                    // Skip variable-length paths.
+                    if edge.min_hops.is_some() || edge.max_hops.is_some() {
+                        continue;
+                    }
+                    let Some(next) = segs.get(i + 1) else { continue };
+                    let (Some(a), Some(b)) = (&segs[i].node.variable, &next.node.variable) else {
+                        continue;
+                    };
+                    let (src, tgt) = match edge.direction {
+                        EdgeDirection::Outgoing => (a.clone(), b.clone()),
+                        EdgeDirection::Incoming => (b.clone(), a.clone()),
+                        EdgeDirection::Either => continue, // ambiguous storage direction
+                    };
+                    edges.push((evar.clone(), src, tgt, edge.edge_type.clone()));
+                }
+            }
+        }
     }
 
-    // Parse query to extract relationship pattern and find column indices for from_id/to_id
-    // For now, assume standard pattern: id(a) AS from_id, id(b) AS to_id, r.prop
-    let from_id_idx = columns
-        .iter()
-        .position(|c| c.contains("from_id") || c == "id(a)");
-    let to_id_idx = columns
-        .iter()
-        .position(|c| c.contains("to_id") || c == "id(b)");
-
-    if from_id_idx.is_none() || to_id_idx.is_none() {
-        return Ok(CypherResult::Rows { columns, rows });
+    if edges.is_empty() {
+        return noop();
     }
 
-    let from_id_idx = from_id_idx.ok_or_else(|| {
-        CypherError::Execution("Missing from_id column in query result".to_string())
-    })?;
-    let to_id_idx = to_id_idx.ok_or_else(|| {
-        CypherError::Execution("Missing to_id column in query result".to_string())
-    })?;
+    let Some(inject_at) = return_projection_end(query) else {
+        return noop();
+    };
 
-    // Extract relationship type from query: -[r:TYPE]->
-    let rel_type_pattern = regex::Regex::new(r"-\[r:(\w+)\]->")
-        .map_err(|e| CypherError::Execution(format!("Invalid regex pattern: {}", e)))?;
-    let rel_type = rel_type_pattern
-        .captures(query)
-        .and_then(|cap| cap.get(1))
-        .map(|m| m.as_str());
-
-    if rel_type.is_none() {
-        return Ok(CypherResult::Rows { columns, rows });
+    let mut fills: Vec<EdgeFill> = Vec::new();
+    let mut injection = String::new();
+    for (evar, src_var, tgt_var, edge_type) in &edges {
+        // Find `evar.prop` references in the query text.
+        let prop_re = match regex::Regex::new(&format!(r"\b{}\.(\w+)", regex::escape(evar))) {
+            Ok(re) => re,
+            Err(_) => continue,
+        };
+        let mut targets: Vec<(String, String)> = Vec::new();
+        for cap in prop_re.captures_iter(query) {
+            if let Some(m) = cap.get(1) {
+                let prop = m.as_str().to_string();
+                let col = format!("{}.{}", evar, prop);
+                if !targets.iter().any(|(c, _)| c == &col) {
+                    targets.push((col, prop));
+                }
+            }
+        }
+        if targets.is_empty() {
+            continue;
+        }
+        let from_alias = format!("__nx_{}_from", evar);
+        let to_alias = format!("__nx_{}_to", evar);
+        injection.push_str(&format!(
+            ", {} AS {}, {} AS {}",
+            src_var, from_alias, tgt_var, to_alias
+        ));
+        fills.push(EdgeFill {
+            evar: evar.clone(),
+            from_alias,
+            to_alias,
+            edge_type: edge_type.clone(),
+            targets,
+        });
     }
 
-    let rel_type = rel_type.ok_or_else(|| {
-        CypherError::Execution("Missing relationship type in query pattern".to_string())
-    })?;
+    if fills.is_empty() {
+        return noop();
+    }
 
-    // Fill edge properties for each row
-    let new_rows: Vec<Vec<serde_json::Value>> =
-        rows.into_iter()
-            .map(|mut row| {
-                // Get from_id and to_id - handle both string IDs and node objects
-                let from_hex = row.get(from_id_idx).and_then(|v| {
-                    v.as_str()
-                        .or_else(|| v.get("id").and_then(|id| id.as_str()))
-                });
-                let to_hex = row.get(to_id_idx).and_then(|v| {
-                    v.as_str()
-                        .or_else(|| v.get("id").and_then(|id| id.as_str()))
-                });
+    // Layer 2: detect a trailing ORDER BY that sorts on a bridged edge property.
+    // cypher-parser's provider is node-only, so it evaluates the edge-property key
+    // as null and would order/paginate rows by null (returning the wrong ones). When
+    // that happens we take ORDER BY + SKIP + LIMIT over and apply them in Rust AFTER
+    // the fill. Only when every sort key is a simple `var.prop` and SKIP/LIMIT (if
+    // present) are integer literals; otherwise leave ordering to cypher-parser
+    // (post_order = None) and just keep the edge-property fills.
+    use nexora_language::ast::Expression;
+    let edge_vars: std::collections::HashSet<String> =
+        fills.iter().map(|f| f.evar.clone()).collect();
 
-                if let (Some(from_hex), Some(to_hex)) = (from_hex, to_hex) {
-                    // Find source node index
-                    if let Some(&source_idx) = snapshot
-                        .idx_to_id
-                        .iter()
-                        .find(|(_, id)| id.to_hex() == from_hex)
-                        .map(|(idx, _)| idx)
-                    {
-                        // Find target node ID
-                        if let Some(target_id) = snapshot
-                            .idx_to_id
-                            .iter()
-                            .find(|(_, id)| id.to_hex() == to_hex)
-                            .map(|(_, id)| id)
-                        {
-                            // Get edge properties from snapshot
-                            if let Some(node) = snapshot.nodes.get(source_idx as usize) {
-                                let target_idx_opt = snapshot
-                                    .idx_to_id
-                                    .iter()
-                                    .find(|(_, id)| *id == target_id)
-                                    .map(|(idx, _)| idx);
+    let simple_prop = |e: &Expression| -> Option<(String, String)> {
+        if let Expression::Property(obj, prop) = e {
+            if let Expression::Variable(v) = obj.as_ref() {
+                return Some((v.clone(), prop.clone()));
+            }
+        }
+        None
+    };
+    let expr_as_usize = |e: &Expression| -> Option<usize> {
+        if let Expression::Literal(nexora_id::PropertyValue::Integer(n)) = e {
+            if *n >= 0 {
+                return Some(*n as usize);
+            }
+        }
+        None
+    };
 
-                                if let Some(&target_idx) = target_idx_opt {
-                                    if let Some(edge) = node.outgoing_edges.iter().find(|e| {
-                                        e.edge_type == rel_type && e.target_idx == target_idx
-                                    }) {
-                                        // Fill each edge property column
-                                        for prop_name in &query_edge_props {
-                                            // Find column index for this property
-                                            let col_idx =
-                                                columns.iter().position(|c| c.contains(prop_name));
-                                            if let Some(col_idx) = col_idx {
-                                                if let Some(pv) = edge.properties.get(prop_name) {
-                                                    let json_val = cp_value_to_json(&pv_to_cp(pv));
-                                                    row[col_idx] = json_val;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+    // The terminal RETURN clause carries the trailing ORDER BY / SKIP / LIMIT.
+    let ret_clause = ast.clauses.iter().rev().find_map(|c| match c {
+        Clause::Return {
+            order_by,
+            skip,
+            limit,
+            ..
+        } => Some((order_by, skip, limit)),
+        _ => None,
+    });
+
+    let mut sort_injection = String::new();
+    let mut post_order: Option<PostOrder> = None;
+
+    if let Some((Some(order_by), skip, limit)) = ret_clause {
+        let touches_edge = order_by.items.iter().any(|si| {
+            simple_prop(&si.expression)
+                .map(|(v, _)| edge_vars.contains(&v))
+                .unwrap_or(false)
+        });
+        let all_simple = order_by
+            .items
+            .iter()
+            .all(|si| simple_prop(&si.expression).is_some());
+        let skip_val = skip.as_ref().and_then(&expr_as_usize);
+        let limit_val = limit.as_ref().and_then(&expr_as_usize);
+        let skip_ok = skip.is_none() || skip_val.is_some();
+        let limit_ok = limit.is_none() || limit_val.is_some();
+
+        if touches_edge && all_simple && skip_ok && limit_ok {
+            let mut keys: Vec<PostOrderKey> = Vec::new();
+            for (i, si) in order_by.items.iter().enumerate() {
+                // unwrap-safe: all_simple guaranteed every item is a simple prop.
+                let (v, prop) = simple_prop(&si.expression).unwrap();
+                let sort_col = format!("__nx_sort{}", i);
+                // Surface the sort key as a helper projection column.
+                sort_injection.push_str(&format!(", {}.{} AS {}", v, prop, sort_col));
+                // Edge-property key: cypher-parser returns null for it, so register a
+                // fill target so the helper column carries the real value before we
+                // sort. Node-property keys are evaluated by cypher-parser directly.
+                if edge_vars.contains(&v) {
+                    if let Some(f) = fills.iter_mut().find(|f| f.evar == v) {
+                        f.targets.push((sort_col.clone(), prop.clone()));
                     }
                 }
+                keys.push(PostOrderKey {
+                    col: sort_col,
+                    ascending: si.ascending,
+                });
+            }
+            post_order = Some(PostOrder {
+                keys,
+                skip: skip_val,
+                limit: limit_val,
+            });
+        }
+    }
 
-                row
-            })
+    let mut rewritten =
+        String::with_capacity(query.len() + injection.len() + sort_injection.len() + 1);
+    rewritten.push_str(&query[..inject_at]);
+    rewritten.push_str(&injection);
+    rewritten.push_str(&sort_injection);
+    if post_order.is_none() {
+        // Ordering left to cypher-parser: keep the trailing ORDER BY / SKIP / LIMIT.
+        // Separate the injected projection from the next keyword so they don't glue
+        // together (e.g. `__nx_r_toORDER BY`), which would fail to parse and drop
+        // the edge-property fills — nulling the very columns we injected for.
+        rewritten.push(' ');
+        rewritten.push_str(&query[inject_at..]);
+    }
+    // When post_order is Some the trailing clause is intentionally dropped from the
+    // executed query; we reapply ordering/pagination in Rust after the fill.
+
+    EdgeRewrite {
+        query: rewritten,
+        fills,
+        post_order,
+    }
+}
+
+/// Extract a node's hex id from a result cell that is either a bare hex string
+/// or a node object `{"id": "<hex>", ...}`.
+fn cell_node_hex(v: &serde_json::Value) -> Option<&str> {
+    v.as_str()
+        .or_else(|| v.get("id").and_then(|id| id.as_str()))
+}
+
+/// Fill edge-property columns from the snapshot using the endpoint helper columns
+/// injected by `plan_edge_property_rewrite`, then strip those helper columns.
+fn fill_edge_properties_v2(
+    result: CypherResult,
+    snapshot: &NexoraGraphSnapshot,
+    edge_rw: &EdgeRewrite,
+) -> CypherResult {
+    if edge_rw.fills.is_empty() {
+        return result;
+    }
+    let CypherResult::Rows { columns, mut rows } = result else {
+        return result;
+    };
+
+    // Resolve column indices for each fill.
+    let col_pos = |name: &str| columns.iter().position(|c| c == name);
+
+    for row in rows.iter_mut() {
+        for fill in &edge_rw.fills {
+            let (Some(from_idx), Some(to_idx)) =
+                (col_pos(&fill.from_alias), col_pos(&fill.to_alias))
+            else {
+                continue;
+            };
+            let from_hex = row.get(from_idx).and_then(cell_node_hex).map(str::to_string);
+            let to_hex = row.get(to_idx).and_then(cell_node_hex).map(str::to_string);
+            let (Some(from_hex), Some(to_hex)) = (from_hex, to_hex) else {
+                continue;
+            };
+
+            // hex -> node index
+            let source_idx = snapshot
+                .idx_to_id
+                .iter()
+                .find(|(_, id)| id.to_hex() == from_hex)
+                .map(|(idx, _)| *idx);
+            let target_idx = snapshot
+                .idx_to_id
+                .iter()
+                .find(|(_, id)| id.to_hex() == to_hex)
+                .map(|(idx, _)| *idx);
+            let (Some(source_idx), Some(target_idx)) = (source_idx, target_idx) else {
+                continue;
+            };
+
+            let Some(node) = snapshot.nodes.get(source_idx as usize) else {
+                continue;
+            };
+            let Some(edge) = node.outgoing_edges.iter().find(|e| {
+                e.target_idx == target_idx
+                    && fill
+                        .edge_type
+                        .as_ref()
+                        .is_none_or(|t| &e.edge_type == t)
+            }) else {
+                continue;
+            };
+
+            for (col_name, prop_name) in &fill.targets {
+                if let Some(col_idx) = col_pos(col_name) {
+                    if let Some(pv) = edge.properties.get(prop_name) {
+                        row[col_idx] = cp_value_to_json(&pv_to_cp(pv));
+                    }
+                }
+            }
+        }
+    }
+
+    // Layer 2: apply ORDER BY + SKIP + LIMIT in Rust, now that the sort-key helper
+    // columns carry real edge-property values. cypher-parser could not do this
+    // (it sees edge properties as null), so when a trailing ORDER BY referenced a
+    // bridged edge property we stripped those clauses from the executed query and
+    // reapply them here on the filled rows.
+    if let Some(po) = &edge_rw.post_order {
+        let key_idx: Vec<(usize, bool)> = po
+            .keys
+            .iter()
+            .filter_map(|k| col_pos(&k.col).map(|i| (i, k.ascending)))
             .collect();
+        if key_idx.len() == po.keys.len() {
+            rows.sort_by(|a, b| {
+                for &(idx, ascending) in &key_idx {
+                    let ord = cmp_json(a.get(idx), b.get(idx));
+                    let ord = if ascending { ord } else { ord.reverse() };
+                    if ord != std::cmp::Ordering::Equal {
+                        return ord;
+                    }
+                }
+                std::cmp::Ordering::Equal
+            });
+        }
+        // SKIP then LIMIT on the sorted rows.
+        if let Some(skip) = po.skip {
+            if skip >= rows.len() {
+                rows.clear();
+            } else {
+                rows.drain(0..skip);
+            }
+        }
+        if let Some(limit) = po.limit {
+            rows.truncate(limit);
+        }
+    }
 
-    Ok(CypherResult::Rows {
-        columns,
-        rows: new_rows,
-    })
+    // Strip every injected helper column (endpoint `__nx_*_from/_to` and sort
+    // `__nx_sortN`). Match by the `__nx_` prefix so node-property sort helpers
+    // (which are not fill targets) are removed too. Descending index order keeps
+    // positions valid as we remove.
+    let mut strip: Vec<usize> = columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.starts_with("__nx_"))
+        .map(|(i, _)| i)
+        .collect();
+    strip.sort_unstable();
+    strip.dedup();
+    let mut columns = columns;
+    for &i in strip.iter().rev() {
+        columns.remove(i);
+        for row in rows.iter_mut() {
+            if i < row.len() {
+                row.remove(i);
+            }
+        }
+    }
+
+    CypherResult::Rows { columns, rows }
+}
+
+/// Total ordering over result cells for Rust-side ORDER BY. Nulls sort last
+/// (largest), numbers compare numerically, strings lexically, bools false<true.
+/// Mixed/!comparable types fall back to a stable type-rank order so the sort is
+/// deterministic rather than panicking.
+fn cmp_json(a: Option<&serde_json::Value>, b: Option<&serde_json::Value>) -> std::cmp::Ordering {
+    use serde_json::Value;
+    use std::cmp::Ordering;
+    let rank = |v: Option<&Value>| -> u8 {
+        match v {
+            Some(Value::Bool(_)) => 0,
+            Some(Value::Number(_)) => 1,
+            Some(Value::String(_)) => 2,
+            Some(Value::Array(_)) => 3,
+            Some(Value::Object(_)) => 4,
+            // null / absent sort last
+            _ => 5,
+        }
+    };
+    match (a, b) {
+        (Some(Value::Number(x)), Some(Value::Number(y))) => x
+            .as_f64()
+            .unwrap_or(f64::NAN)
+            .partial_cmp(&y.as_f64().unwrap_or(f64::NAN))
+            .unwrap_or(Ordering::Equal),
+        (Some(Value::String(x)), Some(Value::String(y))) => x.cmp(y),
+        (Some(Value::Bool(x)), Some(Value::Bool(y))) => x.cmp(y),
+        _ => rank(a).cmp(&rank(b)),
+    }
 }
 
 /// Extract AS OF timestamp from a Cypher query string.

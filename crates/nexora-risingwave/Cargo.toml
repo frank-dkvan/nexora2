@@ -17,7 +17,7 @@ extensions-meta-raft = { path = "../../extensions/meta_raft", optional = true }
 # RisingWave library integration (Phase 8 - embedded library mode)
 # NEXORA PATCH: Disable default features (rw-static-link, all-connectors) and manually enable only rw-static-link.
 # This avoids all-connectors → all-sinks → sink-bigquery → gcp-bigquery-client → reqwest[default-features] → native-tls → CoreFoundation on macOS.
-risingwave_cmd_all = { path = "../../vendor/risingwave/src/cmd_all", optional = true, default-features = false, features = ["rw-static-link"] }
+risingwave_cmd_all = { path = "../../vendor/risingwave/src/cmd_all", optional = true, default-features = false, features = ["rw-static-link", "nexora-connectors"] }
 risingwave_common = { path = "../../vendor/risingwave/src/common", optional = true }
 risingwave_meta_node = { path = "../../vendor/risingwave/src/meta/node", optional = true }
 risingwave_frontend = { path = "../../vendor/risingwave/src/frontend", optional = true }

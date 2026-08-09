@@ -3,6 +3,19 @@
 
 set -euo pipefail
 
+# Put the rustup proxy AHEAD of Homebrew on PATH. Homebrew ships a standalone
+# stable cargo/rustc that ignores rust-toolchain.toml; if it wins on PATH the
+# build fails with "profile-rustflags requires nightly" / "-Z is only accepted
+# on nightly". The proxy at ~/.cargo/bin auto-reads the pinned channel from
+# rust-toolchain.toml, so we never hardcode the nightly date here.
+export PATH="$HOME/.cargo/bin:$PATH"
+
+if ! cargo --version | grep -q "nightly"; then
+    echo "Error: cargo did not resolve to nightly (Homebrew stable is likely" \
+         "shadowing the rustup proxy on PATH). Resolved: $(command -v cargo)" >&2
+    exit 1
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'

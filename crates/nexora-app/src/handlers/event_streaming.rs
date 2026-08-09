@@ -339,35 +339,35 @@ pub async fn get_distributed_library_status(
 
     let (meta_cluster, frontend_pool, compute_cluster) = cluster.as_ref();
 
-    // Get Meta cluster state
-    let meta_state = meta_cluster.get_state().await;
+    // Meta cluster state (cluster_state() returns the MetaClusterState enum).
+    let meta_state = meta_cluster.cluster_state().await;
     let is_leader = meta_cluster.is_leader().await;
-    let leader_id = meta_state.leader_id;
+    // node_count = configured peers + this node.
+    let node_count = meta_cluster.config().meta.raft_peers.len() + 1;
 
-    // Get Frontend pool health
-    let frontend_health = frontend_pool.health_check().await;
-
-    // Get Compute cluster health
-    let compute_health = compute_cluster.health_check().await;
+    // Frontend / Compute health (healthy_count() returns the live node count).
+    let frontend_healthy = frontend_pool.healthy_count().await;
+    let compute_healthy = compute_cluster.healthy_count().await;
+    let compute_parallelism = compute_cluster.total_parallelism().await;
 
     Ok(Json(DistributedLibraryStatusResponse {
         mode: "distributed_library".to_string(),
         meta: MetaClusterStatus {
             is_leader,
-            leader_id,
-            raft_state: format!("{:?}", meta_state.raft_state),
-            node_count: meta_state.peer_count + 1,
+            leader_id: None,
+            raft_state: format!("{:?}", meta_state),
+            node_count,
         },
         frontend: FrontendPoolStatus {
-            active_nodes: frontend_health.active_count,
-            total_nodes: frontend_health.total_count,
-            healthy: frontend_health.is_healthy,
+            active_nodes: frontend_healthy,
+            total_nodes: node_count,
+            healthy: frontend_healthy > 0,
         },
         compute: ComputeClusterStatus {
-            active_nodes: compute_health.active_count,
-            total_nodes: compute_health.total_count,
-            healthy: compute_health.is_healthy,
-            total_parallelism: compute_health.total_parallelism,
+            active_nodes: compute_healthy,
+            total_nodes: node_count,
+            healthy: compute_healthy > 0,
+            total_parallelism: compute_parallelism,
         },
     }))
 }

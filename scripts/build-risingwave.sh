@@ -23,21 +23,27 @@ if [ ! -d "$RISINGWAVE_DIR" ]; then
     exit 1
 fi
 
-# Set PATH to prioritize rustup nightly toolchain over Homebrew
-export PATH="$HOME/.rustup/toolchains/nightly-2026-03-15-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+# Put the rustup proxy AHEAD of Homebrew on PATH. Homebrew ships a standalone
+# stable cargo/rustc that ignores rust-toolchain.toml; if it wins on PATH the
+# build fails with "profile-rustflags requires nightly" / "-Z is only accepted
+# on nightly". The proxy at ~/.cargo/bin auto-reads the pinned channel from
+# rust-toolchain.toml (nightly-2026-06-11), so we never hardcode the date here.
+export PATH="$HOME/.cargo/bin:$PATH"
 
 echo -e "${YELLOW}Verifying toolchain...${NC}"
 echo "rustc: $(rustc --version)"
 echo "cargo: $(cargo --version)"
 
-# Verify we're using nightly
-if ! rustc --version | grep -q "nightly"; then
-    echo -e "${RED}Error: Not using nightly toolchain!${NC}"
-    echo "Current rustc: $(which rustc)"
+# Verify the resolved toolchain is nightly (i.e. the proxy read the pin and
+# Homebrew's stable is not shadowing it).
+if ! cargo --version | grep -q "nightly"; then
+    echo -e "${RED}Error: cargo did not resolve to nightly!${NC}"
+    echo "Resolved cargo: $(command -v cargo) → $(cargo --version)"
+    echo "Homebrew's stable cargo is likely shadowing the rustup proxy on PATH."
     exit 1
 fi
 
-echo -e "${GREEN}✓ Using correct nightly toolchain${NC}"
+echo -e "${GREEN}✓ Using pinned nightly toolchain (via rustup proxy)${NC}"
 echo ""
 
 cd "$RISINGWAVE_DIR"

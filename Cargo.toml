@@ -49,6 +49,15 @@ exclude = [
     "vendor/risingwave",
 ]
 
+# Disable binary stripping in release builds. The nightly toolchain's
+# `rust-objcopy` cannot load `libLLVM.dylib`, so the strip step fails partway
+# through and corrupts the binary's ad-hoc code signature. On Apple Silicon an
+# invalid signature makes the kernel SIGKILL the binary on exec (exit 137,
+# before any output). Keeping debug info avoids the broken strip step entirely;
+# the size increase is negligible for a 581MB library-mode binary.
+[profile.release]
+strip = false
+
 [workspace.package]
 version = "0.3.0"
 edition = "2021"

@@ -6,6 +6,53 @@
 
 ---
 
+## 🔧 工具链 (Toolchain) — 第 0 号纪律
+
+> **这是最容易踩、且反复出现的一类编译失败的根因。先配对,再谈其他。**
+
+本工作区**锁定特定 nightly**,由 `rust-toolchain.toml` 指定(当前 `nightly-2026-06-11`,
+与 `vendor/risingwave/ci/rust-toolchain` 保持同步)。原因:library 模式把 RisingWave
+crate 链接进 Nexora 构建图,`.cargo/config.toml` 使用 `-Zhigher-ranked-assumptions`
+(nightly rustc flag),根 `Cargo.toml` 使用 `profile-rustflags`(nightly cargo feature)。
+两者都**只有 nightly 才能解析**。
+
+### 唯一规范:走 rustup proxy,别让 Homebrew stable 抢跑
+
+```bash
+# ~/.cargo/bin (rustup proxy) 必须排在 /opt/homebrew/bin 前面
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# 验证:必须打印 "...-nightly..."。若显示 "(Homebrew)" 说明 proxy 被遮蔽
+cargo --version
+```
+
+**为什么**:Homebrew 的 `cargo`/`rustc` 是独立 **stable** 发行版,**完全无视**
+`rust-toolchain.toml`。一旦它在 PATH 上排在 rustup proxy 前面,就会报出这几个反复
+出现的错:
+
+| 报错 | 真实含义 |
+|------|---------|
+| `profile-rustflags requires a nightly version of Cargo` | stable cargo 在解析根 manifest |
+| `-Z is only accepted on the nightly compiler` | stable rustc 被调用 |
+| `no such command: +nightly-...` | stable cargo 不认 `+toolchain` 语法(那是 proxy 的功能) |
+
+### 规则
+
+- ✅ **只依赖 `rust-toolchain.toml` 的 pin**。rustup proxy 会自动读取,无需任何额外参数。
+- ❌ **禁止硬编码 nightly 日期**(如 `~/.rustup/toolchains/nightly-2026-03-15-.../bin`)。
+  日期会过期,与 pin 脱节,反而制造新的不一致。
+- ❌ **禁止 `rustup override set nightly`**(泛型 nightly)。它会覆盖 pin 的精确版本。
+- ✅ **禁止 `cargo +nightly ...`**:若 PATH 第一位是 Homebrew stable cargo,它根本不认
+  `+toolchain`;若走 proxy,pin 已经生效,`+nightly` 是多余的。
+- ✅ 所有 `scripts/build*.sh` 已内置 `export PATH="$HOME/.cargo/bin:$PATH"` + nightly 校验,
+  优先用脚本构建。
+
+> **注意**:并非所有历史编译问题都源于工具链。依赖树问题(如 macOS 上
+> `all-connectors → native-tls → CoreFoundation` 链接失败)是另一类,见
+> `docs/BUILD_FIX_SUMMARY.md`。但工具链是**最高频、最该先排除**的一类。
+
+---
+
 ## 🚦 代码质量门禁 (CI 强制)
 
 ### 1. Formatting (零容忍)

@@ -87,3 +87,6 @@ crates/nexora-core/benches/comparison_results.json
 
 # RisingWave embedded binary
 /bin/risingwave-embedded
+
+# Deploy demo runtime bundle (578MB binary + RocksDB data + WAL — never track)
+/deploy/nexora-2.0-demo/

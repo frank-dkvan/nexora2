@@ -385,7 +385,7 @@ impl GraphShard {
         let mut max_event_time: Option<EventTime> = None;
         for event in &events {
             // Track the maximum event time for timestamp regression fix
-            if max_event_time.map_or(true, |t| event.time > t) {
+            if max_event_time.is_none_or(|t| event.time > t) {
                 max_event_time = Some(event.time);
             }
             match &event.event {

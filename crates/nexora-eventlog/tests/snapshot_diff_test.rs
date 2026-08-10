@@ -1,8 +1,18 @@
 //! Tests for incremental snapshot diff streaming
 //!
-//! Validates that stream_topic uses snapshot diff API correctly
+//! Validates that stream_topic uses snapshot diff API correctly.
+//!
+//! DISABLED: this suite targets `EventLogStore::stream_topic`, which is
+//! currently commented out upstream (pending a `record_batch_to_raw_events`
+//! implementation), and is written against the old `RawEvent` shape
+//! (`event_time`/`ingest_time`/`data`) and a non-existent `append_batch` API.
+//! `cfg(any())` excludes the whole file from compilation until the streaming
+//! source is re-enabled and the suite is rewritten against the current API.
+//! Tracked alongside the nexora-graphstreaming exclusion.
+#![cfg(any())]
 
-use super::*;
+use nexora_core::raw_event::RawEvent;
+use nexora_eventlog::{EventLogStore, StorageConfig};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -43,25 +53,19 @@ async fn test_snapshot_delta_read() {
 
     // Get snapshot 1
     let table1 = store.load_table("delta_test").await.unwrap();
-    let snapshot1_id = table1
-        .metadata()
-        .current_snapshot()
-        .unwrap()
-        .snapshot_id();
+    let snapshot1_id = table1.metadata().current_snapshot().unwrap().snapshot_id();
 
     // Append more events
-    let events2 = vec![
-        RawEvent {
-            event_time: 3000000,
-            ingest_time: 3000000,
-            source: "test".to_string(),
-            topic: "delta_test".to_string(),
-            partition: 0,
-            offset: 2,
-            key: None,
-            data: r#"{"id": "3", "value": 300}"#.to_string(),
-        },
-    ];
+    let events2 = vec![RawEvent {
+        event_time: 3000000,
+        ingest_time: 3000000,
+        source: "test".to_string(),
+        topic: "delta_test".to_string(),
+        partition: 0,
+        offset: 2,
+        key: None,
+        data: r#"{"id": "3", "value": 300}"#.to_string(),
+    }];
 
     store
         .append_batch("delta_test", events2)
@@ -70,11 +74,7 @@ async fn test_snapshot_delta_read() {
 
     // Get snapshot 2
     let table2 = store.load_table("delta_test").await.unwrap();
-    let snapshot2_id = table2
-        .metadata()
-        .current_snapshot()
-        .unwrap()
-        .snapshot_id();
+    let snapshot2_id = table2.metadata().current_snapshot().unwrap().snapshot_id();
 
     assert_ne!(snapshot1_id, snapshot2_id);
 
@@ -200,11 +200,7 @@ async fn test_snapshot_expired_fallback() {
 
     // Try to read delta with non-existent from_snapshot
     let table = store.load_table("expired_test").await.unwrap();
-    let current_snapshot = table
-        .metadata()
-        .current_snapshot()
-        .unwrap()
-        .snapshot_id();
+    let current_snapshot = table.metadata().current_snapshot().unwrap().snapshot_id();
 
     let invalid_snapshot = 999999i64;
 

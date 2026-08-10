@@ -143,61 +143,67 @@ impl IngestionSource for KinesisSource {
                 let aws_cfg = loader.load().await;
                 let client = Client::new(&aws_cfg);
 
-            // List shards for the stream.
-            let shards_resp = client
-                .list_shards()
-                .stream_name(&self.config.stream_name)
-                .send()
+                // List shards for the stream.
+                let shards_resp = client
+                    .list_shards()
+                    .stream_name(&self.config.stream_name)
+                    .send()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Kinesis list_shards: {}", e))?;
+
+                let mut shards = self.shards.lock().await;
+                for shard in shards_resp.shards() {
+                    let shard_id = shard.shard_id().to_string();
+
+                    // Resume from a committed string checkpoint (Kinesis sequence
+                    // number) if present; else start at TRIM_HORIZON (oldest retained).
+                    let after_sequence: Option<String> = if let Some(store) = &self.offset_store {
+                        let (t, p) = self.checkpoint_key(&shard_id);
+                        store
+                            .load_str(&t, &p)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Kinesis checkpoint load: {}", e))?
+                    } else {
+                        None
+                    };
+
+                    let iterator = build_iterator(
+                        &client,
+                        &self.config.stream_name,
+                        &shard_id,
+                        after_sequence.as_deref(),
+                    )
+                    .await?;
+                    shards.insert(
+                        shard_id,
+                        ShardCursor {
+                            iterator: Some(iterator),
+                            last_sequence: None,
+                        },
+                    );
+                }
+                drop(shards);
+
+                *self.client.lock().await = Some(client);
+                Ok(())
+            };
+
+            self.breaker
+                .call::<_, (), anyhow::Error>(connect_op)
                 .await
-                .map_err(|e| anyhow::anyhow!("Kinesis list_shards: {}", e))?;
-
-            let mut shards = self.shards.lock().await;
-            for shard in shards_resp.shards() {
-                let shard_id = shard.shard_id().to_string();
-
-                // Resume from a committed string checkpoint (Kinesis sequence
-                // number) if present; else start at TRIM_HORIZON (oldest retained).
-                let after_sequence: Option<String> = if let Some(store) = &self.offset_store {
-                    let (t, p) = self.checkpoint_key(&shard_id);
-                    store.load_str(&t, &p).await.map_err(|e| {
-                        anyhow::anyhow!("Kinesis checkpoint load: {}", e)
-                    })?
-                } else {
-                    None
-                };
-
-                let iterator = build_iterator(
-                    &client,
-                    &self.config.stream_name,
-                    &shard_id,
-                    after_sequence.as_deref(),
-                )
-                .await?;
-                shards.insert(
-                    shard_id,
-                    ShardCursor {
-                        iterator: Some(iterator),
-                        last_sequence: None,
-                    },
-                );
-            }
-            drop(shards);
-
-            *self.client.lock().await = Some(client);
-            Ok(())
-        };
-
-        self.breaker.call::<_, (), anyhow::Error>(connect_op).await.map_err(|e| match e {
-            crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
-                IngestionError::Connection(format!("Circuit breaker open: {}", s))
-            }
-            crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
-                IngestionError::Connection(format!("{}", e))
-            }
-        })
+                .map_err(|e| match e {
+                    crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
+                        IngestionError::Connection(format!("Circuit breaker open: {}", s))
+                    }
+                    crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
+                        IngestionError::Connection(format!("{}", e))
+                    }
+                })
         })
         .await
-        .map_err(|e| IngestionError::Connection(format!("Failed to connect to Kinesis after retries: {}", e)))
+        .map_err(|e| {
+            IngestionError::Connection(format!("Failed to connect to Kinesis after retries: {}", e))
+        })
     }
 
     async fn poll(&self) -> Result<Option<IngestBatch>, IngestionError> {
@@ -213,80 +219,82 @@ impl IngestionSource for KinesisSource {
         retry_with_backoff_config(retry_config, || async {
             // P1-2: Circuit breaker wrapper
             let poll_op = async {
-            let client_guard = self.client.lock().await;
-            let client = client_guard.as_ref().ok_or_else(|| anyhow::anyhow!("Not connected"))?;
+                let client_guard = self.client.lock().await;
+                let client = client_guard
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
 
-            let mut shards = self.shards.lock().await;
-            let mut records = Vec::new();
-            let mut last_shard = String::new();
+                let mut shards = self.shards.lock().await;
+                let mut records = Vec::new();
+                let mut last_shard = String::new();
 
-            // Round-robin one GetRecords per shard that still has an iterator.
-            for (shard_id, cursor) in shards.iter_mut() {
-                let Some(iterator) = cursor.iterator.clone() else {
-                    continue;
-                };
-                let resp = client
-                    .get_records()
-                    .shard_iterator(iterator)
-                    .limit(self.config.max_batch)
-                    .send()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Kinesis get_records: {}", e))?;
+                // Round-robin one GetRecords per shard that still has an iterator.
+                for (shard_id, cursor) in shards.iter_mut() {
+                    let Some(iterator) = cursor.iterator.clone() else {
+                        continue;
+                    };
+                    let resp = client
+                        .get_records()
+                        .shard_iterator(iterator)
+                        .limit(self.config.max_batch)
+                        .send()
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Kinesis get_records: {}", e))?;
 
-                // Advance the iterator for next poll (None = shard closed).
-                cursor.iterator = resp.next_shard_iterator().map(|s| s.to_string());
+                    // Advance the iterator for next poll (None = shard closed).
+                    cursor.iterator = resp.next_shard_iterator().map(|s| s.to_string());
 
-                for rec in resp.records() {
-                    let seq = rec.sequence_number().to_string();
-                    cursor.last_sequence = Some(seq);
-                    last_shard = shard_id.clone();
-                    match parse_data(
-                        rec.data().as_ref(),
-                        &self.config.id_field,
-                        self.config.event_time_field.as_deref(),
-                        self.config.event_time_unit,
-                    ) {
-                        Ok(mut recs) => records.append(&mut recs),
-                        Err(e) => {
-                            let mut stats = self.stats.lock().await;
-                            stats.errors += 1;
-                            tracing::warn!(error = %e, "Kinesis: skip bad record");
+                    for rec in resp.records() {
+                        let seq = rec.sequence_number().to_string();
+                        cursor.last_sequence = Some(seq);
+                        last_shard = shard_id.clone();
+                        match parse_data(
+                            rec.data().as_ref(),
+                            &self.config.id_field,
+                            self.config.event_time_field.as_deref(),
+                            self.config.event_time_unit,
+                        ) {
+                            Ok(mut recs) => records.append(&mut recs),
+                            Err(e) => {
+                                let mut stats = self.stats.lock().await;
+                                stats.errors += 1;
+                                tracing::warn!(error = %e, "Kinesis: skip bad record");
+                            }
                         }
                     }
                 }
-            }
 
-            if records.is_empty() {
-                return Ok::<Option<IngestBatch>, anyhow::Error>(None);
-            }
+                if records.is_empty() {
+                    return Ok::<Option<IngestBatch>, anyhow::Error>(None);
+                }
 
-            let len = records.len() as u64;
-            let offset_end = self.seq.fetch_add(len, Ordering::Relaxed) + len;
-            let offset_start = offset_end - len;
-            {
-                let mut stats = self.stats.lock().await;
-                stats.records_ingested += len;
-                stats.batches_processed += 1;
-            }
+                let len = records.len() as u64;
+                let offset_end = self.seq.fetch_add(len, Ordering::Relaxed) + len;
+                let offset_start = offset_end - len;
+                {
+                    let mut stats = self.stats.lock().await;
+                    stats.records_ingested += len;
+                    stats.batches_processed += 1;
+                }
 
-            Ok(Some(IngestBatch {
-                records,
-                partition: last_shard,
-                offset_start,
-                offset_end,
-                topic: self.config.stream_name.clone(),
-                raw_events: None,
-            }))
-        };
+                Ok(Some(IngestBatch {
+                    records,
+                    partition: last_shard,
+                    offset_start,
+                    offset_end,
+                    topic: self.config.stream_name.clone(),
+                    raw_events: None,
+                }))
+            };
 
-        self.breaker.call(poll_op).await.map_err(|e| match e {
-            crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
-                IngestionError::Poll(format!("Circuit breaker open: {}", s))
-            }
-            crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
-                IngestionError::Poll(format!("{}", e))
-            }
-        })
+            self.breaker.call(poll_op).await.map_err(|e| match e {
+                crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
+                    IngestionError::Poll(format!("Circuit breaker open: {}", s))
+                }
+                crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
+                    IngestionError::Poll(format!("{}", e))
+                }
+            })
         })
         .await
         .map_err(|e| IngestionError::Poll(format!("Failed to poll Kinesis after retries: {}", e)))

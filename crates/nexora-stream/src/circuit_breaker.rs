@@ -3,10 +3,10 @@
 //! Protects external service calls (Kafka, Kinesis, MQTT, etc.) from cascading failures.
 
 use anyhow::Result;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{error, warn};
 

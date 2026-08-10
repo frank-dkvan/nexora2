@@ -37,9 +37,9 @@ use clap::Parser;
 use handlers::{publish_sq_event, AppConfig, AppState};
 use nexora_core::{GraphService, GraphServiceConfig, InMemoryPersistor};
 use nexora_hnsw::{HnswConfig, HnswIndex};
-use nexora_observability;
 use nexora_standing_query::StandingQueryManager;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
@@ -834,7 +834,9 @@ async fn main() -> anyhow::Result<()> {
     let rocksdb_path = if cli.rocksdb_path.is_some() {
         cli.rocksdb_path.clone().unwrap()
     } else {
-        config_file.storage.as_ref()
+        config_file
+            .storage
+            .as_ref()
             .and_then(|s| s.rocksdb.as_ref())
             .map(|r| PathBuf::from(&r.path))
             .unwrap_or_else(|| PathBuf::from("./nexora-data"))
@@ -1442,10 +1444,7 @@ async fn main() -> anyhow::Result<()> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_micros() as u64)
             .unwrap_or(0);
-        let registry = Arc::new(FragmentStore::new(
-            rocksdb_path.join("fragments"),
-            "graph",
-        ));
+        let registry = Arc::new(FragmentStore::new(rocksdb_path.join("fragments"), "graph"));
         let frag_store = Arc::new(TieredFragmentStore::new(registry, ts, "graph"));
         fragment_store = Some(frag_store.clone());
         let sealer = Arc::new(FragmentSealer::new(frag_store.clone(), "graph", now_us));
@@ -2196,7 +2195,7 @@ async fn main() -> anyhow::Result<()> {
         None
     };
     #[cfg(not(all(feature = "event-streaming", feature = "library")))]
-    let library_event_streaming: Option<()> = None;
+    let _library_event_streaming: Option<()> = None;
 
     // ============================================================
     // Distributed library mode: multi-node in-process cluster
@@ -2269,15 +2268,37 @@ async fn main() -> anyhow::Result<()> {
                         .map(|s| s.parse())
                         .transpose()?;
 
+                    // Convert TOML peers to advertise addresses
+                    let raft_peers: Vec<String> = dist_config
+                        .meta
+                        .peers
+                        .iter()
+                        .map(|p| format!("{}@{}", p.node_id, p.addr))
+                        .collect();
+
+                    // Use this node's address as advertise_addr (derived from listen_addr)
+                    let advertise_addr = meta_listen.to_string();
+
+                    // Get consensus timeouts (convert seconds to milliseconds)
+                    let (election_timeout_ms, heartbeat_interval_ms) =
+                        if let Some(ref consensus) = dist_config.consensus {
+                            (
+                                consensus.election_timeout_secs * 1000,
+                                consensus.heartbeat_interval_secs * 1000,
+                            )
+                        } else {
+                            (5000, 1000) // defaults: 5s election, 1s heartbeat
+                        };
+
                     let lib_dist_config = DistributedLibraryConfig {
                         node_id: dist_config.node_id.clone(),
                         meta: MetaNodeConfig {
                             listen_addr: meta_listen,
-                            advertise_addr: dist_config.meta.advertise_addr.clone(),
-                            raft_peers: dist_config.meta.raft_peers.clone(),
+                            advertise_addr,
+                            raft_peers,
                             backend,
-                            election_timeout_ms: dist_config.meta.election_timeout_ms,
-                            heartbeat_interval_ms: dist_config.meta.heartbeat_interval_ms,
+                            election_timeout_ms,
+                            heartbeat_interval_ms,
                         },
                         frontend: FrontendNodeConfig {
                             listen_addr: frontend_listen,
@@ -2323,8 +2344,8 @@ async fn main() -> anyhow::Result<()> {
                 );
 
                 use nexora_risingwave::{
-                    ComputeNodeConfig, DistributedLibraryConfig, FrontendNodeConfig,
-                    MetaBackend, MetaNodeConfig,
+                    ComputeNodeConfig, DistributedLibraryConfig, FrontendNodeConfig, MetaBackend,
+                    MetaNodeConfig,
                 };
 
                 let node_id = cli.library_node_id.ok_or_else(|| {
@@ -2337,7 +2358,9 @@ async fn main() -> anyhow::Result<()> {
                 let meta_listen: std::net::SocketAddr = meta_addr_str.parse()?;
 
                 let meta_advertise = cli.library_meta_advertise.ok_or_else(|| {
-                    anyhow::anyhow!("--library-meta-advertise is required for distributed library mode")
+                    anyhow::anyhow!(
+                        "--library-meta-advertise is required for distributed library mode"
+                    )
                 })?;
 
                 let frontend_addr_str = cli
@@ -2349,7 +2372,9 @@ async fn main() -> anyhow::Result<()> {
                 // Determine Meta backend from CLI args
                 let backend = match cli.meta_backend {
                     MetaBackendType::Memory => {
-                        tracing::warn!("Using in-memory Meta backend - data will not persist across restarts!");
+                        tracing::warn!(
+                            "Using in-memory Meta backend - data will not persist across restarts!"
+                        );
                         MetaBackend::Memory
                     }
                     MetaBackendType::Sqlite => {
@@ -2363,9 +2388,14 @@ async fn main() -> anyhow::Result<()> {
                     }
                     MetaBackendType::Etcd => {
                         if cli.meta_backend_etcd_endpoints.is_empty() {
-                            anyhow::bail!("--meta-backend-etcd-endpoints is required when using etcd backend");
+                            anyhow::bail!(
+                                "--meta-backend-etcd-endpoints is required when using etcd backend"
+                            );
                         }
-                        tracing::info!("Using Etcd Meta backend: {:?}", cli.meta_backend_etcd_endpoints);
+                        tracing::info!(
+                            "Using Etcd Meta backend: {:?}",
+                            cli.meta_backend_etcd_endpoints
+                        );
                         MetaBackend::Etcd {
                             endpoints: cli.meta_backend_etcd_endpoints.clone(),
                         }
@@ -2398,9 +2428,7 @@ async fn main() -> anyhow::Result<()> {
                 })?;
 
                 // Start cluster components
-                match nexora_risingwave::start_distributed_library_cluster(lib_dist_config)
-                    .await
-                {
+                match nexora_risingwave::start_distributed_library_cluster(lib_dist_config).await {
                     Ok((meta, frontend, compute)) => {
                         tracing::info!(
                             "   Event Streaming: distributed library cluster started (node_id={}, backend={:?})",
@@ -2411,10 +2439,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                     Err(e) => {
                         tracing::error!("Failed to start distributed library cluster: {}", e);
-                        anyhow::bail!(
-                            "Distributed library cluster initialization failed: {}",
-                            e
-                        );
+                        anyhow::bail!("Distributed library cluster initialization failed: {}", e);
                     }
                 }
             } else {
@@ -2483,11 +2508,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(64),
         )),
         mv_refresh_semaphore: Arc::new(tokio::sync::Semaphore::new(2)), // C-14 FIX: Max 2 concurrent MV refreshes
-        query_limits: graph_cfg
-            .query
-            .as_ref()
-            .map(|q| q.to_query_limits())
-            .unwrap_or_default(),
+        query_limits: config_file.query.to_query_limits(),
         #[cfg(feature = "event-streaming")]
         event_streaming: {
             #[cfg(feature = "library")]
@@ -2948,7 +2969,10 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(all(feature = "event-first", feature = "event-streaming"))]
     if let Some(ref rules_dir) = cli.graph_streaming_rules {
         if let Some(ref event_store) = state.event_store {
-            tracing::info!("Initializing GraphStreaming from rules directory: {:?}", rules_dir);
+            tracing::info!(
+                "Initializing GraphStreaming from rules directory: {:?}",
+                rules_dir
+            );
 
             match nexora_graphstreaming::ProjectionRule::load_from_directory(rules_dir) {
                 Ok(rules) => {
@@ -2988,7 +3012,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to load projection rules from {:?}: {}", rules_dir, e);
+                    tracing::error!(
+                        "Failed to load projection rules from {:?}: {}",
+                        rules_dir,
+                        e
+                    );
                     anyhow::bail!("GraphStreaming rule loading failed: {}", e);
                 }
             }
@@ -3053,14 +3081,6 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/docs",
             get(|| async { Html(openapi::swagger_ui_html()) }),
-        )
-        // Prometheus metrics
-        .route(
-            "/metrics",
-            get({
-                let m = metrics_state.clone();
-                move || async move { metrics::render_metrics(&m) }
-            }),
         )
         // Metrics JSON endpoint (for frontend)
         .route(
@@ -3511,7 +3531,7 @@ async fn main() -> anyhow::Result<()> {
     // ============================================================
     // Observability endpoints (health, metrics, tracing)
     // ============================================================
-    let metrics_registry = Arc::new(nexora_observability::MetricsRegistry::new());
+    let _metrics_registry = Arc::new(nexora_observability::MetricsRegistry::new());
     let health_checker = Arc::new(nexora_observability::HealthChecker::new());
 
     // Register basic health check (GraphServiceHealthCheck doesn't exist yet)
@@ -3521,35 +3541,6 @@ async fn main() -> anyhow::Result<()> {
     // ).await;
 
     // Add observability routes
-    let obs_metrics = metrics_registry.clone();
-    app = app.route(
-        "/metrics",
-        get(move || {
-            let registry = obs_metrics.clone();
-            async move {
-                match &*registry {
-                    Ok(reg) => match reg.export() {
-                        Ok(text) => (
-                            axum::http::StatusCode::OK,
-                            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-                            text
-                        ),
-                        Err(e) => (
-                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                            [(axum::http::header::CONTENT_TYPE, "text/plain")],
-                            format!("Failed to export metrics: {}", e)
-                        ),
-                    },
-                    Err(e) => (
-                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                        [(axum::http::header::CONTENT_TYPE, "text/plain")],
-                        format!("Metrics registry error: {}", e)
-                    ),
-                }
-            }
-        }),
-    );
-
     let obs_health = health_checker.clone();
     app = app.route(
         "/health",
@@ -3557,7 +3548,8 @@ async fn main() -> anyhow::Result<()> {
             let checker = obs_health.clone();
             async move {
                 let response = checker.check_all().await;
-                let status_code = if response.status == nexora_observability::HealthStatus::Healthy {
+                let status_code = if response.status == nexora_observability::HealthStatus::Healthy
+                {
                     axum::http::StatusCode::OK
                 } else {
                     axum::http::StatusCode::SERVICE_UNAVAILABLE
@@ -3589,9 +3581,7 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    tracing::info!(
-        "   Rate limit: 100K req/s global, 1K req/s per client (token bucket)"
-    );
+    tracing::info!("   Rate limit: 100K req/s global, 1K req/s per client (token bucket)");
 
     app = app.layer(axum::middleware::from_fn_with_state(
         rate_limiter,
@@ -3604,20 +3594,27 @@ async fn main() -> anyhow::Result<()> {
         .layer(RequestBodyLimitLayer::new(16 * 1024 * 1024)) // 16MB max body
         .layer(cors);
 
-    // Conditionally apply auth middleware
+    // Always layer the Auth Extension so token issuance (/api/auth/token) and any
+    // handler that extracts Extension<Arc<Auth>> works regardless of enforcement
+    // mode. Only the require_auth ENFORCEMENT middleware is conditional: in
+    // --allow-unauthenticated mode we still make Auth available (dev tooling and
+    // demos call /api/auth/token), we just don't reject unauthenticated requests.
+    // Without this, generate_token failed with a 500 "Missing request extension
+    // Arc<Auth>" (an internal axum error leak) whenever auth was disabled.
+    let auth_ext = axum::extract::Extension(Arc::new(auth::Auth::new(&auth_secret)));
     let app = if effective_require_auth {
         tracing::info!("   Auth:   enabled (HMAC-SHA256)");
         app.layer(axum::middleware::from_fn(auth::require_auth))
-            .layer(axum::extract::Extension(Arc::new(auth::Auth::new(
-                &auth_secret,
-            ))))
+            .layer(auth_ext)
     } else {
         tracing::warn!("   Auth:   DISABLED (set --require-auth to enable)");
-        app
+        app.layer(auth_ext)
     };
 
-    // Clone query_pool before moving state into with_state
+    // Clone query_pool and event_sinks before moving state into with_state
     let query_pool_for_pg = state.query_pool.clone();
+    #[cfg(feature = "event-streaming")]
+    let event_sinks_for_shutdown = state.event_sinks.clone();
 
     let app = app.with_state(state);
 
@@ -3687,8 +3684,11 @@ async fn main() -> anyhow::Result<()> {
         let addr = format!("{}:{}", cli.host, cli.port);
         tracing::info!("   HTTP:   listening on {addr}");
         let listener = tokio::net::TcpListener::bind(&addr).await?;
-        let graceful =
-            axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(shutdown_ws));
+        let graceful = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(shutdown_signal(shutdown_ws));
         graceful.await.map_err(Into::into)
     };
     // Stop and drain PG connections before the final persistence pass. Do this
@@ -3740,7 +3740,7 @@ async fn main() -> anyhow::Result<()> {
     // Phase 6.3: Shutdown all EventLogSink tasks
     #[cfg(feature = "event-streaming")]
     {
-        let sinks = state.event_sinks.read().await;
+        let sinks = event_sinks_for_shutdown.read().await;
         let count = sinks.len();
         if count > 0 {
             tracing::info!("Stopping {} EventLogSink task(s)...", count);
@@ -4156,7 +4156,7 @@ async fn start_tls_server(
     // Bind with TLS
     axum_server::bind_rustls(addr.parse()?, tls_config)
         .handle(handle)
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await?;
 
     Ok(())

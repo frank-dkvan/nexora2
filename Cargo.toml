@@ -41,13 +41,29 @@ members = [
     "crates/nexora-consensus",
     "crates/nexora-rpc",
     "extensions/meta_raft",
-    # GraphStreaming Layer (Phase 7)
-    "crates/nexora-graphstreaming",
 ]
 exclude = [
     # RisingWave source (Phase 7: managed separately, requires nightly Rust)
     "vendor/risingwave",
+    # GraphStreaming Layer (Phase 7): its projection loop is built on
+    # EventLogStore::stream_topic(), which upstream has commented out pending a
+    # record_batch_to_raw_events() implementation. Until that streaming source is
+    # re-enabled the crate cannot compile, so it is excluded from the default
+    # workspace build/CI. No other crate depends on it (nexora-app only references
+    # it under cfg(all(event-first, event-streaming)), with no manifest dep), so
+    # excluding it has no effect on the shipped binary. Re-add to `members` once
+    # stream_topic is restored. Tracked as a follow-up.
+    "crates/nexora-graphstreaming",
 ]
+
+# Disable binary stripping in release builds. The nightly toolchain's
+# `rust-objcopy` cannot load `libLLVM.dylib`, so the strip step fails partway
+# through and corrupts the binary's ad-hoc code signature. On Apple Silicon an
+# invalid signature makes the kernel SIGKILL the binary on exec (exit 137,
+# before any output). Keeping debug info avoids the broken strip step entirely;
+# the size increase is negligible for a 581MB library-mode binary.
+[profile.release]
+strip = false
 
 [workspace.package]
 version = "0.3.0"

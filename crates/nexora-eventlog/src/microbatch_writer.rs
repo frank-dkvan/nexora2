@@ -99,8 +99,7 @@ impl MicrobatchWriter {
         }
 
         // Wait for flush to complete
-        rx.await
-            .map_err(|_| anyhow!("Flush worker died"))?
+        rx.await.map_err(|_| anyhow!("Flush worker died"))?
     }
 
     /// Start background flush worker (timeout-based flush).
@@ -113,7 +112,7 @@ impl MicrobatchWriter {
             loop {
                 ticker.tick().await;
 
-                let (topics_to_flush, max_delay) = {
+                let topics_to_flush = {
                     let buffers = writer.buffers.lock().await;
                     let config = writer.config.lock().await;
                     let max_delay = Duration::from_millis(config.max_delay_ms);
@@ -126,7 +125,7 @@ impl MicrobatchWriter {
                         .map(|(topic, _)| topic.clone())
                         .collect();
 
-                    (topics, max_delay)
+                    topics
                 };
 
                 for topic in topics_to_flush {
@@ -267,15 +266,16 @@ impl Drop for MicrobatchWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RawEvent;
-    use serde_json::json;
 
-    // Mock store for testing
+    // Mock store for testing. Structural scaffolding only — real coverage needs
+    // EventLogStore integration (see note below); not yet constructed.
+    #[allow(dead_code)]
     struct MockEventLogStore {
         commit_count: Arc<Mutex<usize>>,
         last_batch_size: Arc<Mutex<usize>>,
     }
 
+    #[allow(dead_code)]
     impl MockEventLogStore {
         fn new() -> Arc<Self> {
             Arc::new(Self {
@@ -318,14 +318,16 @@ mod tests {
 
     #[test]
     fn test_adjust_batch_size_increase() {
-        let mut config = MicrobatchConfig::default();
-        config.max_batch_size = 1000;
+        let mut config = MicrobatchConfig {
+            max_batch_size: 1000,
+            ..Default::default()
+        };
 
         MicrobatchWriter::adjust_batch_size(
             &mut config,
             "test",
             Duration::from_millis(30), // Low latency
-            1000,                       // Full batch
+            1000,                      // Full batch
         );
 
         assert_eq!(config.max_batch_size, 1200); // 1000 * 1.2
@@ -333,8 +335,10 @@ mod tests {
 
     #[test]
     fn test_adjust_batch_size_decrease() {
-        let mut config = MicrobatchConfig::default();
-        config.max_batch_size = 1000;
+        let mut config = MicrobatchConfig {
+            max_batch_size: 1000,
+            ..Default::default()
+        };
 
         MicrobatchWriter::adjust_batch_size(
             &mut config,
@@ -348,34 +352,20 @@ mod tests {
 
     #[test]
     fn test_adjust_batch_size_limits() {
-        let mut config = MicrobatchConfig::default();
-
         // Test upper limit
-        config.max_batch_size = 9500;
-        MicrobatchWriter::adjust_batch_size(
-            &mut config,
-            "test",
-            Duration::from_millis(30),
-            9500,
-        );
+        let mut config = MicrobatchConfig {
+            max_batch_size: 9500,
+            ..Default::default()
+        };
+        MicrobatchWriter::adjust_batch_size(&mut config, "test", Duration::from_millis(30), 9500);
         assert_eq!(config.max_batch_size, 10000); // Capped at 10000
 
         // Test lower limit
         config.max_batch_size = 150;
-        MicrobatchWriter::adjust_batch_size(
-            &mut config,
-            "test",
-            Duration::from_millis(250),
-            150,
-        );
+        MicrobatchWriter::adjust_batch_size(&mut config, "test", Duration::from_millis(250), 150);
         assert_eq!(config.max_batch_size, 120); // 150 * 0.8
 
-        MicrobatchWriter::adjust_batch_size(
-            &mut config,
-            "test",
-            Duration::from_millis(250),
-            120,
-        );
+        MicrobatchWriter::adjust_batch_size(&mut config, "test", Duration::from_millis(250), 120);
         assert_eq!(config.max_batch_size, 100); // Floored at 100
     }
 }

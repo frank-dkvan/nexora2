@@ -261,7 +261,7 @@ impl CheckpointStore for FileCheckpointStore {
                                         epoch
                                     );
                                 }
-                                if highest_epoch.map_or(true, |h| epoch > h) {
+                                if highest_epoch.is_none_or(|h| epoch > h) {
                                     highest_epoch = Some(epoch);
                                     highest_manifest = Some(manifest);
                                 }

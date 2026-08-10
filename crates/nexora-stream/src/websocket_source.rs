@@ -103,69 +103,76 @@ impl IngestionSource for WebSocketSource {
         retry_with_backoff_config(retry_config, || async {
             // P1-2: Circuit breaker wrapper
             let connect_op = async {
-            let (ws_stream, _resp) = tokio_tungstenite::connect_async(&self.config.url)
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!("WS connect {}: {}", self.config.url, e)
-                })?;
+                let (ws_stream, _resp) =
+                    tokio_tungstenite::connect_async(&self.config.url)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("WS connect {}: {}", self.config.url, e))?;
 
-            let (tx, rx) = mpsc::channel::<IngestRecord>(self.config.buffer_capacity.max(1));
-            let id_field = self.config.id_field.clone();
-            let event_time_field = self.config.event_time_field.clone();
-            let event_time_unit = self.config.event_time_unit;
+                let (tx, rx) = mpsc::channel::<IngestRecord>(self.config.buffer_capacity.max(1));
+                let id_field = self.config.id_field.clone();
+                let event_time_field = self.config.event_time_field.clone();
+                let event_time_unit = self.config.event_time_unit;
 
-            // Background drainer: read frames, parse JSON → records, push into the
-            // bounded buffer (send awaits when full → backpressure). Exits when the
-            // receiver drops (closed) or the socket ends.
-            let drainer = tokio::spawn(async move {
-                let (_write, mut read) = ws_stream.split();
-                while let Some(msg) = read.next().await {
-                    let payload: Vec<u8> = match msg {
-                        Ok(Message::Text(t)) => t.into_bytes(),
-                        Ok(Message::Binary(b)) => b,
-                        Ok(Message::Close(_)) => break,
-                        Ok(_) => continue, // ping/pong/frame — ignore
-                        Err(e) => {
-                            tracing::warn!(error = %e, "WS read error");
-                            break;
-                        }
-                    };
-                    let records = match parse_frame(
-                        &payload,
-                        &id_field,
-                        event_time_field.as_deref(),
-                        event_time_unit,
-                    ) {
-                        Ok(recs) => recs,
-                        Err(e) => {
-                            tracing::warn!(error = %e, "WS: skip bad frame");
-                            continue;
-                        }
-                    };
-                    for rec in records {
-                        if tx.send(rec).await.is_err() {
-                            return; // receiver dropped — source closed
+                // Background drainer: read frames, parse JSON → records, push into the
+                // bounded buffer (send awaits when full → backpressure). Exits when the
+                // receiver drops (closed) or the socket ends.
+                let drainer = tokio::spawn(async move {
+                    let (_write, mut read) = ws_stream.split();
+                    while let Some(msg) = read.next().await {
+                        let payload: Vec<u8> = match msg {
+                            Ok(Message::Text(t)) => t.into_bytes(),
+                            Ok(Message::Binary(b)) => b,
+                            Ok(Message::Close(_)) => break,
+                            Ok(_) => continue, // ping/pong/frame — ignore
+                            Err(e) => {
+                                tracing::warn!(error = %e, "WS read error");
+                                break;
+                            }
+                        };
+                        let records = match parse_frame(
+                            &payload,
+                            &id_field,
+                            event_time_field.as_deref(),
+                            event_time_unit,
+                        ) {
+                            Ok(recs) => recs,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "WS: skip bad frame");
+                                continue;
+                            }
+                        };
+                        for rec in records {
+                            if tx.send(rec).await.is_err() {
+                                return; // receiver dropped — source closed
+                            }
                         }
                     }
-                }
-            });
+                });
 
-            *self.rx.lock().await = Some(rx);
-            *self.drainer.lock().await = Some(drainer);
-            Ok(())
-        };
+                *self.rx.lock().await = Some(rx);
+                *self.drainer.lock().await = Some(drainer);
+                Ok(())
+            };
 
-        self.breaker.call::<_, (), anyhow::Error>(connect_op).await.map_err(|e| match e {
-            crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
-                IngestionError::Connection(format!("Circuit breaker open: {}", s))
-            }
-            crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
-                IngestionError::Connection(format!("{}", e))
-            }
-        })
+            self.breaker
+                .call::<_, (), anyhow::Error>(connect_op)
+                .await
+                .map_err(|e| match e {
+                    crate::circuit_breaker::CircuitBreakerError::CircuitOpen(s) => {
+                        IngestionError::Connection(format!("Circuit breaker open: {}", s))
+                    }
+                    crate::circuit_breaker::CircuitBreakerError::OperationFailed(e) => {
+                        IngestionError::Connection(format!("{}", e))
+                    }
+                })
         })
         .await
-        .map_err(|e| IngestionError::Connection(format!("Failed to connect to WebSocket after retries: {}", e)))
+        .map_err(|e| {
+            IngestionError::Connection(format!(
+                "Failed to connect to WebSocket after retries: {}",
+                e
+            ))
+        })
     }
 
     async fn poll(&self) -> Result<Option<IngestBatch>, IngestionError> {
@@ -287,7 +294,13 @@ mod tests {
 
     #[test]
     fn parse_object_frame() {
-        let recs = parse_frame(br#"{"id":"n1","a":1,"b":2}"#, "id", None, crate::EventTimeUnit::default()).unwrap();
+        let recs = parse_frame(
+            br#"{"id":"n1","a":1,"b":2}"#,
+            "id",
+            None,
+            crate::EventTimeUnit::default(),
+        )
+        .unwrap();
         assert_eq!(recs.len(), 2);
         let qid = NexoraId::from_bytes(b"n1".to_vec());
         assert!(recs.iter().all(|r| r.qid == qid));
@@ -297,7 +310,13 @@ mod tests {
 
     #[test]
     fn parse_hex_id() {
-        let recs = parse_frame(br#"{"id":"666f6f","v":1}"#, "id", None, crate::EventTimeUnit::default()).unwrap();
+        let recs = parse_frame(
+            br#"{"id":"666f6f","v":1}"#,
+            "id",
+            None,
+            crate::EventTimeUnit::default(),
+        )
+        .unwrap();
         assert_eq!(recs[0].qid, NexoraId::from_bytes(b"foo".to_vec()));
     }
 

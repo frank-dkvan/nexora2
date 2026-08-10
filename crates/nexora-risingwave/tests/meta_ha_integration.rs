@@ -127,9 +127,11 @@ async fn test_meta_ha_three_node_setup() {
     // single-node mode (0 peers) auto-promotes to leader
     let leader_count = meta_nodes
         .iter()
-        .filter(|m| tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(m.is_leader())
-        }))
+        .filter(|m| {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(m.is_leader())
+            })
+        })
         .count();
 
     // Current behavior: Configuration specifies multi-node but actual Raft

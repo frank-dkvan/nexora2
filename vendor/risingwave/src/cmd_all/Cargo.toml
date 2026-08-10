@@ -38,6 +38,15 @@ all-connectors = [
     "risingwave_compute/all-sources",
     "risingwave_frontend/all-sources",
 ]
+# NEXORA PATCH: Minimal connector set needed for library-mode compilation.
+# Enables source-pulsar and sink-sqlserver so that code references to their
+# types (pulsar::Error in error.rs, SqlServer variants in cdc/external/mod.rs)
+# compile even without the full all-connectors set.  Both use rustls, not
+# native-tls, so they are safe on macOS (no CoreFoundation dependency).
+nexora-connectors = [
+    "risingwave_connector/source-pulsar",
+    "risingwave_connector/sink-sqlserver",
+]
 datafusion = ["risingwave_frontend/datafusion"]
 
 [dependencies]

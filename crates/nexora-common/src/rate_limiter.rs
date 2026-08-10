@@ -22,8 +22,8 @@ pub struct RateLimiterConfig {
 impl Default for RateLimiterConfig {
     fn default() -> Self {
         Self {
-            global_limit: 100_000,      // 100K req/s global
-            per_client_limit: 1_000,    // 1K req/s per client
+            global_limit: 100_000,                       // 100K req/s global
+            per_client_limit: 1_000,                     // 1K req/s per client
             refill_interval: Duration::from_millis(100), // Refill every 100ms
         }
     }
@@ -77,10 +77,8 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(config: RateLimiterConfig) -> Self {
-        let global_bucket = TokenBucket::new(
-            config.global_limit as f64,
-            config.global_limit as f64,
-        );
+        let global_bucket =
+            TokenBucket::new(config.global_limit as f64, config.global_limit as f64);
 
         Self {
             config,
@@ -204,7 +202,10 @@ mod tests {
         // 6th request should fail
         let result = limiter.check_rate_limit(client_ip).await;
         assert!(result.is_err());
-        assert!(matches!(result, Err(RateLimitError::ClientLimitExceeded(_))));
+        assert!(matches!(
+            result,
+            Err(RateLimitError::ClientLimitExceeded(_))
+        ));
     }
 
     #[tokio::test]

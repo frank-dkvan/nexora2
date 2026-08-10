@@ -1,17 +1,20 @@
 //! OpenTelemetry tracing setup for distributed tracing
 
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::trace::{Config, TracerProvider};
-use opentelemetry_sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::{Config, TracerProvider};
+use opentelemetry_sdk::Resource;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
 /// Initialize OpenTelemetry tracing with OTLP exporter
 pub fn init_tracing(service_name: &str, otlp_endpoint: Option<&str>) -> anyhow::Result<()> {
-    let resource = Resource::new(vec![KeyValue::new("service.name", service_name.to_string())]);
+    let resource = Resource::new(vec![KeyValue::new(
+        "service.name",
+        service_name.to_string(),
+    )]);
 
     let tracer_provider = if let Some(endpoint) = otlp_endpoint {
         // Export to OTLP collector (e.g., Jaeger, Tempo)
@@ -35,8 +38,7 @@ pub fn init_tracing(service_name: &str, otlp_endpoint: Option<&str>) -> anyhow::
 
     // Setup tracing subscriber with OpenTelemetry layer
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     Registry::default()
         .with(env_filter)

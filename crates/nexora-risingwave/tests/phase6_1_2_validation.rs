@@ -13,11 +13,11 @@ use std::sync::Arc;
 async fn test_event_log_sink_creation() {
     // Create temporary event store
     let event_store = Arc::new(
-        nexora_eventlog::EventLogStore::new_with_config(
-            nexora_eventlog::StorageConfig::local_fs("./test_data/phase6_sink_test")
-        )
+        nexora_eventlog::EventLogStore::new_with_config(nexora_eventlog::StorageConfig::local_fs(
+            "./test_data/phase6_sink_test",
+        ))
         .await
-        .expect("Failed to create event store")
+        .expect("Failed to create event store"),
     );
 
     // Create RisingWave module
@@ -28,7 +28,7 @@ async fn test_event_log_sink_creation() {
     let rw = Arc::new(
         EventStreamingModule::start(config)
             .await
-            .expect("Failed to start RisingWave")
+            .expect("Failed to start RisingWave"),
     );
 
     // Create EventLogSink
@@ -42,10 +42,19 @@ async fn test_event_log_sink_creation() {
 #[test]
 fn test_row_to_event_conversion() {
     let row = Row::new(vec![
-        ("cargo_id".to_string(), ColumnValue::String("CARGO-123".to_string())),
-        ("status".to_string(), ColumnValue::String("IN_TRANSIT".to_string())),
+        (
+            "cargo_id".to_string(),
+            ColumnValue::String("CARGO-123".to_string()),
+        ),
+        (
+            "status".to_string(),
+            ColumnValue::String("IN_TRANSIT".to_string()),
+        ),
         ("temperature".to_string(), ColumnValue::Float32(28.5)),
-        ("location".to_string(), ColumnValue::String("LAX".to_string())),
+        (
+            "location".to_string(),
+            ColumnValue::String("LAX".to_string()),
+        ),
         ("alert".to_string(), ColumnValue::Boolean(true)),
     ]);
 
@@ -103,11 +112,14 @@ async fn test_subscribe_mv_basic() {
     // Create a test MV (assumes RisingWave is running)
     rw.execute_ddl(
         "CREATE MATERIALIZED VIEW test_mv AS
-         SELECT 1 as id, 'test' as name"
-    ).await.expect("Failed to create MV");
+         SELECT 1 as id, 'test' as name",
+    )
+    .await
+    .expect("Failed to create MV");
 
     // Subscribe to MV
-    let mut rx = rw.subscribe_mv("test_mv")
+    let mut rx = rw
+        .subscribe_mv("test_mv")
         .await
         .expect("Failed to subscribe to MV");
 

@@ -8,9 +8,9 @@
 
 pub mod health;
 pub mod metrics;
-pub mod tracing;
 pub mod server;
+pub mod tracing;
 
-pub use health::{HealthChecker, HealthStatus, ComponentHealth};
+pub use health::{ComponentHealth, HealthChecker, HealthStatus};
 pub use metrics::MetricsRegistry;
 pub use server::ObservabilityServer;

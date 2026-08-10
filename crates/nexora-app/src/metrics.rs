@@ -103,6 +103,9 @@ impl Metrics {
 }
 
 /// Generate Prometheus text format metrics.
+// Retained for the legacy hand-rolled metrics path; the active endpoint uses
+// nexora-observability's registry. Not currently called.
+#[allow(dead_code)]
 pub fn render_metrics(metrics: &Metrics) -> String {
     let mut out = String::new();
     out.push_str(&format!(

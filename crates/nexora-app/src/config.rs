@@ -379,6 +379,18 @@ pub struct MetaNodeLibraryConfig {
     /// Peer Meta nodes for Raft cluster (format: "node_id@addr")
     #[serde(default)]
     pub peers: Vec<PeerNodeTomlConfig>,
+
+    /// Meta backend type: "memory", "sqlite", or "etcd" (default: "memory")
+    #[serde(default = "default_meta_backend")]
+    pub backend: String,
+
+    /// Etcd endpoints (required if backend = "etcd")
+    #[serde(default)]
+    pub etcd_endpoints: Option<Vec<String>>,
+
+    /// SQLite database path (optional if backend = "sqlite")
+    #[serde(default)]
+    pub sqlite_path: Option<String>,
 }
 
 #[cfg(all(feature = "event-streaming", feature = "library"))]
@@ -539,6 +551,10 @@ fn default_consensus_heartbeat_interval() -> u64 {
 #[cfg(all(feature = "event-streaming", feature = "library"))]
 fn default_consensus_election_timeout() -> u64 {
     5
+}
+#[cfg(all(feature = "event-streaming", feature = "library"))]
+fn default_meta_backend() -> String {
+    "memory".into()
 }
 
 impl Default for ServerConfig {

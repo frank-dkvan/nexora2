@@ -111,6 +111,9 @@ pub struct RaftConsensusClient {
     state: Arc<RwLock<RaftState>>,
     storage: Option<Arc<RaftStorage>>,
     network: Option<Arc<RaftNetwork>>,
+    // Retained for Phase 4 multi-node operation (reconfiguration, timeouts).
+    // Not yet read in the current single-node path.
+    #[allow(dead_code)]
     config: RaftConfig,
 }
 
@@ -122,9 +125,13 @@ struct RaftState {
     log: Vec<LogEntry>,
 }
 
+// Fields retained for Phase 4 multi-node log replication; not yet read in the
+// current single-node path.
 #[derive(Debug, Clone)]
 struct LogEntry {
+    #[allow(dead_code)]
     index: LogIndex,
+    #[allow(dead_code)]
     data: Bytes,
 }
 

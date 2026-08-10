@@ -3,24 +3,27 @@
 //! Integrates the token bucket rate limiter as Axum middleware to protect API endpoints.
 
 use axum::{
-    body::Body,
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use nexora_common::{RateLimitError, RateLimiter};
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 /// Axum middleware that enforces rate limiting per client IP
 pub async fn rate_limit_middleware(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(limiter): State<Arc<RateLimiter>>,
     request: Request,
     next: Next,
 ) -> Response {
-    let client_ip = addr.ip();
+    // Extract client IP from ConnectInfo, fallback to 0.0.0.0 if not available
+    let client_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip())
+        .unwrap_or_else(|| IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
 
     match limiter.check_rate_limit(client_ip).await {
         Ok(()) => next.run(request).await,
@@ -46,7 +49,7 @@ fn rate_limit_error_response(error: RateLimitError) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::get, Router};
+    use axum::{body::Body, routing::get, Router};
     use nexora_common::RateLimiterConfig;
     use std::time::Duration;
     use tower::ServiceExt;
@@ -65,22 +68,14 @@ mod tests {
 
         let limiter = Arc::new(RateLimiter::new(config));
 
-        let app = Router::new()
-            .route("/test", get(test_handler))
-            .layer(axum::middleware::from_fn_with_state(
-                limiter.clone(),
-                rate_limit_middleware,
-            ));
+        let app = Router::new().route("/test", get(test_handler)).layer(
+            axum::middleware::from_fn_with_state(limiter.clone(), rate_limit_middleware),
+        );
 
         // First request should succeed
         let response = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
             .await
             .unwrap();
 

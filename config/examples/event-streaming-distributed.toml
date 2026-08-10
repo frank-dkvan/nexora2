@@ -35,6 +35,19 @@ data_dir = "./nexora-data/node1/event-streaming"
 [event_streaming.distributed.meta]
 listen_addr = "127.0.0.1:5690"
 
+# Meta backend storage type: "memory", "sqlite", or "etcd"
+# - "memory": In-memory only, no persistence (default, good for testing)
+# - "sqlite": Local file-based persistence (single-node HA)
+# - "etcd": Distributed etcd cluster (multi-node HA)
+backend = "memory"
+
+# Etcd endpoints (required if backend = "etcd")
+# etcd_endpoints = ["127.0.0.1:2379", "127.0.0.1:2380"]
+
+# SQLite database path (optional if backend = "sqlite")
+# If not specified, defaults to: ./nexora-data/<node_id>/meta.db
+# sqlite_path = "./nexora-data/node1/meta.db"
+
 # Peer Meta nodes for Raft cluster
 [[event_streaming.distributed.meta.peers]]
 node_id = 2

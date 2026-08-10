@@ -366,7 +366,7 @@ impl RaftLogReplicator {
         // Wrap RPC with timeout to prevent indefinite blocking on network issues
         let result = tokio::time::timeout(
             self.config.rpc_timeout,
-            target.append_entries(entries.clone(), commit_index)
+            target.append_entries(entries.clone(), commit_index),
         )
         .await
         .map_err(|_| ReplicationError::Timeout)?;

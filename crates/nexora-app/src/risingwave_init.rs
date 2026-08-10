@@ -45,7 +45,10 @@ fn parse_event_streaming_mode(
             if let Some(cfg) = config {
                 Ok(cfg.mode)
             } else {
-                anyhow::bail!("Invalid event streaming mode: '{}'. Expected 'single' or 'distributed'", other)
+                anyhow::bail!(
+                    "Invalid event streaming mode: '{}'. Expected 'single' or 'distributed'",
+                    other
+                )
             }
         }
     }
@@ -95,185 +98,20 @@ async fn init_single_node(
     Ok(Some(Arc::new(module)))
 }
 
-/// Initialize distributed RisingWave Meta with Raft HA
-#[cfg(feature = "library")]
-async fn init_distributed_node(
-    cli: &crate::Cli,
-    config: Option<&crate::config::EventStreamingConfig>,
-) -> Result<Option<Arc<nexora_risingwave::EventStreamingModule>>> {
-    tracing::info!("Starting Event Streaming in distributed mode with Raft HA");
-
-    let dist_config = config
-        .and_then(|c| c.distributed.as_ref())
-        .context("Distributed configuration required for distributed mode")?;
-
-    if !dist_config.enabled {
-        anyhow::bail!("Distributed mode enabled but distributed.enabled=false in config");
-    }
-
-    // Create Raft consensus client
-    let raft_config = nexora_consensus::RaftConfig::new(
-        dist_config.raft_node_id,
-        dist_config.meta.listen_addr.parse()?,
-    )
-    .mode(nexora_consensus::RaftMode::MultiNode)
-    .data_dir(PathBuf::from(
-        dist_config
-            .consensus
-            .as_ref()
-            .map(|c| c.data_dir.as_str())
-            .unwrap_or("./nexora-data/raft"),
-    ));
-
-    // Add peers
-    let raft_config = dist_config
-        .meta
-        .peers
-        .iter()
-        .fold(raft_config, |cfg, peer| {
-            cfg.add_peer(peer.node_id, peer.addr.parse().unwrap())
-        });
-
-    // Set heartbeat and election timeout
-    let raft_config = if let Some(consensus) = &dist_config.consensus {
-        raft_config
-            .heartbeat_interval(consensus.heartbeat_interval_secs * 1000)
-            .election_timeout(
-                consensus.election_timeout_secs * 1000,
-                consensus.election_timeout_secs * 2000,
-            )
-    } else {
-        raft_config
-    };
-
-    tracing::info!(
-        "Initializing Raft consensus (node_id={}, peers={})",
-        dist_config.raft_node_id,
-        dist_config.meta.peers.len()
-    );
-
-    let consensus = nexora_consensus::RaftConsensusClient::new(raft_config)
-        .await
-        .context("Failed to create Raft consensus client")?;
-
-    // Create Raft election client
-    let election_config = extensions_meta_raft::RaftElectionConfig {
-        node_id: dist_config.node_id.clone(),
-        raft_node_id: dist_config.raft_node_id,
-        peer_node_ids: dist_config.meta.peers.iter().map(|p| p.node_id).collect(),
-        heartbeat_interval_secs: dist_config
-            .consensus
-            .as_ref()
-            .map(|c| c.heartbeat_interval_secs)
-            .unwrap_or(1),
-        election_timeout_secs: dist_config
-            .consensus
-            .as_ref()
-            .map(|c| c.election_timeout_secs)
-            .unwrap_or(5),
-    };
-
-    let election_client = extensions_meta_raft::RaftElectionClient::new(election_config)
-        .await
-        .context("Failed to create Raft election client")?;
-
-    // Create election adapter
-    let election_adapter = Arc::new(RaftElectionAdapter::new(election_client));
-
-    // Create Meta node with HA
-    let meta_addr: SocketAddr = dist_config
-        .meta
-        .listen_addr
-        .parse()
-        .context("Invalid Meta listen address")?;
-
-    let meta_node =
-        nexora_risingwave::meta_wrapper::MetaNode::with_election(meta_addr, election_adapter);
-
-    // Start Meta node
-    meta_node
-        .start()
-        .await
-        .context("Failed to start Meta node")?;
-
-    tracing::info!(
-        "Meta node started (node_id={}, addr={}, leader={})",
-        dist_config.node_id,
-        dist_config.meta.listen_addr,
-        meta_node.is_leader().await
-    );
-
-    // Create EventStreamingModule with HA-enabled Meta
-    let frontend_addr: SocketAddr = cli
-        .event_streaming_frontend_addr
-        .as_ref()
-        .or_else(|| config.map(|c| &c.frontend_addr))
-        .context("Frontend address required")?
-        .parse()
-        .context("Invalid frontend address")?;
-
-    let rw_config = nexora_risingwave::EventStreamingConfig::new()
-        .with_meta_addr(meta_addr)
-        .with_frontend_addr(frontend_addr);
-
-    let module = nexora_risingwave::EventStreamingModule::start_with_meta(rw_config, meta_node)
-        .await
-        .context("Failed to start Event Streaming with HA Meta")?;
-
-    tracing::info!(
-        "Event Streaming started (distributed HA, {} Meta nodes)",
-        dist_config.meta.peers.len() + 1
-    );
-
-    Ok(Some(Arc::new(module)))
-}
-
-/// Fallback for non-library builds
-#[cfg(not(feature = "library"))]
+/// Distributed multi-node HA event-streaming init.
+///
+/// NOTE: This dead-code path is superseded by the runtime cluster bootstrap in
+/// `main.rs` (`nexora_risingwave::start_distributed_library_cluster`). The old
+/// HA bridge here referenced RisingWave/consensus APIs that no longer exist
+/// (`EventStreamingModule::start_with_meta`, `nexora_consensus::RaftMode`,
+/// `nexora_consensus::RaftElectionClient`). It is stubbed to keep the build
+/// green; single-node embedded mode (`init_single_node`) is fully functional.
 async fn init_distributed_node(
     _cli: &crate::Cli,
     _config: Option<&crate::config::EventStreamingConfig>,
 ) -> Result<Option<Arc<nexora_risingwave::EventStreamingModule>>> {
-    anyhow::bail!("Distributed mode requires --features library")
-}
-
-/// Adapter to implement ElectionClientTrait for RaftElectionClient
-#[cfg(feature = "library")]
-struct RaftElectionAdapter {
-    inner: nexora_consensus::RaftElectionClient,
-}
-
-#[cfg(feature = "library")]
-impl RaftElectionAdapter {
-    fn new(client: nexora_consensus::RaftElectionClient) -> Self {
-        Self { inner: client }
-    }
-}
-
-#[cfg(feature = "library")]
-#[async_trait::async_trait]
-impl nexora_risingwave::meta_wrapper::ElectionClientTrait for RaftElectionAdapter {
-    async fn init(&self) -> nexora_risingwave::Result<()> {
-        self.inner
-            .init()
-            .await
-            .map_err(|e| nexora_risingwave::EventStreamingError::MetaStartFailed(e.to_string()))
-    }
-
-    fn is_leader(&self) -> bool {
-        self.inner.is_leader()
-    }
-
-    fn id(&self) -> nexora_risingwave::Result<String> {
-        self.inner
-            .id()
-            .map_err(|e| nexora_risingwave::EventStreamingError::MetaStartFailed(e.to_string()))
-    }
-
-    async fn shutdown(&self) -> nexora_risingwave::Result<()> {
-        self.inner
-            .shutdown()
-            .await
-            .map_err(|e| nexora_risingwave::EventStreamingError::MetaStartFailed(e.to_string()))
-    }
+    anyhow::bail!(
+        "Distributed HA mode is not available via this entry point; \
+         configure [event_streaming.distributed] which is bootstrapped in main.rs"
+    )
 }
